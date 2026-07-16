@@ -6,6 +6,7 @@ const {
 } = require("@whiskeysockets/baileys");
 const P = require("pino");
 const qrcode = require("qrcode-terminal");
+const QRImage = require("qrcode");
 const path = require("path");
 const { keywordRules } = require("./keywords");
 
@@ -15,6 +16,7 @@ const SESSION_PATH = path.join(__dirname, "session");
 const botState = {
   connected: false,
   qr: null,
+  qrImage: null,
   lastActivity: null,
 };
 
@@ -30,13 +32,18 @@ async function startBot() {
 
   sock.ev.on("creds.update", saveCreds);
 
-  sock.ev.on("connection.update", (update) => {
+  sock.ev.on("connection.update", async (update) => {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
       botState.qr = qr;
       console.log("\nEscanea este código QR con WhatsApp (Dispositivos vinculados):\n");
       qrcode.generate(qr, { small: true });
+      try {
+        botState.qrImage = await QRImage.toDataURL(qr);
+      } catch (err) {
+        console.error("No se pudo generar la imagen del QR:", err);
+      }
     }
 
     if (connection === "close") {
@@ -48,6 +55,7 @@ async function startBot() {
     } else if (connection === "open") {
       botState.connected = true;
       botState.qr = null;
+      botState.qrImage = null;
       console.log("Bot conectado a WhatsApp correctamente.");
     }
   });
