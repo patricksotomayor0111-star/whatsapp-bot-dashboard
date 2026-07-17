@@ -11,7 +11,8 @@ const fs = require("fs");
 const { positiveKeywords, excludedKeywords, defaultResponse } = require("./keywords");
 const { excludedNumbers } = require("./excludedNumbers");
 const dynamicKeywords = require("./dynamicKeywords");
-const { sectorSeedByName, specialSeedByName } = require("./groupSeed");
+const numberExceptions = require("./numberExceptions");
+const { sectorSeedByName, specialSeedByName, numberExceptionSeed } = require("./groupSeed");
 const {
   getGroupSector,
   isSectorActive,
@@ -56,8 +57,17 @@ function buildMatchers(keywordList) {
 // Se reconstruyen en cada mensaje (no en el arranque) porque las keywords
 // globales/excluidas/especiales se pueden agregar o quitar desde el panel
 // en cualquier momento.
-function getPositiveMatchers() {
-  return buildMatchers([...positiveKeywords, ...dynamicKeywords.getExtraPositive()]);
+//
+// Las keywords base (keywords.js) respetan las exclusiones como siempre.
+// Las que se agregan desde el panel ("Keywords globales") NO se fijan en
+// las exclusiones, igual que las especiales por grupo — pero sí siguen
+// respetando que el sector/grupo estén activos.
+function getBasePositiveMatchers() {
+  return buildMatchers(positiveKeywords);
+}
+
+function getExtraPositiveMatchers() {
+  return buildMatchers(dynamicKeywords.getExtraPositive());
 }
 
 function getExcludedMatchers() {
@@ -82,20 +92,38 @@ function getSignificantWords(phrase) {
     .filter((w) => w.length >= 2 && !STOP_WORDS.has(w));
 }
 
-// Las keywords especiales por grupo no buscan la frase completa: alcanza con
-// que TODAS sus palabras importantes aparezcan en el mensaje (en cualquier
-// orden, con lo que sea en el medio). Así "hola que hace una compra" también
-// detecta "hola quiero una compra en metro" (tiene "hola" y "compra").
+// Búsqueda flexible por palabras: alcanza con que TODAS las palabras
+// importantes de la frase aparezcan en el mensaje (en cualquier orden, con
+// lo que sea en el medio). Así "hola que hace una compra" también detecta
+// "hola quiero una compra en metro" (tiene "hola" y "compra").
+function matchPorPalabras(text, frase) {
+  const palabras = getSignificantWords(frase);
+  if (palabras.length === 0) return null;
+  const resultados = palabras.map((w) => buildKeywordRegex(w).exec(text));
+  if (!resultados.every(Boolean)) return null;
+  const primero = resultados[0];
+  return { keyword: frase, index: primero.index, length: primero[0].length };
+}
+
+// Las keywords especiales de un grupo ganan siempre, sin importar exclusiones
+// ni si el sector/grupo está apagado.
 function buscarKeywordEspecial(text, chatId) {
-  const frases = dynamicKeywords.getSpecialForGroup(chatId);
-  for (const frase of frases) {
-    const palabras = getSignificantWords(frase);
-    if (palabras.length === 0) continue;
-    const resultados = palabras.map((w) => buildKeywordRegex(w).exec(text));
-    if (resultados.every(Boolean)) {
-      const primero = resultados[0];
-      return { keyword: frase, index: primero.index, length: primero[0].length };
-    }
+  for (const frase of dynamicKeywords.getSpecialForGroup(chatId)) {
+    const m = matchPorPalabras(text, frase);
+    if (m) return m;
+  }
+  return null;
+}
+
+// Un número que está en la lista global de excluidos puede tener frases de
+// excepción para UN grupo puntual: si las escribe ahí, sí responde (pero
+// sigue bloqueado en cualquier otro grupo). A diferencia de las especiales,
+// esto SÍ respeta que el sector/grupo estén activos.
+function buscarExcepcionNumero(text, chatId, senderNumber) {
+  const excepciones = numberExceptions.getExceptions(chatId, senderNumber).filter((e) => e.active);
+  for (const { phrase } of excepciones) {
+    const m = matchPorPalabras(text, phrase);
+    if (m) return m;
   }
   return null;
 }
@@ -167,6 +195,15 @@ function applyGroupSeed() {
     const frases = specialSeedByName[g.name];
     if (frases && !dynamicKeywords.hasSpecialForGroup(g.id)) {
       frases.forEach((frase) => dynamicKeywords.addSpecialForGroup(g.id, frase));
+    }
+
+    const excepcionesPorNumero = numberExceptionSeed[g.name];
+    if (excepcionesPorNumero) {
+      Object.entries(excepcionesPorNumero).forEach(([numero, frasesExcepcion]) => {
+        if (!numberExceptions.hasExceptions(g.id, numero)) {
+          frasesExcepcion.forEach((frase) => numberExceptions.addException(g.id, numero, frase));
+        }
+      });
     }
   });
 }
@@ -244,12 +281,10 @@ async function startBot() {
       const chatId = msg.key.remoteJid;
       const grupoActual = botState.groups.find((g) => g.id === chatId);
 
-      // Ignora por completo a los números excluidos, sin importar qué escriban.
       const senderJid = msg.key.participant || msg.key.remoteJid || "";
       const senderNumber = canonicalNumber(senderJid.replace(/@.*/, ""));
-      const bloqueado = excludedNumbersSet.has(senderNumber);
-      logSender(chatId, grupoActual?.name || chatId, senderJid, senderNumber, bloqueado);
-      if (bloqueado) continue;
+      const bloqueadoGlobal = excludedNumbersSet.has(senderNumber);
+      logSender(chatId, grupoActual?.name || chatId, senderJid, senderNumber, bloqueadoGlobal);
 
       const rawText = extractText(msg).trim();
       const text = normalizeText(rawText);
@@ -265,14 +300,27 @@ async function startBot() {
         return null;
       };
 
-      // Las keywords especiales de ESTE grupo ganan siempre, sin importar
-      // las exclusiones globales (búsqueda flexible por palabras, no frase exacta).
+      // Las keywords especiales de ESTE grupo ganan siempre: se saltan
+      // exclusiones, números bloqueados y hasta el sector/grupo apagado.
       let match = buscarKeywordEspecial(text, chatId);
+      const esEspecial = Boolean(match);
 
-      if (!match) {
-        const tieneExclusion = getExcludedMatchers().some(({ regex }) => regex.test(text));
-        if (tieneExclusion) continue;
-        match = buscarMatch(getPositiveMatchers());
+      if (!match && bloqueadoGlobal) {
+        // Número bloqueado globalmente: solo puede responder si hay una
+        // excepción activa para este número+grupo+frase. Si no, sigue
+        // bloqueado sin más vueltas (no revisa keywords normales).
+        match = buscarExcepcionNumero(text, chatId, senderNumber);
+        if (!match) continue;
+      } else if (!match) {
+        // Número normal: las keywords globales agregadas desde el panel
+        // no respetan las exclusiones (pero si las que ya venían en keywords.js).
+        match = buscarMatch(getExtraPositiveMatchers());
+        if (!match) {
+          const tieneExclusion = getExcludedMatchers().some(({ regex }) => regex.test(text));
+          if (!tieneExclusion) {
+            match = buscarMatch(getBasePositiveMatchers());
+          }
+        }
       }
 
       if (!match) continue;
@@ -282,11 +330,13 @@ async function startBot() {
       const enModoEnfoque = focusedGroups.length > 0;
 
       if (enModoEnfoque) {
-        // En modo enfoque SOLO responden los grupos marcados, pase lo que
-        // pase con su sector o su estado individual.
+        // El modo enfoque manda por encima de todo, incluso de las especiales:
+        // SOLO responden los grupos marcados.
         if (!focusedGroups.includes(chatId)) continue;
-      } else {
-        // Fuera de modo enfoque: hace falta que el sector Y el grupo estén activos.
+      } else if (!esEspecial) {
+        // Fuera de modo enfoque: las especiales se saltan este check, pero
+        // el resto (excepciones por número, keywords normales) necesitan
+        // que el sector Y el grupo estén activos.
         if (!isSectorActive(sectorId)) continue;
         if (!isGroupActive(chatId)) continue;
       }

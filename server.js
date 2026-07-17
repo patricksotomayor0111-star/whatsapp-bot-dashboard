@@ -3,6 +3,7 @@ const path = require("path");
 const { startBot, botState, logoutBot } = require("./bot");
 const sectors = require("./sectors");
 const dynamicKeywords = require("./dynamicKeywords");
+const numberExceptions = require("./numberExceptions");
 
 const app = express();
 app.use(express.json());
@@ -179,6 +180,35 @@ app.post("/api/keywords/special/:groupId", (req, res) => {
 app.post("/api/keywords/special/:groupId/remove", (req, res) => {
   dynamicKeywords.removeSpecialForGroup(req.params.groupId, req.body.phrase);
   res.json({ ok: true, special: dynamicKeywords.getSpecialForGroup(req.params.groupId) });
+});
+
+// Excepciones número+grupo+frase: un número excluido globalmente puede
+// responder en UN grupo puntual si escribe una de estas frases.
+app.get("/api/exceptions", (req, res) => {
+  res.json({ exceptions: numberExceptions.getAllExceptions() });
+});
+
+app.get("/api/exceptions/:groupId/:number", (req, res) => {
+  res.json({ list: numberExceptions.getExceptions(req.params.groupId, req.params.number) });
+});
+
+app.post("/api/exceptions/:groupId/:number", (req, res) => {
+  try {
+    numberExceptions.addException(req.params.groupId, req.params.number, req.body.phrase);
+    res.json({ ok: true, list: numberExceptions.getExceptions(req.params.groupId, req.params.number) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/exceptions/:groupId/:number/remove", (req, res) => {
+  numberExceptions.removeException(req.params.groupId, req.params.number, req.body.phrase);
+  res.json({ ok: true, list: numberExceptions.getExceptions(req.params.groupId, req.params.number) });
+});
+
+app.post("/api/exceptions/:groupId/:number/toggle", (req, res) => {
+  numberExceptions.setExceptionActive(req.params.groupId, req.params.number, req.body.phrase, req.body.active);
+  res.json({ ok: true, list: numberExceptions.getExceptions(req.params.groupId, req.params.number) });
 });
 
 const PORT = process.env.PORT || 3000;

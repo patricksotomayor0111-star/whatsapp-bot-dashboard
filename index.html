@@ -168,6 +168,25 @@
           </div>
         </section>
 
+        <!-- Excepciones número + grupo -->
+        <section>
+          <p class="eyebrow text-rose-600"><i class="fa-solid fa-user-shield"></i> EXCEPCIONES POR NÚMERO</p>
+          <p class="text-xs text-slate-400 mt-1 mb-2">
+            Un número bloqueado globalmente (en excludedNumbers.js) puede responder igual, pero SOLO en el grupo
+            elegido arriba y SOLO con estas frases. Cada una se puede prender/apagar.
+          </p>
+          <input id="exceptionNumberInput" type="text" placeholder="Número (ej: +51 910 795 590)"
+            class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-rose-400/40 mb-2" />
+          <div id="exceptionKeywordList" class="space-y-1.5"></div>
+          <div class="flex gap-2 mt-2">
+            <input id="exceptionKeywordInput" type="text" placeholder="Frase de excepción..."
+              class="flex-1 min-w-0 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-rose-400/40" />
+            <button id="addExceptionKeywordBtn" class="w-10 h-10 shrink-0 rounded-xl bg-rose-600 text-white flex items-center justify-center active:scale-90 transition-all">
+              <i class="fa-solid fa-plus"></i>
+            </button>
+          </div>
+        </section>
+
       </div>
     </div>
 

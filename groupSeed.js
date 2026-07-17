@@ -107,4 +107,22 @@ const specialSeedByName = {
   "BOCHITOS BOX DELIVERY": ["buenas tardes podrian enviarme un delivery porfa?"],
 };
 
-module.exports = { sectorSeedByName, specialSeedByName };
+// Excepciones número+grupo+frase: estos números están en excludedNumbers.js
+// (bloqueados en todos lados), pero en ESTE grupo puntual sí pueden activar
+// al bot si escriben una de estas frases. En cualquier otro grupo siguen
+// bloqueados igual que siempre.
+const FRASES_EXCEPCION_CLIENTE = [
+  "Pendiente\nRecojo de cliente",
+  "Pendiente\nCompra de cliente",
+];
+
+const numberExceptionSeed = {
+  "CARTAS RESTAURANTES": {
+    "910795590": FRASES_EXCEPCION_CLIENTE,
+  },
+  "REPORTES BOX DELIVERY": {
+    "960186738": FRASES_EXCEPCION_CLIENTE,
+  },
+};
+
+module.exports = { sectorSeedByName, specialSeedByName, numberExceptionSeed };

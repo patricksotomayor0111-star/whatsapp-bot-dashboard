@@ -2,5 +2,6 @@ node_modules/
 session/
 sectors-data.json
 dynamic-keywords-data.json
+number-exceptions-data.json
 .env
 *.log

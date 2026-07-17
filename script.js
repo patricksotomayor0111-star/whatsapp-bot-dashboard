@@ -56,6 +56,11 @@ const specialKeywordList = document.getElementById("specialKeywordList");
 const specialKeywordInput = document.getElementById("specialKeywordInput");
 const addSpecialKeywordBtn = document.getElementById("addSpecialKeywordBtn");
 
+const exceptionNumberInput = document.getElementById("exceptionNumberInput");
+const exceptionKeywordList = document.getElementById("exceptionKeywordList");
+const exceptionKeywordInput = document.getElementById("exceptionKeywordInput");
+const addExceptionKeywordBtn = document.getElementById("addExceptionKeywordBtn");
+
 let groupsData = [];
 let focusedGroups = [];
 let sectorDefs = [];
@@ -615,8 +620,7 @@ function renderPositiveKeywords() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ phrase }),
     });
-    keywordsData.positive = keywordsData.positive.filter((p) => p !== phrase);
-    renderPositiveKeywords();
+    await fetchKeywords();
   });
 }
 
@@ -627,8 +631,7 @@ function renderExcludedKeywords() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ phrase }),
     });
-    keywordsData.excluded = keywordsData.excluded.filter((p) => p !== phrase);
-    renderExcludedKeywords();
+    await fetchKeywords();
   });
 }
 
@@ -641,8 +644,7 @@ function renderSpecialKeywords() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ phrase }),
     });
-    keywordsData.specialByGroup[groupId] = (keywordsData.specialByGroup[groupId] || []).filter((p) => p !== phrase);
-    renderSpecialKeywords();
+    await fetchKeywords();
   });
 }
 
@@ -675,15 +677,13 @@ addPositiveKeywordBtn.addEventListener("click", async () => {
   const phrase = positiveKeywordInput.value.trim();
   if (!phrase) return;
   try {
-    const res = await fetch("/api/keywords/positive", {
+    await fetch("/api/keywords/positive", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ phrase }),
     });
-    const data = await res.json();
-    keywordsData.positive = data.positive;
     positiveKeywordInput.value = "";
-    renderPositiveKeywords();
+    await fetchKeywords();
   } catch (err) {
     console.error("No se pudo agregar la keyword:", err);
   }
@@ -693,21 +693,22 @@ addExcludedKeywordBtn.addEventListener("click", async () => {
   const phrase = excludedKeywordInput.value.trim();
   if (!phrase) return;
   try {
-    const res = await fetch("/api/keywords/excluded", {
+    await fetch("/api/keywords/excluded", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ phrase }),
     });
-    const data = await res.json();
-    keywordsData.excluded = data.excluded;
     excludedKeywordInput.value = "";
-    renderExcludedKeywords();
+    await fetchKeywords();
   } catch (err) {
     console.error("No se pudo agregar la keyword excluida:", err);
   }
 });
 
-specialGroupSelect.addEventListener("change", renderSpecialKeywords);
+specialGroupSelect.addEventListener("change", () => {
+  renderSpecialKeywords();
+  renderExceptionsForSelection();
+});
 
 addSpecialKeywordBtn.addEventListener("click", async () => {
   const groupId = specialGroupSelect.value;
@@ -718,17 +719,120 @@ addSpecialKeywordBtn.addEventListener("click", async () => {
   }
   if (!phrase) return;
   try {
-    const res = await fetch(`/api/keywords/special/${encodeURIComponent(groupId)}`, {
+    await fetch(`/api/keywords/special/${encodeURIComponent(groupId)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ phrase }),
     });
-    const data = await res.json();
-    keywordsData.specialByGroup[groupId] = data.special;
     specialKeywordInput.value = "";
-    renderSpecialKeywords();
+    await fetchKeywords();
   } catch (err) {
     console.error("No se pudo agregar la keyword especial:", err);
+  }
+});
+
+// ---------- Excepciones por número ----------
+async function fetchExceptionsForSelection() {
+  const groupId = specialGroupSelect.value;
+  const number = exceptionNumberInput.value.trim();
+  if (!groupId || !number) {
+    exceptionKeywordList.innerHTML = "";
+    return;
+  }
+  try {
+    const res = await fetch(`/api/exceptions/${encodeURIComponent(groupId)}/${encodeURIComponent(number)}`);
+    const data = await res.json();
+    renderExceptions(data.list || []);
+  } catch (err) {
+    console.error("No se pudo obtener las excepciones:", err);
+  }
+}
+
+function renderExceptionsForSelection() {
+  fetchExceptionsForSelection();
+}
+
+function renderExceptions(list) {
+  exceptionKeywordList.innerHTML = "";
+  const groupId = specialGroupSelect.value;
+  const number = exceptionNumberInput.value.trim();
+
+  if (list.length === 0) {
+    const p = document.createElement("p");
+    p.className = "text-xs text-slate-400";
+    p.textContent = "Sin excepciones para este número en este grupo.";
+    exceptionKeywordList.appendChild(p);
+    return;
+  }
+
+  list.forEach(({ phrase, active }) => {
+    const row = document.createElement("div");
+    row.className = "flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm bg-rose-50 text-rose-700";
+
+    const label = document.createElement("span");
+    label.className = "truncate flex-1 whitespace-pre-line";
+    label.textContent = phrase;
+
+    const toggleBtn = document.createElement("button");
+    toggleBtn.textContent = active ? "ON" : "OFF";
+    toggleBtn.className = `shrink-0 text-[10px] font-bold px-2 py-1 rounded-full ${
+      active ? "bg-brand-green text-white" : "bg-slate-300 text-slate-600"
+    }`;
+    toggleBtn.addEventListener("click", async () => {
+      await fetch(`/api/exceptions/${encodeURIComponent(groupId)}/${encodeURIComponent(number)}/toggle`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phrase, active: !active }),
+      });
+      fetchExceptionsForSelection();
+    });
+
+    const removeBtn = document.createElement("button");
+    removeBtn.innerHTML = '<i class="fa-solid fa-xmark text-xs"></i>';
+    removeBtn.className = "shrink-0 opacity-60 hover:opacity-100";
+    removeBtn.addEventListener("click", async () => {
+      await fetch(`/api/exceptions/${encodeURIComponent(groupId)}/${encodeURIComponent(number)}/remove`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phrase }),
+      });
+      fetchExceptionsForSelection();
+    });
+
+    row.appendChild(label);
+    row.appendChild(toggleBtn);
+    row.appendChild(removeBtn);
+    exceptionKeywordList.appendChild(row);
+  });
+}
+
+exceptionNumberInput.addEventListener("input", () => {
+  fetchExceptionsForSelection();
+});
+
+addExceptionKeywordBtn.addEventListener("click", async () => {
+  const groupId = specialGroupSelect.value;
+  const number = exceptionNumberInput.value.trim();
+  const phrase = exceptionKeywordInput.value.trim();
+  if (!groupId) {
+    alert("Primero elige un grupo.");
+    return;
+  }
+  if (!number) {
+    alert("Escribe el número.");
+    return;
+  }
+  if (!phrase) return;
+  try {
+    await fetch(`/api/exceptions/${encodeURIComponent(groupId)}/${encodeURIComponent(number)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phrase }),
+    });
+    exceptionKeywordInput.value = "";
+    fetchExceptionsForSelection();
+  } catch (err) {
+    console.error("No se pudo agregar la excepción:", err);
   }
 });
 
@@ -737,6 +841,8 @@ keywordsLink.addEventListener("click", (e) => {
   closeDrawerFn();
   keywordsOverlay.classList.remove("hidden");
   keywordsOverlay.classList.add("flex");
+  exceptionNumberInput.value = "";
+  exceptionKeywordList.innerHTML = "";
   fetchKeywords();
 });
 
