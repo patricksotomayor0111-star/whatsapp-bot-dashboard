@@ -33,6 +33,7 @@ function loadData() {
       timeWindowMinutes:
         parsed.timeWindowMinutes !== undefined ? parsed.timeWindowMinutes : DEFAULT_TIME_WINDOW_MINUTES,
       groupNoRemarcar: parsed.groupNoRemarcar || {},
+      otrosInactivoPorDefectoMigrado: Boolean(parsed.otrosInactivoPorDefectoMigrado),
     };
   } catch (err) {
     return {
@@ -43,6 +44,7 @@ function loadData() {
       responseDelayMs: DEFAULT_DELAY_MS,
       timeWindowMinutes: DEFAULT_TIME_WINDOW_MINUTES,
       groupNoRemarcar: {},
+      otrosInactivoPorDefectoMigrado: false,
     };
   }
 }
@@ -78,9 +80,13 @@ function esSectorSinRemarcar(sectorId) {
   return sectorId === SECTOR_SIN_REMARCAR;
 }
 
-// Un sector está ON salvo que se haya apagado explícitamente.
+// Un sector está ON salvo que se haya apagado explícitamente — EXCEPTO
+// "Otros", que arranca APAGADO salvo que se haya prendido explícitamente.
 function isSectorActive(sectorId) {
-  return data.sectorActive[sectorId] !== false;
+  if (Object.prototype.hasOwnProperty.call(data.sectorActive, sectorId)) {
+    return data.sectorActive[sectorId] !== false;
+  }
+  return sectorId !== DEFAULT_SECTOR;
 }
 
 function setSectorActive(sectorId, active) {
@@ -97,9 +103,14 @@ function getSectorActiveMap() {
   return map;
 }
 
-// Un grupo está Activo salvo que se haya apagado explícitamente.
+// Un grupo está Activo salvo que se haya apagado explícitamente — EXCEPTO
+// los del sector "Otros", que arrancan APAGADOS salvo que se hayan
+// prendido explícitamente (aunque el sector "Otros" en sí esté prendido).
 function isGroupActive(groupId) {
-  return data.groupActive[groupId] !== false;
+  if (Object.prototype.hasOwnProperty.call(data.groupActive, groupId)) {
+    return data.groupActive[groupId] !== false;
+  }
+  return getGroupSector(groupId) !== DEFAULT_SECTOR;
 }
 
 function setGroupActive(groupId, active) {
@@ -165,6 +176,29 @@ function setTimeWindowMinutes(minutes) {
   data.timeWindowMinutes = value;
   save();
 }
+
+// Migración única: antes de este cambio, "Otros" y sus grupos arrancaban
+// Activos por defecto. Si quedó guardado un "true" explícito de esa época
+// (no un "true" que vos pusiste a propósito después de este cambio), lo
+// borramos una sola vez para que caigan en el nuevo default (apagado).
+// Corre una sola vez por instalación, gracias a la bandera guardada.
+function migrarOtrosInactivoPorDefecto() {
+  if (data.otrosInactivoPorDefectoMigrado) return;
+
+  if (data.sectorActive[DEFAULT_SECTOR] === true) {
+    delete data.sectorActive[DEFAULT_SECTOR];
+  }
+  Object.keys(data.groupActive).forEach((groupId) => {
+    if (data.groupActive[groupId] === true && getGroupSector(groupId) === DEFAULT_SECTOR) {
+      delete data.groupActive[groupId];
+    }
+  });
+
+  data.otrosInactivoPorDefectoMigrado = true;
+  save();
+}
+
+migrarOtrosInactivoPorDefecto();
 
 module.exports = {
   SECTOR_DEFS,

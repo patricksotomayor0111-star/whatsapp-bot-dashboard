@@ -141,11 +141,13 @@ function renderSectors(filtro = "") {
       const rowEl = groupNode.querySelector(".group-row");
       const nameSpan = groupNode.querySelector(".group-name");
       const groupLockIcon = groupNode.querySelector(".group-lock-icon");
+      const noRemarcarIcon = groupNode.querySelector(".group-noremarcar-icon");
       const activeBadge = groupNode.querySelector(".group-active-badge");
       const focusBtn = groupNode.querySelector(".focus-btn");
 
       nameSpan.textContent = grupo.name;
       if (groupsWithExceptions.has(grupo.id)) groupLockIcon.classList.remove("hidden");
+      if (grupo.noRemarcar) noRemarcarIcon.classList.remove("hidden");
 
       const estaEnfocado = focusedGroups.includes(grupo.id);
       if (estaEnfocado) {
@@ -1061,6 +1063,7 @@ toggleNoRemarcarBtn.addEventListener("click", async () => {
     });
     if (grupo) grupo.noRemarcar = nuevoEstado;
     updateToggleNoRemarcarBtn();
+    renderSectors(searchInput.value);
   } catch (err) {
     console.error("No se pudo cambiar 'sin remarcar' del grupo:", err);
   }
