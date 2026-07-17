@@ -12,12 +12,22 @@ const { positiveKeywords, excludedKeywords, defaultResponse } = require("./keywo
 
 const SESSION_PATH = path.join(__dirname, "session");
 
+// Quita tildes/acentos ("móvil" -> "movil", "envía" -> "envia") para que dé
+// igual si el mensaje o la palabra clave los llevan o no.
+const COMBINING_MARKS = new RegExp("[̀-ͯ]", "g");
+function normalizeText(str) {
+  return str
+    .normalize("NFD")
+    .replace(COMBINING_MARKS, "")
+    .toLowerCase();
+}
+
 // Convierte cada palabra clave en una expresión regular que solo coincide
 // al INICIO de una palabra (no si está enterrada en medio de otra palabra).
 // Así "ref" detecta "referencia" pero no "prefiero".
-const WORD_CHARS = "a-z0-9áéíóúñ";
+const WORD_CHARS = "a-z0-9";
 function buildKeywordRegex(rawKeyword) {
-  const keyword = rawKeyword.trim().toLowerCase();
+  const keyword = normalizeText(rawKeyword.trim());
   const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const empiezaConLetraONumero = new RegExp(`^[${WORD_CHARS}]`, "i").test(keyword);
   const prefix = empiezaConLetraONumero ? `(?<![${WORD_CHARS}])` : "";
@@ -124,7 +134,7 @@ async function startBot() {
       if (!msg?.message || msg.key.fromMe) continue;
 
       const chatId = msg.key.remoteJid;
-      const text = extractText(msg).trim().toLowerCase();
+      const text = normalizeText(extractText(msg).trim());
       if (!text) continue;
 
       const tieneExclusion = excludedMatchers.some(({ regex }) => regex.test(text));
