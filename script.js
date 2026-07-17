@@ -647,6 +647,7 @@ function renderSpecialKeywords() {
       body: JSON.stringify({ phrase }),
     });
     await fetchKeywords();
+    renderSpecialKeywords();
   });
 }
 
@@ -672,7 +673,9 @@ async function fetchKeywords() {
   renderPositiveKeywords();
   renderExcludedKeywords();
   populateSpecialGroupSelect();
-  renderSpecialKeywords();
+  // La lista de especiales NO se muestra solo por abrir el panel o elegir
+  // un grupo — solo aparece justo después de agregar o quitar una.
+  specialKeywordList.innerHTML = "";
 }
 
 addPositiveKeywordBtn.addEventListener("click", async () => {
@@ -707,7 +710,12 @@ addExcludedKeywordBtn.addEventListener("click", async () => {
   }
 });
 
-specialGroupSelect.addEventListener("change", renderSpecialKeywords);
+// Al elegir un grupo NO se muestra su lista completa de keywords especiales
+// (para no llenar la pantalla con las que ya tenía) — la lista solo aparece
+// después de agregar una nueva.
+specialGroupSelect.addEventListener("change", () => {
+  specialKeywordList.innerHTML = "";
+});
 
 addSpecialKeywordBtn.addEventListener("click", async () => {
   const groupId = specialGroupSelect.value;
@@ -725,6 +733,7 @@ addSpecialKeywordBtn.addEventListener("click", async () => {
     });
     specialKeywordInput.value = "";
     await fetchKeywords();
+    renderSpecialKeywords();
   } catch (err) {
     console.error("No se pudo agregar la keyword especial:", err);
   }
