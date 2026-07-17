@@ -1,6 +1,7 @@
 const express = require("express");
 const path = require("path");
 const { startBot, botState, logoutBot } = require("./bot");
+const sectors = require("./sectors");
 
 const app = express();
 app.use(express.json());
@@ -29,9 +30,43 @@ app.get("/api/status", (req, res) => {
   });
 });
 
-// Lista de grupos reales de WhatsApp (solo disponible una vez conectado)
+// Lista de grupos reales de WhatsApp (solo disponible una vez conectado),
+// con el sector asignado a cada uno.
 app.get("/api/groups", (req, res) => {
-  res.json({ groups: botState.groups });
+  const groups = botState.groups.map((g) => ({
+    ...g,
+    sectorId: sectors.getGroupSector(g.id),
+  }));
+  res.json({ groups });
+});
+
+// Lista de sectores y su estado ON/OFF
+app.get("/api/sectors", (req, res) => {
+  res.json({
+    sectors: sectors.SECTOR_DEFS,
+    sectorActive: sectors.getSectorActiveMap(),
+  });
+});
+
+// Enciende o apaga un sector completo (los grupos siguen "Activos" mostrándose,
+// pero el bot no responde en ellos mientras el sector esté apagado)
+app.post("/api/sectors/:id/active", (req, res) => {
+  try {
+    sectors.setSectorActive(req.params.id, req.body.active);
+    res.json({ ok: true, active: sectors.isSectorActive(req.params.id) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Asigna un grupo a un sector
+app.post("/api/groups/:groupId/sector", (req, res) => {
+  try {
+    sectors.setGroupSector(req.params.groupId, req.body.sectorId);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 // Pausa o reanuda las respuestas automáticas sin desconectar WhatsApp

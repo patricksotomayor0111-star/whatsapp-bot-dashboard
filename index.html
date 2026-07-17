@@ -181,9 +181,9 @@
         <span class="text-xs text-slate-400" id="visibleCount">Mostrando todos</span>
       </section>
 
-      <!-- Lista de grupos reales de WhatsApp -->
-      <section id="groupList" class="card fade-in bg-white fade-in" style="animation-delay:.25s">
-        <!-- Los grupos se inyectan dinámicamente desde script.js -->
+      <!-- Lista de grupos agrupados por sector -->
+      <section id="sectorList" class="space-y-4 fade-in" style="animation-delay:.25s">
+        <!-- Los sectores se inyectan dinámicamente desde script.js -->
       </section>
 
       <p id="emptyState" class="hidden text-center text-sm text-slate-400 py-10">
@@ -199,6 +199,21 @@
     </main>
   </div>
 
+  <!-- Plantilla reutilizable de sector -->
+  <template id="sectorTemplate">
+    <article class="sector-card card bg-white">
+      <button class="sector-header w-full flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2 min-w-0">
+          <i class="fa-solid fa-chevron-down sector-chevron text-slate-400 text-xs transition-transform duration-300"></i>
+          <span class="text-sm font-bold text-slate-800 truncate sector-name">Sector</span>
+          <span class="text-xs text-slate-400 sector-count shrink-0"></span>
+        </div>
+        <span class="sector-toggle-badge shrink-0"></span>
+      </button>
+      <div class="sector-groups overflow-hidden transition-all duration-300"></div>
+    </article>
+  </template>
+
   <!-- Plantilla reutilizable de grupo -->
   <template id="groupTemplate">
     <div class="group-row flex items-center justify-between gap-2 py-3">
@@ -206,6 +221,7 @@
         <p class="group-name text-sm font-medium text-slate-700 truncate">Nombre del grupo</p>
         <p class="group-participants text-xs text-slate-400">0 participantes</p>
       </div>
+      <select class="sector-select shrink-0 text-xs border border-slate-200 rounded-lg px-1.5 py-1.5 bg-white text-slate-600 focus:outline-none focus:ring-2 focus:ring-brand-green/40"></select>
       <button class="copy-id-btn target-btn shrink-0" aria-label="Copiar ID del grupo" title="Copiar ID del grupo">
         <i class="fa-regular fa-copy text-xs"></i>
       </button>

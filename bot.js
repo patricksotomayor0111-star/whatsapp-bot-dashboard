@@ -9,6 +9,7 @@ const qrcode = require("qrcode-terminal");
 const path = require("path");
 const fs = require("fs");
 const { positiveKeywords, excludedKeywords, defaultResponse } = require("./keywords");
+const { getGroupSector, isSectorActive } = require("./sectors");
 
 const SESSION_PATH = path.join(__dirname, "session");
 
@@ -142,6 +143,10 @@ async function startBot() {
 
       const match = positiveMatchers.find(({ regex }) => regex.test(text));
       if (!match) continue;
+
+      // Aunque el grupo esté "Activo", si su sector está apagado, no se responde.
+      const sectorId = getGroupSector(chatId);
+      if (!isSectorActive(sectorId)) continue;
 
       botState.lastActivity = {
         chatId,

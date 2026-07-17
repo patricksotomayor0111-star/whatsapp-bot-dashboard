@@ -1,4 +1,5 @@
 node_modules/
 session/
+sectors-data.json
 .env
 *.log
