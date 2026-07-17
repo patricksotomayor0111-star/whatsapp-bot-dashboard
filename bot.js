@@ -12,6 +12,21 @@ const { positiveKeywords, excludedKeywords, defaultResponse } = require("./keywo
 
 const SESSION_PATH = path.join(__dirname, "session");
 
+// Convierte cada palabra clave en una expresión regular que solo coincide
+// al INICIO de una palabra (no si está enterrada en medio de otra palabra).
+// Así "ref" detecta "referencia" pero no "prefiero".
+const WORD_CHARS = "a-z0-9áéíóúñ";
+function buildKeywordRegex(rawKeyword) {
+  const keyword = rawKeyword.trim().toLowerCase();
+  const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const empiezaConLetraONumero = new RegExp(`^[${WORD_CHARS}]`, "i").test(keyword);
+  const prefix = empiezaConLetraONumero ? `(?<![${WORD_CHARS}])` : "";
+  return new RegExp(prefix + escaped, "i");
+}
+
+const positiveMatchers = positiveKeywords.map((k) => ({ keyword: k, regex: buildKeywordRegex(k) }));
+const excludedMatchers = excludedKeywords.map((k) => ({ keyword: k, regex: buildKeywordRegex(k) }));
+
 // Estado compartido con el dashboard (server.js lo lee)
 const botState = {
   connected: false,
@@ -109,15 +124,15 @@ async function startBot() {
     const text = extractText(msg).trim().toLowerCase();
     if (!text) return;
 
-    const tieneExclusion = excludedKeywords.some((k) => text.includes(k));
+    const tieneExclusion = excludedMatchers.some(({ regex }) => regex.test(text));
     if (tieneExclusion) return;
 
-    const keywordEncontrada = positiveKeywords.find((k) => text.includes(k));
-    if (!keywordEncontrada) return;
+    const match = positiveMatchers.find(({ regex }) => regex.test(text));
+    if (!match) return;
 
     botState.lastActivity = {
       chatId,
-      keyword: keywordEncontrada,
+      keyword: match.keyword,
       response: defaultResponse,
       time: new Date().toISOString(),
     };
