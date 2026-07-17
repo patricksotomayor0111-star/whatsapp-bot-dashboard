@@ -637,10 +637,25 @@ function renderExcludedKeywords() {
   });
 }
 
-// Keywords especiales agregadas en esta sesión del panel (no depende de qué
-// grupo esté elegido en el dropdown — se quedan fijas hasta que cierres el
-// panel o las borres a mano).
-let recentSpecialAdds = [];
+// Keywords especiales agregadas desde el panel (no depende de qué grupo esté
+// elegido en el dropdown). Se guarda en localStorage para que sobreviva un
+// refresco de página — la keyword en sí ya vive en el servidor de todas
+// formas, esto es solo para que la sigas viendo acá sin tener que buscarla.
+const RECENT_SPECIAL_KEY = "recentSpecialAdds";
+
+function loadRecentSpecialAdds() {
+  try {
+    return JSON.parse(localStorage.getItem(RECENT_SPECIAL_KEY) || "[]");
+  } catch (err) {
+    return [];
+  }
+}
+
+function saveRecentSpecialAdds() {
+  localStorage.setItem(RECENT_SPECIAL_KEY, JSON.stringify(recentSpecialAdds));
+}
+
+let recentSpecialAdds = loadRecentSpecialAdds();
 
 function renderSpecialKeywords() {
   specialKeywordList.innerHTML = "";
@@ -673,6 +688,7 @@ function renderSpecialKeywords() {
         body: JSON.stringify({ phrase }),
       });
       recentSpecialAdds = recentSpecialAdds.filter((it) => !(it.groupId === groupId && it.phrase === phrase));
+      saveRecentSpecialAdds();
       renderSpecialKeywords();
     });
 
@@ -762,6 +778,7 @@ addSpecialKeywordBtn.addEventListener("click", async () => {
     specialKeywordInput.value = "";
     if (!recentSpecialAdds.some((it) => it.groupId === groupId && it.phrase === phrase)) {
       recentSpecialAdds.push({ groupId, groupName, phrase });
+      saveRecentSpecialAdds();
     }
     renderSpecialKeywords();
     await fetchKeywords();
@@ -910,8 +927,7 @@ keywordsLink.addEventListener("click", (e) => {
   keywordsOverlay.classList.add("flex");
   exceptionNumberInput.value = "";
   exceptionKeywordInput.value = "";
-  recentSpecialAdds = [];
-  renderSpecialKeywords();
+  renderSpecialKeywords(); // repinta lo que ya tenías guardado (localStorage)
   fetchKeywords();
   populateExceptionGroupSelect();
   fetchExceptionsOverview();
