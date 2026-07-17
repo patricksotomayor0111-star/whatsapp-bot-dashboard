@@ -98,11 +98,11 @@
       </section>
 
       <!-- Tarjeta: Modo Enfoque -->
-      <section class="card fade-in bg-orange-50 border border-orange-100">
+      <section id="focusCard" class="card fade-in bg-orange-50 border border-orange-100 hidden">
         <div class="flex items-start justify-between gap-3">
           <div class="flex-1 min-w-0">
             <p class="eyebrow text-brand-orange"><span>🎯</span> MODO ENFOQUE</p>
-            <p class="mt-1 text-[15px] font-semibold text-slate-800 truncate">Grupo activo: <span id="focusGroupName" class="font-bold">Sector Norte · Almacén 3</span></p>
+            <p class="mt-1 text-[15px] font-semibold text-slate-800" id="focusGroupName">Ninguno</p>
           </div>
           <button id="restoreBtn" class="btn-capsule bg-brand-orange text-white shrink-0">
             <i class="fa-solid fa-rotate-left text-sm"></i>
@@ -216,15 +216,19 @@
 
   <!-- Plantilla reutilizable de grupo -->
   <template id="groupTemplate">
-    <div class="group-row flex items-center justify-between gap-2 py-3">
-      <div class="min-w-0 flex-1">
-        <p class="group-name text-sm font-medium text-slate-700 truncate">Nombre del grupo</p>
-        <p class="group-participants text-xs text-slate-400">0 participantes</p>
+    <div class="group-row flex flex-col gap-2 py-3">
+      <div class="flex items-center justify-between gap-2">
+        <p class="group-name text-sm font-medium text-slate-700 truncate flex-1 min-w-0">Nombre del grupo</p>
+        <button class="focus-btn target-btn shrink-0" aria-label="Modo enfoque para este grupo" title="Enfocar este grupo">🎯</button>
       </div>
-      <select class="sector-select shrink-0 text-xs border border-slate-200 rounded-lg px-1.5 py-1.5 bg-white text-slate-600 focus:outline-none focus:ring-2 focus:ring-brand-green/40"></select>
-      <button class="copy-id-btn target-btn shrink-0" aria-label="Copiar ID del grupo" title="Copiar ID del grupo">
-        <i class="fa-regular fa-copy text-xs"></i>
-      </button>
+      <div class="flex items-center justify-between gap-2">
+        <p class="group-participants text-xs text-slate-400 flex-1 min-w-0 truncate">0 participantes</p>
+        <button class="group-active-badge shrink-0" aria-label="Activar/Desactivar este grupo"></button>
+        <select class="sector-select shrink-0 text-xs border border-slate-200 rounded-lg px-1.5 py-1.5 bg-white text-slate-600 focus:outline-none focus:ring-2 focus:ring-brand-green/40"></select>
+        <button class="copy-id-btn shrink-0 w-8 h-8 rounded-lg bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center transition-colors" aria-label="Copiar ID del grupo" title="Copiar ID del grupo">
+          <i class="fa-regular fa-copy text-xs"></i>
+        </button>
+      </div>
     </div>
   </template>
 

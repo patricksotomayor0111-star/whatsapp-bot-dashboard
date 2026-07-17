@@ -31,13 +31,16 @@ app.get("/api/status", (req, res) => {
 });
 
 // Lista de grupos reales de WhatsApp (solo disponible una vez conectado),
-// con el sector asignado a cada uno.
+// con el sector asignado, si está activo individualmente y si está enfocado.
 app.get("/api/groups", (req, res) => {
+  const focusedGroups = sectors.getFocusedGroups();
   const groups = botState.groups.map((g) => ({
     ...g,
     sectorId: sectors.getGroupSector(g.id),
+    active: sectors.isGroupActive(g.id),
+    focused: focusedGroups.includes(g.id),
   }));
-  res.json({ groups });
+  res.json({ groups, focusedGroups });
 });
 
 // Lista de sectores y su estado ON/OFF
@@ -67,6 +70,24 @@ app.post("/api/groups/:groupId/sector", (req, res) => {
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+});
+
+// Activa o desactiva un grupo individual (dentro de un sector que sigue ON)
+app.post("/api/groups/:groupId/active", (req, res) => {
+  sectors.setGroupActive(req.params.groupId, req.body.active);
+  res.json({ ok: true, active: sectors.isGroupActive(req.params.groupId) });
+});
+
+// Modo enfoque: agrega un grupo a la lista de enfocados (solo esos responden)
+app.post("/api/focus/:groupId", (req, res) => {
+  sectors.addFocusGroup(req.params.groupId);
+  res.json({ ok: true, focusedGroups: sectors.getFocusedGroups() });
+});
+
+// Restaura el modo enfoque: vuelve al comportamiento normal por sector/grupo
+app.post("/api/focus/clear", (req, res) => {
+  sectors.clearFocus();
+  res.json({ ok: true });
 });
 
 // Pausa o reanuda las respuestas automáticas sin desconectar WhatsApp

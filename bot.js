@@ -9,7 +9,13 @@ const qrcode = require("qrcode-terminal");
 const path = require("path");
 const fs = require("fs");
 const { positiveKeywords, excludedKeywords, defaultResponse } = require("./keywords");
-const { getGroupSector, isSectorActive } = require("./sectors");
+const {
+  getGroupSector,
+  isSectorActive,
+  isGroupActive,
+  esSectorSinRemarcar,
+  getFocusedGroups,
+} = require("./sectors");
 
 const SESSION_PATH = path.join(__dirname, "session");
 
@@ -144,9 +150,21 @@ async function startBot() {
       const match = positiveMatchers.find(({ regex }) => regex.test(text));
       if (!match) continue;
 
-      // Aunque el grupo esté "Activo", si su sector está apagado, no se responde.
       const sectorId = getGroupSector(chatId);
-      if (!isSectorActive(sectorId)) continue;
+      const focusedGroups = getFocusedGroups();
+      const enModoEnfoque = focusedGroups.length > 0;
+
+      if (enModoEnfoque) {
+        // En modo enfoque SOLO responden los grupos marcados, pase lo que
+        // pase con su sector o su estado individual.
+        if (!focusedGroups.includes(chatId)) continue;
+      } else {
+        // Fuera de modo enfoque: hace falta que el sector Y el grupo estén activos.
+        if (!isSectorActive(sectorId)) continue;
+        if (!isGroupActive(chatId)) continue;
+      }
+
+      const sinRemarcar = esSectorSinRemarcar(sectorId);
 
       botState.lastActivity = {
         chatId,
@@ -160,7 +178,7 @@ async function startBot() {
         await sock.sendMessage(
           chatId,
           { text: defaultResponse },
-          { quoted: msg } // esto genera la respuesta citada (igual que la captura)
+          sinRemarcar ? {} : { quoted: msg } // el sector Comodín no cita el mensaje original
         );
         botState.lastActivity.sent = true;
       } catch (err) {

@@ -15,6 +15,7 @@ const emptyState = document.getElementById("emptyState");
 const notConnectedState = document.getElementById("notConnectedState");
 const visibleCount = document.getElementById("visibleCount");
 const groupCount = document.getElementById("groupCount");
+const focusCard = document.getElementById("focusCard");
 const focusGroupName = document.getElementById("focusGroupName");
 const restoreBtn = document.getElementById("restoreBtn");
 
@@ -30,8 +31,8 @@ const closeDrawer = document.getElementById("closeDrawer");
 const drawer = document.getElementById("drawer");
 const drawerOverlay = document.getElementById("drawerOverlay");
 
-let currentFocusGroup = "Ninguno";
 let groupsData = [];
+let focusedGroups = [];
 let sectorDefs = [];
 let sectorActiveMap = {};
 let isConnected = false;
@@ -70,13 +71,52 @@ function renderSectors(filtro = "") {
 
     gruposFiltrados.forEach((grupo) => {
       const groupNode = groupTemplate.content.cloneNode(true);
+      const rowEl = groupNode.querySelector(".group-row");
       const nameSpan = groupNode.querySelector(".group-name");
       const participantsEl = groupNode.querySelector(".group-participants");
       const sectorSelect = groupNode.querySelector(".sector-select");
+      const activeBadge = groupNode.querySelector(".group-active-badge");
+      const focusBtn = groupNode.querySelector(".focus-btn");
       const copyBtn = groupNode.querySelector(".copy-id-btn");
 
       nameSpan.textContent = grupo.name;
       participantsEl.textContent = `${grupo.participants} participante${grupo.participants === 1 ? "" : "s"}`;
+
+      const estaEnfocado = focusedGroups.includes(grupo.id);
+      if (estaEnfocado) {
+        rowEl.classList.add("bg-orange-50");
+        focusBtn.classList.add("selected");
+      }
+
+      updateActiveBadge(activeBadge, grupo.active !== false);
+      activeBadge.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const nuevoEstado = !(grupo.active !== false);
+        try {
+          await fetch(`/api/groups/${encodeURIComponent(grupo.id)}/active`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ active: nuevoEstado }),
+          });
+          grupo.active = nuevoEstado;
+          updateActiveBadge(activeBadge, nuevoEstado);
+        } catch (err) {
+          console.error("No se pudo cambiar el estado del grupo:", err);
+        }
+      });
+
+      focusBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        try {
+          const res = await fetch(`/api/focus/${encodeURIComponent(grupo.id)}`, { method: "POST" });
+          const data = await res.json();
+          focusedGroups = data.focusedGroups || [];
+          updateFocusUI();
+          renderSectors(searchInput.value);
+        } catch (err) {
+          console.error("No se pudo enfocar el grupo:", err);
+        }
+      });
 
       sectorDefs.forEach((s) => {
         const opt = document.createElement("option");
@@ -184,6 +224,16 @@ function updateSectorBadge(badge, activo) {
   }
 }
 
+function updateActiveBadge(badge, activo) {
+  if (activo) {
+    badge.textContent = "Activo";
+    badge.className = "group-active-badge badge-active shrink-0 cursor-pointer";
+  } else {
+    badge.textContent = "Inactivo";
+    badge.className = "group-active-badge badge-inactive shrink-0 cursor-pointer";
+  }
+}
+
 async function fetchSectors() {
   try {
     const res = await fetch("/api/sectors");
@@ -202,6 +252,8 @@ async function fetchGroups(force = false) {
     const nuevosGrupos = data.groups || [];
     const cambio = JSON.stringify(nuevosGrupos) !== JSON.stringify(groupsData);
     groupsData = nuevosGrupos;
+    focusedGroups = data.focusedGroups || [];
+    updateFocusUI();
     if (sectorDefs.length === 0) await fetchSectors();
     if (cambio || force) renderSectors(searchInput.value);
   } catch (err) {
@@ -215,16 +267,30 @@ searchInput.addEventListener("input", (e) => {
 });
 
 // ---------- Modo enfoque ----------
-restoreBtn.addEventListener("click", () => {
-  setFocusGroup("Ninguno");
-});
-
-function setFocusGroup(nombre) {
-  currentFocusGroup = nombre;
-  focusGroupName.textContent = nombre;
-  focusGroupName.classList.add("fade-in");
-  setTimeout(() => focusGroupName.classList.remove("fade-in"), 500);
+function updateFocusUI() {
+  if (focusedGroups.length === 0) {
+    focusCard.classList.add("hidden");
+    return;
+  }
+  focusCard.classList.remove("hidden");
+  const nombres = focusedGroups
+    .map((id) => groupsData.find((g) => g.id === id)?.name || id)
+    .join(", ");
+  focusGroupName.textContent = nombres;
 }
+
+// Restaura el modo enfoque: todos los grupos vuelven a depender de su
+// sector y su estado individual, como antes de enfocar nada.
+restoreBtn.addEventListener("click", async () => {
+  try {
+    await fetch("/api/focus/clear", { method: "POST" });
+    focusedGroups = [];
+    updateFocusUI();
+    renderSectors(searchInput.value);
+  } catch (err) {
+    console.error("No se pudo restaurar el modo enfoque:", err);
+  }
+});
 
 // ---------- Estado real del bot ----------
 function updateBotUI() {

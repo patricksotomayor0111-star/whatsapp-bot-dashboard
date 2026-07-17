@@ -15,6 +15,7 @@ const SECTOR_DEFS = [
 
 const SECTOR_IDS = SECTOR_DEFS.map((s) => s.id);
 const DEFAULT_SECTOR = "otros";
+const SECTOR_SIN_REMARCAR = "comodin"; // en este sector el bot responde sin citar el mensaje
 
 function loadData() {
   try {
@@ -23,9 +24,11 @@ function loadData() {
     return {
       groupSectors: parsed.groupSectors || {},
       sectorActive: parsed.sectorActive || {},
+      groupActive: parsed.groupActive || {},
+      focusedGroups: parsed.focusedGroups || [],
     };
   } catch (err) {
-    return { groupSectors: {}, sectorActive: {} };
+    return { groupSectors: {}, sectorActive: {}, groupActive: {}, focusedGroups: [] };
   }
 }
 
@@ -50,6 +53,10 @@ function setGroupSector(groupId, sectorId) {
   save();
 }
 
+function esSectorSinRemarcar(sectorId) {
+  return sectorId === SECTOR_SIN_REMARCAR;
+}
+
 // Un sector está ON salvo que se haya apagado explícitamente.
 function isSectorActive(sectorId) {
   return data.sectorActive[sectorId] !== false;
@@ -69,12 +76,47 @@ function getSectorActiveMap() {
   return map;
 }
 
+// Un grupo está Activo salvo que se haya apagado explícitamente.
+function isGroupActive(groupId) {
+  return data.groupActive[groupId] !== false;
+}
+
+function setGroupActive(groupId, active) {
+  data.groupActive[groupId] = Boolean(active);
+  save();
+}
+
+// ---------- Modo enfoque ----------
+// Mientras haya grupos enfocados, el bot SOLO responde en esos grupos,
+// sin importar su sector ni su estado individual.
+function getFocusedGroups() {
+  return data.focusedGroups;
+}
+
+function addFocusGroup(groupId) {
+  if (!data.focusedGroups.includes(groupId)) {
+    data.focusedGroups.push(groupId);
+    save();
+  }
+}
+
+function clearFocus() {
+  data.focusedGroups = [];
+  save();
+}
+
 module.exports = {
   SECTOR_DEFS,
   DEFAULT_SECTOR,
   getGroupSector,
   setGroupSector,
+  esSectorSinRemarcar,
   isSectorActive,
   setSectorActive,
   getSectorActiveMap,
+  isGroupActive,
+  setGroupActive,
+  getFocusedGroups,
+  addFocusGroup,
+  clearFocus,
 };
