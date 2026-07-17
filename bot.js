@@ -135,13 +135,20 @@ async function startBot() {
       keyword: match.keyword,
       response: defaultResponse,
       time: new Date().toISOString(),
+      sent: false,
     };
 
-    await sock.sendMessage(
-      chatId,
-      { text: defaultResponse },
-      { quoted: msg } // esto genera la respuesta citada (igual que la captura)
-    );
+    try {
+      await sock.sendMessage(
+        chatId,
+        { text: defaultResponse },
+        { quoted: msg } // esto genera la respuesta citada (igual que la captura)
+      );
+      botState.lastActivity.sent = true;
+    } catch (err) {
+      console.error("Error al enviar la respuesta:", err.message);
+      botState.lastActivity.error = err.message;
+    }
   });
 
   return sock;
