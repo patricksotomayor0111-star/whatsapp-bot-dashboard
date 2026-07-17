@@ -18,13 +18,12 @@ const {
   getGroupSector,
   isSectorActive,
   isGroupActive,
-  esSectorSinRemarcar,
   getFocusedGroups,
   getResponseDelay,
   hasGroupSector,
   setGroupSector,
   getTimeWindowMinutes,
-  isGroupNoRemarcar,
+  isGroupSinRemarcarEfectivo,
 } = require("./sectors");
 
 const MAX_HISTORY = 100;
@@ -587,7 +586,7 @@ async function startBot() {
         if (!isGroupActive(chatId)) continue;
       }
 
-      const sinRemarcar = esSectorSinRemarcar(sectorId) || isGroupNoRemarcar(chatId);
+      const sinRemarcar = isGroupSinRemarcarEfectivo(chatId, sectorId);
 
       const entry = {
         chatId,

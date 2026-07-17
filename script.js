@@ -52,7 +52,8 @@ const moveSectorSelect = document.getElementById("moveSectorSelect");
 const moveGroupBtn = document.getElementById("moveGroupBtn");
 
 const noRemarcarGroupSelect = document.getElementById("noRemarcarGroupSelect");
-const toggleNoRemarcarBtn = document.getElementById("toggleNoRemarcarBtn");
+const remarcarOverrideSelect = document.getElementById("remarcarOverrideSelect");
+const saveRemarcarOverrideBtn = document.getElementById("saveRemarcarOverrideBtn");
 
 const keywordsLink = document.getElementById("keywordsLink");
 const keywordsOverlay = document.getElementById("keywordsOverlay");
@@ -1016,7 +1017,7 @@ moveGroupBtn.addEventListener("click", async () => {
   }
 });
 
-// ---------- Grupo sin remarcar ----------
+// ---------- Grupo: remarcar / sin remarcar (override en cualquier sentido) ----------
 function populateNoRemarcarSelect() {
   const seleccionActual = noRemarcarGroupSelect.value;
   noRemarcarGroupSelect.innerHTML = '<option value="">— Selecciona un grupo —</option>';
@@ -1027,45 +1028,49 @@ function populateNoRemarcarSelect() {
     noRemarcarGroupSelect.appendChild(opt);
   });
   if (seleccionActual) noRemarcarGroupSelect.value = seleccionActual;
-  updateToggleNoRemarcarBtn();
+  updateRemarcarOverrideUI();
 }
 
-function updateToggleNoRemarcarBtn() {
+function updateRemarcarOverrideUI() {
   const groupId = noRemarcarGroupSelect.value;
   if (!groupId) {
-    toggleNoRemarcarBtn.disabled = true;
-    toggleNoRemarcarBtn.textContent = "Elige un grupo primero";
-    toggleNoRemarcarBtn.className =
+    remarcarOverrideSelect.disabled = true;
+    remarcarOverrideSelect.innerHTML = '<option value="">— Elige un grupo primero —</option>';
+    saveRemarcarOverrideBtn.disabled = true;
+    saveRemarcarOverrideBtn.className =
       "w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-slate-300 text-slate-500 active:scale-95 transition-all";
     return;
   }
   const grupo = groupsData.find((g) => g.id === groupId);
-  const activo = Boolean(grupo?.noRemarcar);
-  toggleNoRemarcarBtn.disabled = false;
-  toggleNoRemarcarBtn.textContent = activo ? "✅ Sin remarcar (activo) — Desactivar" : "Activar \"sin remarcar\"";
-  toggleNoRemarcarBtn.className = activo
-    ? "w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-cyan-600 text-white active:scale-95 transition-all"
-    : "w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-slate-600 text-white active:scale-95 transition-all";
+  remarcarOverrideSelect.disabled = false;
+  remarcarOverrideSelect.innerHTML = `
+    <option value="">— Usar el del sector —</option>
+    <option value="no_remarcar">🔇 Forzar sin remarcar</option>
+    <option value="remarcar">💬 Forzar remarcar</option>
+  `;
+  remarcarOverrideSelect.value = grupo?.remarcarOverride || "";
+  saveRemarcarOverrideBtn.disabled = false;
+  saveRemarcarOverrideBtn.className =
+    "w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-cyan-600 text-white active:scale-95 transition-all";
 }
 
-noRemarcarGroupSelect.addEventListener("change", updateToggleNoRemarcarBtn);
+noRemarcarGroupSelect.addEventListener("change", updateRemarcarOverrideUI);
 
-toggleNoRemarcarBtn.addEventListener("click", async () => {
+saveRemarcarOverrideBtn.addEventListener("click", async () => {
   const groupId = noRemarcarGroupSelect.value;
   if (!groupId) return;
-  const grupo = groupsData.find((g) => g.id === groupId);
-  const nuevoEstado = !(grupo?.noRemarcar);
+  const override = remarcarOverrideSelect.value || null;
   try {
-    await fetch(`/api/groups/${encodeURIComponent(groupId)}/noremarcar`, {
+    await fetch(`/api/groups/${encodeURIComponent(groupId)}/remarcar`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ noRemarcar: nuevoEstado }),
+      body: JSON.stringify({ override }),
     });
-    if (grupo) grupo.noRemarcar = nuevoEstado;
-    updateToggleNoRemarcarBtn();
+    const grupo = groupsData.find((g) => g.id === groupId);
+    if (grupo) grupo.remarcarOverride = override;
     renderSectors(searchInput.value);
   } catch (err) {
-    console.error("No se pudo cambiar 'sin remarcar' del grupo:", err);
+    console.error("No se pudo cambiar el override de remarcar del grupo:", err);
   }
 });
 

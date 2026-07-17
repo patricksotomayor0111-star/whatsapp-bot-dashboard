@@ -32,8 +32,10 @@ function loadData() {
       responseDelayMs: parsed.responseDelayMs || DEFAULT_DELAY_MS,
       timeWindowMinutes:
         parsed.timeWindowMinutes !== undefined ? parsed.timeWindowMinutes : DEFAULT_TIME_WINDOW_MINUTES,
-      groupNoRemarcar: parsed.groupNoRemarcar || {},
+      groupRemarcarOverride: parsed.groupRemarcarOverride || {},
+      groupNoRemarcar: parsed.groupNoRemarcar || {}, // legado, se migra una sola vez
       otrosInactivoPorDefectoMigrado: Boolean(parsed.otrosInactivoPorDefectoMigrado),
+      groupNoRemarcarMigrado: Boolean(parsed.groupNoRemarcarMigrado),
     };
   } catch (err) {
     return {
@@ -43,8 +45,10 @@ function loadData() {
       focusedGroups: [],
       responseDelayMs: DEFAULT_DELAY_MS,
       timeWindowMinutes: DEFAULT_TIME_WINDOW_MINUTES,
+      groupRemarcarOverride: {},
       groupNoRemarcar: {},
       otrosInactivoPorDefectoMigrado: false,
+      groupNoRemarcarMigrado: false,
     };
   }
 }
@@ -151,15 +155,48 @@ function setResponseDelay(ms) {
   save();
 }
 
-// ---------- Grupo sin remarcar (individual, aparte del Sector Comodín) ----------
-// Igual que el Sector Comodín: el bot responde sin citar el mensaje
-// original, pero acá se elige un grupo puntual sin importar su sector.
-function isGroupNoRemarcar(groupId) {
-  return Boolean(data.groupNoRemarcar[groupId]);
+// ---------- Remarcar / sin remarcar por grupo (override en cualquier sentido) ----------
+// Por defecto, un grupo remarca o no según su sector (el Sector Comodín no
+// remarca). Acá se puede forzar un grupo puntual para cualquiera de los dos
+// lados, sin importar su sector: "no_remarcar" fuerza a que NO cite el
+// mensaje, "remarcar" fuerza a que SÍ lo cite. Sin override (null), hereda
+// el comportamiento del sector.
+const REMARCAR_OVERRIDES = ["no_remarcar", "remarcar"];
+
+function getGroupRemarcarOverride(groupId) {
+  return data.groupRemarcarOverride[groupId] || null;
 }
 
-function setGroupNoRemarcar(groupId, value) {
-  data.groupNoRemarcar[groupId] = Boolean(value);
+function setGroupRemarcarOverride(groupId, value) {
+  if (value === null || value === "") {
+    delete data.groupRemarcarOverride[groupId];
+  } else if (REMARCAR_OVERRIDES.includes(value)) {
+    data.groupRemarcarOverride[groupId] = value;
+  } else {
+    throw new Error("Valor inválido para el override de remarcar: " + value);
+  }
+  save();
+}
+
+// True si, en definitiva, el bot NO debe citar el mensaje en este grupo
+// (combina el override individual con el comportamiento del sector).
+function isGroupSinRemarcarEfectivo(groupId, sectorId) {
+  const override = getGroupRemarcarOverride(groupId);
+  if (override === "no_remarcar") return true;
+  if (override === "remarcar") return false;
+  return esSectorSinRemarcar(sectorId);
+}
+
+// Migración única: el interruptor viejo (solo "sin remarcar" true/false) se
+// convierte al nuevo override de 3 estados. Corre una sola vez.
+function migrarGroupNoRemarcarAOverride() {
+  if (data.groupNoRemarcarMigrado) return;
+  Object.keys(data.groupNoRemarcar).forEach((groupId) => {
+    if (data.groupNoRemarcar[groupId] === true && !data.groupRemarcarOverride[groupId]) {
+      data.groupRemarcarOverride[groupId] = "no_remarcar";
+    }
+  });
+  data.groupNoRemarcarMigrado = true;
   save();
 }
 
@@ -199,6 +236,7 @@ function migrarOtrosInactivoPorDefecto() {
 }
 
 migrarOtrosInactivoPorDefecto();
+migrarGroupNoRemarcarAOverride();
 
 module.exports = {
   SECTOR_DEFS,
@@ -219,6 +257,7 @@ module.exports = {
   setResponseDelay,
   getTimeWindowMinutes,
   setTimeWindowMinutes,
-  isGroupNoRemarcar,
-  setGroupNoRemarcar,
+  getGroupRemarcarOverride,
+  setGroupRemarcarOverride,
+  isGroupSinRemarcarEfectivo,
 };

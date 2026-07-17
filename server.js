@@ -51,14 +51,13 @@ app.get("/api/groups", (req, res) => {
   const focusedGroups = sectors.getFocusedGroups();
   const groups = botState.groups.map((g) => {
     const sectorId = sectors.getGroupSector(g.id);
-    const noRemarcar = sectors.isGroupNoRemarcar(g.id);
     return {
       ...g,
       sectorId,
       active: sectors.isGroupActive(g.id),
       focused: focusedGroups.includes(g.id),
-      noRemarcar, // el interruptor individual (para el toggle de Opciones)
-      sinRemarcarEfectivo: sectors.esSectorSinRemarcar(sectorId) || noRemarcar, // individual O por sector (para el ícono en la lista)
+      remarcarOverride: sectors.getGroupRemarcarOverride(g.id), // null | "no_remarcar" | "remarcar" (para el select de Opciones)
+      sinRemarcarEfectivo: sectors.isGroupSinRemarcarEfectivo(g.id, sectorId), // combina override + sector (para el ícono en la lista)
     };
   });
   res.json({ groups, focusedGroups });
@@ -99,11 +98,16 @@ app.post("/api/groups/:groupId/active", (req, res) => {
   res.json({ ok: true, active: sectors.isGroupActive(req.params.groupId) });
 });
 
-// Marca/desmarca un grupo puntual como "sin remarcar" (responde sin citar
-// el mensaje original, igual que el Sector Comodín pero por grupo).
-app.post("/api/groups/:groupId/noremarcar", (req, res) => {
-  sectors.setGroupNoRemarcar(req.params.groupId, req.body.noRemarcar);
-  res.json({ ok: true, noRemarcar: sectors.isGroupNoRemarcar(req.params.groupId) });
+// Fuerza un grupo puntual a "no_remarcar" (responde sin citar) o "remarcar"
+// (responde citando), sin importar su sector. body.override puede ser
+// "no_remarcar", "remarcar" o null/"" para volver a heredar del sector.
+app.post("/api/groups/:groupId/remarcar", (req, res) => {
+  try {
+    sectors.setGroupRemarcarOverride(req.params.groupId, req.body.override);
+    res.json({ ok: true, override: sectors.getGroupRemarcarOverride(req.params.groupId) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 // Restaura el modo enfoque: vuelve al comportamiento normal por sector/grupo.
