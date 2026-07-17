@@ -121,38 +121,38 @@ function setFocusGroup(nombre) {
 function updateBotUI() {
   if (!isConnected) {
     botStatusText.textContent = "Bot Desconectado";
-    botToggleLabel.textContent = "Pausar";
+    botToggleLabel.textContent = "Activar";
     botToggleBtn.disabled = true;
     botToggleBtn.classList.remove("bg-brand-green");
     botToggleBtn.classList.add("bg-brand-red", "opacity-50");
-    botStatusDot.classList.remove("bg-brand-green", "bg-orange-400", "pulse-active");
+    botStatusDot.classList.remove("bg-brand-green", "pulse-active");
     botStatusDot.classList.add("bg-brand-red");
     botStatusDot.style.boxShadow = "0 0 0 4px rgba(239,68,68,0.15)";
     qrCard.classList.remove("hidden");
   } else if (isActive) {
     botStatusText.textContent = "Bot Activo";
-    botToggleLabel.textContent = "Pausar";
+    botToggleLabel.textContent = "Desactivar";
     botToggleBtn.disabled = false;
-    botToggleBtn.classList.remove("bg-brand-red", "bg-orange-400", "opacity-50");
+    botToggleBtn.classList.remove("bg-brand-red", "opacity-50");
     botToggleBtn.classList.add("bg-brand-green");
-    botStatusDot.classList.remove("bg-brand-red", "bg-orange-400");
+    botStatusDot.classList.remove("bg-brand-red");
     botStatusDot.classList.add("bg-brand-green", "pulse-active");
     botStatusDot.style.boxShadow = "0 0 0 4px rgba(34,197,94,0.15)";
     qrCard.classList.add("hidden");
   } else {
-    botStatusText.textContent = "Bot Pausado";
-    botToggleLabel.textContent = "Reanudar";
+    botStatusText.textContent = "Bot Desconectado";
+    botToggleLabel.textContent = "Activar";
     botToggleBtn.disabled = false;
-    botToggleBtn.classList.remove("bg-brand-red", "bg-brand-green", "opacity-50");
-    botToggleBtn.classList.add("bg-orange-400");
-    botStatusDot.classList.remove("bg-brand-red", "bg-brand-green", "pulse-active");
-    botStatusDot.classList.add("bg-orange-400");
-    botStatusDot.style.boxShadow = "0 0 0 4px rgba(251,146,60,0.15)";
+    botToggleBtn.classList.remove("bg-brand-green", "opacity-50");
+    botToggleBtn.classList.add("bg-brand-red");
+    botStatusDot.classList.remove("bg-brand-green", "pulse-active");
+    botStatusDot.classList.add("bg-brand-red");
+    botStatusDot.style.boxShadow = "0 0 0 4px rgba(239,68,68,0.15)";
     qrCard.classList.add("hidden");
   }
 }
 
-// Pausa o reanuda las respuestas automáticas SIN desconectar WhatsApp
+// Activa o desactiva las respuestas automáticas SIN desconectar WhatsApp
 botToggleBtn.addEventListener("click", async () => {
   if (!isConnected) return;
   const nuevoEstado = !isActive;

@@ -18,7 +18,7 @@ const botState = {
   qr: null,
   lastActivity: null,
   groups: [],
-  active: true, // si es false, el bot sigue conectado pero no responde a nada
+  active: false, // arranca inactivo: hay que activarlo manualmente desde el panel tras vincular
 };
 
 let currentSock = null;
