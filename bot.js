@@ -113,41 +113,45 @@ async function startBot() {
   sock.ev.on("groups.upsert", () => refreshGroups(sock));
   sock.ev.on("groups.update", () => refreshGroups(sock));
 
-  // Detección de palabra clave y respuesta citando el mensaje original
+  // Detección de palabra clave y respuesta citando el mensaje original.
+  // WhatsApp a veces entrega varios mensajes juntos en un mismo evento
+  // (por ejemplo si se mandan seguidos), así que hay que revisarlos todos,
+  // no solo el primero.
   sock.ev.on("messages.upsert", async ({ messages }) => {
     if (!botState.active) return;
 
-    const msg = messages[0];
-    if (!msg?.message || msg.key.fromMe) return;
+    for (const msg of messages) {
+      if (!msg?.message || msg.key.fromMe) continue;
 
-    const chatId = msg.key.remoteJid;
-    const text = extractText(msg).trim().toLowerCase();
-    if (!text) return;
+      const chatId = msg.key.remoteJid;
+      const text = extractText(msg).trim().toLowerCase();
+      if (!text) continue;
 
-    const tieneExclusion = excludedMatchers.some(({ regex }) => regex.test(text));
-    if (tieneExclusion) return;
+      const tieneExclusion = excludedMatchers.some(({ regex }) => regex.test(text));
+      if (tieneExclusion) continue;
 
-    const match = positiveMatchers.find(({ regex }) => regex.test(text));
-    if (!match) return;
+      const match = positiveMatchers.find(({ regex }) => regex.test(text));
+      if (!match) continue;
 
-    botState.lastActivity = {
-      chatId,
-      keyword: match.keyword,
-      response: defaultResponse,
-      time: new Date().toISOString(),
-      sent: false,
-    };
-
-    try {
-      await sock.sendMessage(
+      botState.lastActivity = {
         chatId,
-        { text: defaultResponse },
-        { quoted: msg } // esto genera la respuesta citada (igual que la captura)
-      );
-      botState.lastActivity.sent = true;
-    } catch (err) {
-      console.error("Error al enviar la respuesta:", err.message);
-      botState.lastActivity.error = err.message;
+        keyword: match.keyword,
+        response: defaultResponse,
+        time: new Date().toISOString(),
+        sent: false,
+      };
+
+      try {
+        await sock.sendMessage(
+          chatId,
+          { text: defaultResponse },
+          { quoted: msg } // esto genera la respuesta citada (igual que la captura)
+        );
+        botState.lastActivity.sent = true;
+      } catch (err) {
+        console.error("Error al enviar la respuesta:", err.message);
+        botState.lastActivity.error = err.message;
+      }
     }
   });
 
