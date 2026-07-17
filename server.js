@@ -54,6 +54,7 @@ app.get("/api/groups", (req, res) => {
     sectorId: sectors.getGroupSector(g.id),
     active: sectors.isGroupActive(g.id),
     focused: focusedGroups.includes(g.id),
+    noRemarcar: sectors.isGroupNoRemarcar(g.id),
   }));
   res.json({ groups, focusedGroups });
 });
@@ -91,6 +92,13 @@ app.post("/api/groups/:groupId/sector", (req, res) => {
 app.post("/api/groups/:groupId/active", (req, res) => {
   sectors.setGroupActive(req.params.groupId, req.body.active);
   res.json({ ok: true, active: sectors.isGroupActive(req.params.groupId) });
+});
+
+// Marca/desmarca un grupo puntual como "sin remarcar" (responde sin citar
+// el mensaje original, igual que el Sector Comodín pero por grupo).
+app.post("/api/groups/:groupId/noremarcar", (req, res) => {
+  sectors.setGroupNoRemarcar(req.params.groupId, req.body.noRemarcar);
+  res.json({ ok: true, noRemarcar: sectors.isGroupNoRemarcar(req.params.groupId) });
 });
 
 // Restaura el modo enfoque: vuelve al comportamiento normal por sector/grupo.

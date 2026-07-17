@@ -51,6 +51,9 @@ const moveGroupSelect = document.getElementById("moveGroupSelect");
 const moveSectorSelect = document.getElementById("moveSectorSelect");
 const moveGroupBtn = document.getElementById("moveGroupBtn");
 
+const noRemarcarGroupSelect = document.getElementById("noRemarcarGroupSelect");
+const toggleNoRemarcarBtn = document.getElementById("toggleNoRemarcarBtn");
+
 const keywordsLink = document.getElementById("keywordsLink");
 const keywordsOverlay = document.getElementById("keywordsOverlay");
 const closeKeywords = document.getElementById("closeKeywords");
@@ -1011,6 +1014,58 @@ moveGroupBtn.addEventListener("click", async () => {
   }
 });
 
+// ---------- Grupo sin remarcar ----------
+function populateNoRemarcarSelect() {
+  const seleccionActual = noRemarcarGroupSelect.value;
+  noRemarcarGroupSelect.innerHTML = '<option value="">— Selecciona un grupo —</option>';
+  groupsData.forEach((g) => {
+    const opt = document.createElement("option");
+    opt.value = g.id;
+    opt.textContent = g.name;
+    noRemarcarGroupSelect.appendChild(opt);
+  });
+  if (seleccionActual) noRemarcarGroupSelect.value = seleccionActual;
+  updateToggleNoRemarcarBtn();
+}
+
+function updateToggleNoRemarcarBtn() {
+  const groupId = noRemarcarGroupSelect.value;
+  if (!groupId) {
+    toggleNoRemarcarBtn.disabled = true;
+    toggleNoRemarcarBtn.textContent = "Elige un grupo primero";
+    toggleNoRemarcarBtn.className =
+      "w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-slate-300 text-slate-500 active:scale-95 transition-all";
+    return;
+  }
+  const grupo = groupsData.find((g) => g.id === groupId);
+  const activo = Boolean(grupo?.noRemarcar);
+  toggleNoRemarcarBtn.disabled = false;
+  toggleNoRemarcarBtn.textContent = activo ? "✅ Sin remarcar (activo) — Desactivar" : "Activar \"sin remarcar\"";
+  toggleNoRemarcarBtn.className = activo
+    ? "w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-cyan-600 text-white active:scale-95 transition-all"
+    : "w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-slate-600 text-white active:scale-95 transition-all";
+}
+
+noRemarcarGroupSelect.addEventListener("change", updateToggleNoRemarcarBtn);
+
+toggleNoRemarcarBtn.addEventListener("click", async () => {
+  const groupId = noRemarcarGroupSelect.value;
+  if (!groupId) return;
+  const grupo = groupsData.find((g) => g.id === groupId);
+  const nuevoEstado = !(grupo?.noRemarcar);
+  try {
+    await fetch(`/api/groups/${encodeURIComponent(groupId)}/noremarcar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ noRemarcar: nuevoEstado }),
+    });
+    if (grupo) grupo.noRemarcar = nuevoEstado;
+    updateToggleNoRemarcarBtn();
+  } catch (err) {
+    console.error("No se pudo cambiar 'sin remarcar' del grupo:", err);
+  }
+});
+
 keywordsLink.addEventListener("click", (e) => {
   e.preventDefault();
   closeDrawerFn();
@@ -1023,6 +1078,7 @@ keywordsLink.addEventListener("click", (e) => {
   populateExceptionGroupSelect();
   fetchExceptionsOverview();
   populateMoveSelects();
+  populateNoRemarcarSelect();
   fetchDelay();
   fetchTimeWindow();
   refreshHistoryCount();

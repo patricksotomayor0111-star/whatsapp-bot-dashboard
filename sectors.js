@@ -32,6 +32,7 @@ function loadData() {
       responseDelayMs: parsed.responseDelayMs || DEFAULT_DELAY_MS,
       timeWindowMinutes:
         parsed.timeWindowMinutes !== undefined ? parsed.timeWindowMinutes : DEFAULT_TIME_WINDOW_MINUTES,
+      groupNoRemarcar: parsed.groupNoRemarcar || {},
     };
   } catch (err) {
     return {
@@ -41,6 +42,7 @@ function loadData() {
       focusedGroups: [],
       responseDelayMs: DEFAULT_DELAY_MS,
       timeWindowMinutes: DEFAULT_TIME_WINDOW_MINUTES,
+      groupNoRemarcar: {},
     };
   }
 }
@@ -138,6 +140,18 @@ function setResponseDelay(ms) {
   save();
 }
 
+// ---------- Grupo sin remarcar (individual, aparte del Sector Comodín) ----------
+// Igual que el Sector Comodín: el bot responde sin citar el mensaje
+// original, pero acá se elige un grupo puntual sin importar su sector.
+function isGroupNoRemarcar(groupId) {
+  return Boolean(data.groupNoRemarcar[groupId]);
+}
+
+function setGroupNoRemarcar(groupId, value) {
+  data.groupNoRemarcar[groupId] = Boolean(value);
+  save();
+}
+
 // ---------- Ventana de tiempo (0 a N minutos) ----------
 function getTimeWindowMinutes() {
   return data.timeWindowMinutes;
@@ -171,4 +185,6 @@ module.exports = {
   setResponseDelay,
   getTimeWindowMinutes,
   setTimeWindowMinutes,
+  isGroupNoRemarcar,
+  setGroupNoRemarcar,
 };

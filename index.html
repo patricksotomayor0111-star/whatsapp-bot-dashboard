@@ -225,6 +225,16 @@
           <button id="moveGroupBtn" class="w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-purple-600 text-white active:scale-95 transition-all">📦 Mover grupo</button>
         </section>
 
+        <!-- Grupo sin remarcar -->
+        <section>
+          <p class="eyebrow text-cyan-600"><i class="fa-solid fa-comment-slash"></i> GRUPO SIN REMARCAR</p>
+          <p class="text-xs text-slate-400 mt-1 mb-2">El bot responde sin citar el mensaje original en ese grupo — igual que el Sector Comodín, pero para un grupo puntual.</p>
+          <select id="noRemarcarGroupSelect" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-cyan-400/40 mb-2">
+            <option value="">— Selecciona un grupo —</option>
+          </select>
+          <button id="toggleNoRemarcarBtn" disabled class="w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-slate-300 text-slate-500 active:scale-95 transition-all">Elige un grupo primero</button>
+        </section>
+
         <!-- Cerrar sesión -->
         <button id="logoutBtn" class="w-full text-center text-sm text-brand-red font-medium py-2">
           Cerrar sesión

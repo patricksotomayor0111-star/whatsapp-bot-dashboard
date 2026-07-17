@@ -24,6 +24,7 @@ const {
   hasGroupSector,
   setGroupSector,
   getTimeWindowMinutes,
+  isGroupNoRemarcar,
 } = require("./sectors");
 
 const MAX_HISTORY = 100;
@@ -543,7 +544,7 @@ async function startBot() {
         if (!isGroupActive(chatId)) continue;
       }
 
-      const sinRemarcar = esSectorSinRemarcar(sectorId);
+      const sinRemarcar = esSectorSinRemarcar(sectorId) || isGroupNoRemarcar(chatId);
 
       const entry = {
         chatId,
@@ -566,7 +567,7 @@ async function startBot() {
         await sock.sendMessage(
           chatId,
           { text: defaultResponse },
-          sinRemarcar ? {} : { quoted: msg } // el sector Comodín no cita el mensaje original
+          sinRemarcar ? {} : { quoted: msg } // el sector Comodín o un grupo marcado como "sin remarcar" no citan el mensaje original
         );
         entry.sent = true;
         botState.history.unshift(entry);
