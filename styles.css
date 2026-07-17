@@ -170,6 +170,35 @@ body {
   transform: scale(0.9);
 }
 
+/* Segundo interruptor por sector, más compacto: solo para los grupos
+   "sin remarcar" de ese sector. */
+.sector-sinremarcar-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 5px 9px;
+  border-radius: 999px;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.sector-sinremarcar-badge.on {
+  background-color: #06b6d4;
+  color: white;
+  box-shadow: 0 3px 10px -3px rgba(6, 182, 212, 0.5);
+}
+
+.sector-sinremarcar-badge.off {
+  background-color: #e2e8f0;
+  color: #64748b;
+}
+
+.sector-sinremarcar-badge:active {
+  transform: scale(0.9);
+}
+
 /* ===== Filas de grupo ===== */
 .group-row {
   border-top: 1px solid #f1f5f9;

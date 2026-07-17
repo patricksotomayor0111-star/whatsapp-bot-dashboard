@@ -16,7 +16,6 @@ const cashbox = require("./cashbox");
 const { sectorSeedByName, specialSeedByName, numberExceptionSeed } = require("./groupSeed");
 const {
   getGroupSector,
-  isSectorActive,
   isGroupActive,
   getFocusedGroups,
   getResponseDelay,
@@ -24,6 +23,7 @@ const {
   setGroupSector,
   getTimeWindowMinutes,
   isGroupSinRemarcarEfectivo,
+  isGroupSectorActiveEfectivo,
 } = require("./sectors");
 
 const MAX_HISTORY = 100;
@@ -574,19 +574,20 @@ async function startBot() {
       const sectorId = getGroupSector(chatId);
       const focusedGroups = getFocusedGroups();
       const enModoEnfoque = focusedGroups.length > 0;
+      const sinRemarcar = isGroupSinRemarcarEfectivo(chatId, sectorId);
 
       if (enModoEnfoque) {
         // El modo enfoque manda por encima de todo: SOLO responden los
         // grupos marcados.
         if (!focusedGroups.includes(chatId)) continue;
       } else {
-        // Fuera de modo enfoque, todos (incluidas las especiales) necesitan
-        // que el sector Y el grupo estén activos.
-        if (!isSectorActive(sectorId)) continue;
+        // Fuera de modo enfoque, todos necesitan que su sector esté activo
+        // Y el grupo esté activo. Cada sector tiene DOS interruptores
+        // independientes: uno para sus grupos que remarcan normal y otro
+        // para los que están sin remarcar — acá se usa el que corresponda.
+        if (!isGroupSectorActiveEfectivo(chatId, sectorId)) continue;
         if (!isGroupActive(chatId)) continue;
       }
-
-      const sinRemarcar = isGroupSinRemarcarEfectivo(chatId, sectorId);
 
       const entry = {
         chatId,

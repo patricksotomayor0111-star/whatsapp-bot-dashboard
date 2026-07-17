@@ -335,13 +335,16 @@
   <!-- Plantilla reutilizable de sector -->
   <template id="sectorTemplate">
     <article class="sector-card card bg-white">
-      <button class="sector-header w-full flex items-center justify-between gap-3">
+      <button class="sector-header w-full flex items-center justify-between gap-2">
         <div class="flex items-center gap-1.5 min-w-0">
           <span class="shrink-0">📍</span>
           <span class="text-sm font-bold text-slate-800 truncate sector-name">Sector</span>
           <i class="fa-solid fa-lock text-amber-400 text-[10px] sector-lock-icon hidden"></i>
         </div>
-        <span class="sector-toggle-badge shrink-0"></span>
+        <div class="flex items-center gap-1 shrink-0">
+          <span class="sector-sinremarcar-badge shrink-0"></span>
+          <span class="sector-toggle-badge shrink-0"></span>
+        </div>
       </button>
       <div class="sector-groups overflow-hidden transition-all duration-300"></div>
     </article>

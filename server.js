@@ -63,20 +63,34 @@ app.get("/api/groups", (req, res) => {
   res.json({ groups, focusedGroups });
 });
 
-// Lista de sectores y su estado ON/OFF
+// Lista de sectores y su estado ON/OFF (los dos interruptores)
 app.get("/api/sectors", (req, res) => {
   res.json({
     sectors: sectors.SECTOR_DEFS,
     sectorActive: sectors.getSectorActiveMap(),
+    sectorSinRemarcarActive: sectors.getSectorSinRemarcarActiveMap(),
   });
 });
 
-// Enciende o apaga un sector completo (los grupos siguen "Activos" mostrándose,
-// pero el bot no responde en ellos mientras el sector esté apagado)
+// Enciende o apaga un sector completo, para sus grupos que remarcan normal
+// (los grupos siguen "Activos" mostrándose, pero el bot no responde en
+// ellos mientras el sector esté apagado)
 app.post("/api/sectors/:id/active", (req, res) => {
   try {
     sectors.setSectorActive(req.params.id, req.body.active);
     res.json({ ok: true, active: sectors.isSectorActive(req.params.id) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Enciende o apaga el interruptor de "sin remarcar" de un sector: aplica
+// solo a los grupos de ese sector que responden sin citar el mensaje (por
+// Comodín o por override individual), independiente del interruptor de arriba.
+app.post("/api/sectors/:id/sinremarcaractive", (req, res) => {
+  try {
+    sectors.setSectorSinRemarcarActive(req.params.id, req.body.active);
+    res.json({ ok: true, active: sectors.isSectorSinRemarcarActive(req.params.id) });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

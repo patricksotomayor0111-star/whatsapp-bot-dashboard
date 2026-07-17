@@ -80,6 +80,7 @@ let groupsData = [];
 let focusedGroups = [];
 let sectorDefs = [];
 let sectorActiveMap = {};
+let sectorSinRemarcarActiveMap = {};
 let isConnected = false;
 let isActive = true;
 let lastRenderedQr = null;
@@ -131,11 +132,13 @@ function renderSectors(filtro = "") {
     const sectorLockIcon = sectorNode.querySelector(".sector-lock-icon");
     const header = sectorNode.querySelector(".sector-header");
     const badge = sectorNode.querySelector(".sector-toggle-badge");
+    const sinRemarcarBadge = sectorNode.querySelector(".sector-sinremarcar-badge");
     const groupsContainer = sectorNode.querySelector(".sector-groups");
 
     nameEl.textContent = sector.label;
     if (sectorsWithExceptions.has(sector.id)) sectorLockIcon.classList.remove("hidden");
     updateSectorBadge(badge, sectorActiveMap[sector.id] !== false);
+    updateSinRemarcarBadge(sinRemarcarBadge, sectorSinRemarcarActiveMap[sector.id] !== false);
 
     gruposFiltrados.forEach((grupo) => {
       const groupNode = groupTemplate.content.cloneNode(true);
@@ -199,7 +202,8 @@ function renderSectors(filtro = "") {
     });
 
     // Enciende/apaga el sector: los grupos siguen mostrándose "Activo",
-    // pero el bot deja de responder en ellos mientras esté OFF.
+    // pero el bot deja de responder en ellos mientras esté OFF. Este
+    // interruptor solo controla a los grupos que remarcan normal.
     badge.addEventListener("click", async (e) => {
       e.stopPropagation();
       const nuevoEstado = !(sectorActiveMap[sector.id] !== false);
@@ -213,6 +217,24 @@ function renderSectors(filtro = "") {
         updateSectorBadge(badge, nuevoEstado);
       } catch (err) {
         console.error("No se pudo cambiar el estado del sector:", err);
+      }
+    });
+
+    // Segundo interruptor: independiente del de arriba, solo controla a
+    // los grupos "sin remarcar" de este sector (por Comodín o por override).
+    sinRemarcarBadge.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const nuevoEstado = !(sectorSinRemarcarActiveMap[sector.id] !== false);
+      try {
+        await fetch(`/api/sectors/${sector.id}/sinremarcaractive`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ active: nuevoEstado }),
+        });
+        sectorSinRemarcarActiveMap[sector.id] = nuevoEstado;
+        updateSinRemarcarBadge(sinRemarcarBadge, nuevoEstado);
+      } catch (err) {
+        console.error("No se pudo cambiar el estado 'sin remarcar' del sector:", err);
       }
     });
 
@@ -256,6 +278,18 @@ function updateSectorBadge(badge, activo) {
   }
 }
 
+function updateSinRemarcarBadge(badge, activo) {
+  if (activo) {
+    badge.textContent = "🔇 ON";
+    badge.classList.add("on");
+    badge.classList.remove("off");
+  } else {
+    badge.textContent = "🔇 OFF";
+    badge.classList.add("off");
+    badge.classList.remove("on");
+  }
+}
+
 function updateActiveBadge(badge, activo) {
   if (activo) {
     badge.textContent = "Activo";
@@ -272,6 +306,7 @@ async function fetchSectors() {
     const data = await res.json();
     sectorDefs = data.sectors || [];
     sectorActiveMap = data.sectorActive || {};
+    sectorSinRemarcarActiveMap = data.sectorSinRemarcarActive || {};
   } catch (err) {
     console.error("No se pudo obtener la lista de sectores:", err);
   }

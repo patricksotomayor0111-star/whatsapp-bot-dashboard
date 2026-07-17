@@ -27,6 +27,7 @@ function loadData() {
     return {
       groupSectors: parsed.groupSectors || {},
       sectorActive: parsed.sectorActive || {},
+      sectorSinRemarcarActive: parsed.sectorSinRemarcarActive || {},
       groupActive: parsed.groupActive || {},
       focusedGroups: parsed.focusedGroups || [],
       responseDelayMs: parsed.responseDelayMs || DEFAULT_DELAY_MS,
@@ -41,6 +42,7 @@ function loadData() {
     return {
       groupSectors: {},
       sectorActive: {},
+      sectorSinRemarcarActive: {},
       groupActive: {},
       focusedGroups: [],
       responseDelayMs: DEFAULT_DELAY_MS,
@@ -103,6 +105,30 @@ function getSectorActiveMap() {
   const map = {};
   SECTOR_IDS.forEach((id) => {
     map[id] = isSectorActive(id);
+  });
+  return map;
+}
+
+// Segundo interruptor por sector, independiente del de arriba: controla
+// SOLO a los grupos "sin remarcar" de ese sector (por Comodín o por
+// override individual). Mismo default que el otro: ON salvo "Otros".
+function isSectorSinRemarcarActive(sectorId) {
+  if (Object.prototype.hasOwnProperty.call(data.sectorSinRemarcarActive, sectorId)) {
+    return data.sectorSinRemarcarActive[sectorId] !== false;
+  }
+  return sectorId !== DEFAULT_SECTOR;
+}
+
+function setSectorSinRemarcarActive(sectorId, active) {
+  if (!SECTOR_IDS.includes(sectorId)) throw new Error("Sector inválido: " + sectorId);
+  data.sectorSinRemarcarActive[sectorId] = Boolean(active);
+  save();
+}
+
+function getSectorSinRemarcarActiveMap() {
+  const map = {};
+  SECTOR_IDS.forEach((id) => {
+    map[id] = isSectorSinRemarcarActive(id);
   });
   return map;
 }
@@ -187,6 +213,16 @@ function isGroupSinRemarcarEfectivo(groupId, sectorId) {
   return esSectorSinRemarcar(sectorId);
 }
 
+// El sector de un grupo tiene DOS interruptores independientes: uno para
+// sus grupos que remarcan normal, y otro para los que están sin remarcar.
+// Esta función decide cuál de los dos aplica según cómo responda este
+// grupo puntual, y devuelve si ESE interruptor está prendido.
+function isGroupSectorActiveEfectivo(groupId, sectorId) {
+  return isGroupSinRemarcarEfectivo(groupId, sectorId)
+    ? isSectorSinRemarcarActive(sectorId)
+    : isSectorActive(sectorId);
+}
+
 // Migración única: el interruptor viejo (solo "sin remarcar" true/false) se
 // convierte al nuevo override de 3 estados. Corre una sola vez.
 function migrarGroupNoRemarcarAOverride() {
@@ -248,6 +284,9 @@ module.exports = {
   isSectorActive,
   setSectorActive,
   getSectorActiveMap,
+  isSectorSinRemarcarActive,
+  setSectorSinRemarcarActive,
+  getSectorSinRemarcarActiveMap,
   isGroupActive,
   setGroupActive,
   getFocusedGroups,
@@ -260,4 +299,5 @@ module.exports = {
   getGroupRemarcarOverride,
   setGroupRemarcarOverride,
   isGroupSinRemarcarEfectivo,
+  isGroupSectorActiveEfectivo,
 };
