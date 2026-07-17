@@ -2,46 +2,18 @@
    WhatsApp Bot Dashboard — Lógica principal
    ========================================= */
 
-// ---------- Datos de ejemplo (fácil de ampliar / conectar a una API) ----------
-const sectoresData = [
-  {
-    id: "norte",
-    nombre: "📍 Sector Norte",
-    activo: true,
-    grupos: [
-      { id: "n1", nombre: "Almacén 3 - Ventas", activo: true },
-      { id: "n2", nombre: "Distribuidores Norte", activo: true },
-      { id: "n3", nombre: "Soporte Clientes N", activo: false },
-    ],
-  },
-  {
-    id: "centro",
-    nombre: "📍 Sector Centro",
-    activo: true,
-    grupos: [
-      { id: "c1", nombre: "Tienda Central", activo: true },
-      { id: "c2", nombre: "Logística Centro", activo: true },
-    ],
-  },
-  {
-    id: "sur",
-    nombre: "📍 Sector Sur",
-    activo: false,
-    grupos: [
-      { id: "s1", nombre: "Sucursal Sur A", activo: false },
-      { id: "s2", nombre: "Sucursal Sur B", activo: true },
-      { id: "s3", nombre: "Repartidores Sur", activo: true },
-    ],
-  },
-];
-
 // ---------- Referencias del DOM ----------
-const sectorListEl = document.getElementById("sectorList");
-const sectorTemplate = document.getElementById("sectorTemplate");
+const qrCard = document.getElementById("qrCard");
+const qrCanvas = document.getElementById("qrCanvas");
+const qrHint = document.getElementById("qrHint");
+
+const groupListEl = document.getElementById("groupList");
 const groupTemplate = document.getElementById("groupTemplate");
 const searchInput = document.getElementById("searchInput");
 const emptyState = document.getElementById("emptyState");
+const notConnectedState = document.getElementById("notConnectedState");
 const visibleCount = document.getElementById("visibleCount");
+const groupCount = document.getElementById("groupCount");
 const focusGroupName = document.getElementById("focusGroupName");
 const restoreBtn = document.getElementById("restoreBtn");
 
@@ -55,113 +27,84 @@ const closeDrawer = document.getElementById("closeDrawer");
 const drawer = document.getElementById("drawer");
 const drawerOverlay = document.getElementById("drawerOverlay");
 
-let botActive = false;
-let currentFocusGroup = "Sector Norte · Almacén 3";
+let currentFocusGroup = "Ninguno";
+let groupsData = [];
+let isConnected = false;
+let lastRenderedQr = null;
 
-// ---------- Render de sectores y grupos ----------
-function renderSectores(filtro = "") {
-  sectorListEl.innerHTML = "";
+// ---------- Render de grupos reales ----------
+function renderGroups(filtro = "") {
+  groupListEl.innerHTML = "";
   const term = filtro.trim().toLowerCase();
-  let totalVisibles = 0;
+  const gruposFiltrados = term
+    ? groupsData.filter((g) => g.name.toLowerCase().includes(term))
+    : groupsData;
 
-  sectoresData.forEach((sector) => {
-    const gruposFiltrados = term
-      ? sector.grupos.filter((g) => g.nombre.toLowerCase().includes(term))
-      : sector.grupos;
+  gruposFiltrados.forEach((grupo) => {
+    const groupNode = groupTemplate.content.cloneNode(true);
+    const nameEl = groupNode.querySelector(".group-name");
+    const participantsEl = groupNode.querySelector(".group-participants");
+    const copyBtn = groupNode.querySelector(".copy-id-btn");
 
-    // Si hay búsqueda y el sector no tiene coincidencias, se omite
-    if (term && gruposFiltrados.length === 0) return;
+    nameEl.textContent = grupo.name;
+    participantsEl.textContent = `${grupo.participants} participante${grupo.participants === 1 ? "" : "s"}`;
 
-    totalVisibles += gruposFiltrados.length;
-
-    const sectorNode = sectorTemplate.content.cloneNode(true);
-    const article = sectorNode.querySelector(".sector-card");
-    const nameEl = sectorNode.querySelector(".sector-name");
-    const chevron = sectorNode.querySelector(".sector-chevron");
-    const header = sectorNode.querySelector(".sector-header");
-    const badge = sectorNode.querySelector(".sector-toggle-badge");
-    const groupsContainer = sectorNode.querySelector(".sector-groups");
-
-    nameEl.textContent = sector.nombre;
-    updateSectorBadge(badge, sector.activo);
-
-    // Construir filas de grupos
-    gruposFiltrados.forEach((grupo) => {
-      const groupNode = groupTemplate.content.cloneNode(true);
-      const nameSpan = groupNode.querySelector(".group-name");
-      const badgeSpan = groupNode.querySelector(".badge-active");
-      const targetBtn = groupNode.querySelector(".target-btn");
-
-      nameSpan.textContent = grupo.nombre;
-
-      if (grupo.activo) {
-        badgeSpan.textContent = "Activo";
-        badgeSpan.className = "badge-active shrink-0";
-      } else {
-        badgeSpan.textContent = "Inactivo";
-        badgeSpan.className = "badge-inactive shrink-0";
-      }
-
-      targetBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        setFocusGroup(`${sector.nombre.replace("📍 ", "")} · ${grupo.nombre}`);
-        pulseButton(targetBtn);
-      });
-
-      groupsContainer.appendChild(groupNode);
-    });
-
-    // Abrir automáticamente el sector si hay término de búsqueda
-    const shouldOpen = Boolean(term);
-    if (shouldOpen) {
-      groupsContainer.classList.add("open");
-      groupsContainer.style.maxHeight = groupsContainer.scrollHeight + "px";
-      chevron.classList.add("open");
-    }
-
-    // Expandir / colapsar sector
-    header.addEventListener("click", () => {
-      const isOpen = groupsContainer.classList.toggle("open");
-      chevron.classList.toggle("open");
-      groupsContainer.style.maxHeight = isOpen ? groupsContainer.scrollHeight + "px" : "0px";
-    });
-
-    // Activar / desactivar sector completo
-    badge.addEventListener("click", (e) => {
+    copyBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
-      sector.activo = !sector.activo;
-      updateSectorBadge(badge, sector.activo);
+      try {
+        await navigator.clipboard.writeText(grupo.id);
+        copyBtn.innerHTML = '<i class="fa-solid fa-check text-xs"></i>';
+        setTimeout(() => {
+          copyBtn.innerHTML = '<i class="fa-regular fa-copy text-xs"></i>';
+        }, 1200);
+      } catch (err) {
+        console.error("No se pudo copiar el ID:", err);
+      }
     });
 
-    sectorListEl.appendChild(sectorNode);
+    groupListEl.appendChild(groupNode);
   });
 
-  // Estado vacío
-  if (term && totalVisibles === 0) {
+  groupCount.textContent = `(${groupsData.length})`;
+
+  if (!isConnected) {
+    groupListEl.classList.add("hidden");
+    emptyState.classList.add("hidden");
+    notConnectedState.classList.remove("hidden");
+    visibleCount.textContent = "Sin conexión";
+  } else if (term && gruposFiltrados.length === 0) {
+    groupListEl.classList.add("hidden");
+    notConnectedState.classList.add("hidden");
     emptyState.classList.remove("hidden");
     visibleCount.textContent = "Sin resultados";
   } else {
+    groupListEl.classList.remove("hidden");
+    notConnectedState.classList.add("hidden");
     emptyState.classList.add("hidden");
-    visibleCount.textContent = term ? `Mostrando ${totalVisibles} grupo(s)` : "Mostrando todos";
+    visibleCount.textContent = term ? `Mostrando ${gruposFiltrados.length} grupo(s)` : "Mostrando todos";
   }
 }
 
-function updateSectorBadge(badge, activo) {
-  if (activo) {
-    badge.textContent = "Sector ON";
-    badge.classList.add("on");
-    badge.classList.remove("off");
-  } else {
-    badge.textContent = "Sector OFF";
-    badge.classList.add("off");
-    badge.classList.remove("on");
+async function fetchGroups() {
+  try {
+    const res = await fetch("/api/groups");
+    const data = await res.json();
+    groupsData = data.groups || [];
+  } catch (err) {
+    console.error("No se pudo obtener la lista de grupos:", err);
   }
+  renderGroups(searchInput.value);
 }
 
-function pulseButton(btn) {
-  btn.classList.add("selected");
-  setTimeout(() => btn.classList.remove("selected"), 600);
-}
+// ---------- Búsqueda ----------
+searchInput.addEventListener("input", (e) => {
+  renderGroups(e.target.value);
+});
+
+// ---------- Modo enfoque ----------
+restoreBtn.addEventListener("click", () => {
+  setFocusGroup("Ninguno");
+});
 
 function setFocusGroup(nombre) {
   currentFocusGroup = nombre;
@@ -170,41 +113,83 @@ function setFocusGroup(nombre) {
   setTimeout(() => focusGroupName.classList.remove("fade-in"), 500);
 }
 
-// ---------- Búsqueda ----------
-searchInput.addEventListener("input", (e) => {
-  renderSectores(e.target.value);
-});
-
-// ---------- Restaurar modo enfoque ----------
-restoreBtn.addEventListener("click", () => {
-  setFocusGroup("Sector Norte · Almacén 3");
-});
-
-// ---------- Estado del bot ----------
+// ---------- Estado real del bot ----------
 function updateBotUI() {
-  if (botActive) {
+  if (isConnected) {
     botStatusText.textContent = "Bot Activo";
-    botToggleLabel.textContent = "Desactivar";
-    botToggleBtn.classList.remove("bg-brand-red");
+    botToggleLabel.textContent = "Desvincular";
+    botToggleBtn.disabled = false;
+    botToggleBtn.classList.remove("bg-brand-red", "opacity-50");
     botToggleBtn.classList.add("bg-brand-green");
     botStatusDot.classList.remove("bg-brand-red");
     botStatusDot.classList.add("bg-brand-green", "pulse-active");
     botStatusDot.style.boxShadow = "0 0 0 4px rgba(34,197,94,0.15)";
+    qrCard.classList.add("hidden");
   } else {
-    botStatusText.textContent = "Bot Inactivo";
-    botToggleLabel.textContent = "Activar";
+    botStatusText.textContent = "Bot Desconectado";
+    botToggleLabel.textContent = "Vincular";
+    botToggleBtn.disabled = true;
     botToggleBtn.classList.remove("bg-brand-green");
-    botToggleBtn.classList.add("bg-brand-red");
+    botToggleBtn.classList.add("bg-brand-red", "opacity-50");
     botStatusDot.classList.remove("bg-brand-green", "pulse-active");
     botStatusDot.classList.add("bg-brand-red");
     botStatusDot.style.boxShadow = "0 0 0 4px rgba(239,68,68,0.15)";
+    qrCard.classList.remove("hidden");
   }
 }
 
-botToggleBtn.addEventListener("click", () => {
-  botActive = !botActive;
-  updateBotUI();
+// El botón solo tiene sentido para desvincular: para "activar" hay que escanear el QR
+botToggleBtn.addEventListener("click", async () => {
+  if (!isConnected) return;
+  const confirmado = confirm("¿Desvincular WhatsApp? Tendrás que escanear el QR de nuevo.");
+  if (!confirmado) return;
+  botToggleBtn.disabled = true;
+  try {
+    await fetch("/api/bot/logout", { method: "POST" });
+  } catch (err) {
+    console.error("No se pudo desvincular:", err);
+  }
 });
+
+// ---------- Polling de estado (conexión + QR) ----------
+async function pollStatus() {
+  try {
+    const res = await fetch("/api/status");
+    const data = await res.json();
+    const wasConnected = isConnected;
+    isConnected = Boolean(data.connected);
+
+    if (isConnected) {
+      qrHint.textContent = "";
+      lastRenderedQr = null;
+    } else if (data.qr && data.qr !== lastRenderedQr) {
+      lastRenderedQr = data.qr;
+      qrHint.textContent = "Escanea antes de que expire (se renueva solo).";
+      try {
+        QRCode.toCanvas(qrCanvas, data.qr, { width: 220, margin: 1 }, (err) => {
+          if (err) console.error("Error al generar el QR:", err);
+        });
+      } catch (err) {
+        console.error("No se pudo generar el QR (¿falló el CDN?):", err);
+      }
+    } else if (!data.qr) {
+      qrHint.textContent = "Esperando código QR del servidor…";
+    }
+
+    updateBotUI();
+
+    if (isConnected && !wasConnected) {
+      fetchGroups();
+    } else if (isConnected) {
+      renderGroups(searchInput.value);
+    } else {
+      groupsData = [];
+      renderGroups(searchInput.value);
+    }
+  } catch (err) {
+    console.error("No se pudo consultar el estado del bot:", err);
+  }
+}
 
 // ---------- Drawer (menú lateral) ----------
 function openDrawer() {
@@ -223,6 +208,8 @@ drawerOverlay.addEventListener("click", closeDrawerFn);
 
 // ---------- Inicialización ----------
 document.addEventListener("DOMContentLoaded", () => {
-  renderSectores();
   updateBotUI();
+  renderGroups();
+  pollStatus();
+  setInterval(pollStatus, 3000);
 });
