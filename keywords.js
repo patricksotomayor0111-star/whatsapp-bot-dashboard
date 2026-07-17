@@ -19,7 +19,7 @@ const positiveKeywords = [
   "necesito delivery", "manden delivery", "me envia un delivery",
   "me envias un delivery", "puede mandar un delivery",
   "enviar un delivery", "delivery a tienda", "delivery al local", "necesito un delivery",
-  "me envia uno porfa", "me envias uno", "puede mandar uno",
+  "me envia uno porfa", "me envia uno", "me envias uno", "puede mandar uno",
   "me podria enviar", "me podrias enviar", "podria enviar",
   "por favor me envia", "por favor envien",
   "venir al local", "pasar al local", "acerquese al local",
@@ -66,7 +66,7 @@ const excludedKeywords = [
   "mercado", "supermercado", "plaza vea", "metro ", "tottus",
   "para la urb", "para urb", "para jr", "para av ", "para calle",
   "para pasaje", "manzana", "mz ", "lote ", "lt ", "etapa",
-  "?", "+51", "del mas cercano", "exclusivamente para delivery",
+  "+51", "del mas cercano", "exclusivamente para delivery",
   "aqui esta amigo", "puede recogerlo", "ya puedes pasar",
   "ya puede recoger", "compra", "alguien disponible",
 ];

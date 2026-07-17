@@ -148,10 +148,18 @@ async function startBot() {
 }
 
 function extractText(msg) {
+  // Si el chat tiene mensajes que desaparecen (o es "ver una vez"), el texto
+  // real viene envuelto adentro y no directo en msg.message.
+  const m =
+    msg.message.ephemeralMessage?.message ||
+    msg.message.viewOnceMessage?.message ||
+    msg.message.viewOnceMessageV2?.message ||
+    msg.message;
+
   return (
-    msg.message.conversation ||
-    msg.message.extendedTextMessage?.text ||
-    msg.message.imageMessage?.caption ||
+    m.conversation ||
+    m.extendedTextMessage?.text ||
+    m.imageMessage?.caption ||
     ""
   );
 }
