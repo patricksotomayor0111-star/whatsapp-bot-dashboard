@@ -509,25 +509,29 @@ async function startBot() {
         return null;
       };
 
-      // Las keywords especiales de ESTE grupo ganan siempre: se saltan
-      // exclusiones, números bloqueados y hasta el sector/grupo apagado.
-      let match = buscarKeywordEspecial(text, chatId);
-      const esEspecial = Boolean(match);
+      let match = null;
 
-      if (!match && bloqueadoGlobal) {
-        // Número bloqueado globalmente: solo puede responder si hay una
-        // excepción activa para este número+grupo+frase. Si no, sigue
-        // bloqueado sin más vueltas (no revisa keywords normales).
+      if (bloqueadoGlobal) {
+        // Número bloqueado globalmente: ya ni las keywords especiales lo
+        // saltan. Solo puede responder si hay una excepción activa para
+        // este número+grupo+frase. Si no, sigue bloqueado sin más vueltas.
         match = buscarExcepcionNumero(text, chatId, senderNumber);
         if (!match) continue;
-      } else if (!match) {
-        // Número normal: las keywords globales agregadas desde el panel
-        // no respetan las exclusiones (pero si las que ya venían en keywords.js).
-        match = buscarMatch(getExtraPositiveMatchers());
+      } else {
+        // Número normal: las keywords especiales de ESTE grupo se revisan
+        // primero y se saltan las palabras excluidas, pero YA NO se saltan
+        // que el sector/grupo estén apagados (eso se revisa más abajo,
+        // igual que para el resto).
+        match = buscarKeywordEspecial(text, chatId);
         if (!match) {
-          const tieneExclusion = getExcludedMatchers().some(({ regex }) => regex.test(text));
-          if (!tieneExclusion) {
-            match = buscarMatch(getBasePositiveMatchers());
+          // Las keywords globales agregadas desde el panel tampoco respetan
+          // las exclusiones (pero sí las que ya venían en keywords.js).
+          match = buscarMatch(getExtraPositiveMatchers());
+          if (!match) {
+            const tieneExclusion = getExcludedMatchers().some(({ regex }) => regex.test(text));
+            if (!tieneExclusion) {
+              match = buscarMatch(getBasePositiveMatchers());
+            }
           }
         }
       }
@@ -544,12 +548,11 @@ async function startBot() {
       const enModoEnfoque = focusedGroups.length > 0;
 
       if (enModoEnfoque) {
-        // El modo enfoque manda por encima de todo, incluso de las especiales:
-        // SOLO responden los grupos marcados.
+        // El modo enfoque manda por encima de todo: SOLO responden los
+        // grupos marcados.
         if (!focusedGroups.includes(chatId)) continue;
-      } else if (!esEspecial) {
-        // Fuera de modo enfoque: las especiales se saltan este check, pero
-        // el resto (excepciones por número, keywords normales) necesitan
+      } else {
+        // Fuera de modo enfoque, todos (incluidas las especiales) necesitan
         // que el sector Y el grupo estén activos.
         if (!isSectorActive(sectorId)) continue;
         if (!isGroupActive(chatId)) continue;
