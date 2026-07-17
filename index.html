@@ -15,7 +15,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <!-- Generador de QR (solo cliente, para mostrar el QR de vinculación de WhatsApp) -->
-<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
 <link rel="stylesheet" href="styles.css" />
 
@@ -92,7 +92,7 @@
           Escanea este código desde WhatsApp → <b>Dispositivos vinculados → Vincular un dispositivo</b>.
         </p>
         <div class="mt-4 flex justify-center">
-          <canvas id="qrCanvas" width="220" height="220" class="rounded-xl"></canvas>
+          <div id="qrCanvas" class="w-[220px] h-[220px] rounded-xl overflow-hidden"></div>
         </div>
         <p id="qrHint" class="mt-3 text-center text-xs text-slate-400">Esperando código QR del servidor…</p>
       </section>

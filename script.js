@@ -31,6 +31,7 @@ let currentFocusGroup = "Ninguno";
 let groupsData = [];
 let isConnected = false;
 let lastRenderedQr = null;
+let qrInstance = null;
 
 // ---------- Render de grupos reales ----------
 function renderGroups(filtro = "") {
@@ -166,9 +167,17 @@ async function pollStatus() {
       lastRenderedQr = data.qr;
       qrHint.textContent = "Escanea antes de que expire (se renueva solo).";
       try {
-        QRCode.toCanvas(qrCanvas, data.qr, { width: 220, margin: 1 }, (err) => {
-          if (err) console.error("Error al generar el QR:", err);
-        });
+        if (!qrInstance) {
+          qrCanvas.innerHTML = "";
+          qrInstance = new QRCode(qrCanvas, {
+            text: data.qr,
+            width: 220,
+            height: 220,
+            correctLevel: QRCode.CorrectLevel.M,
+          });
+        } else {
+          qrInstance.makeCode(data.qr);
+        }
       } catch (err) {
         console.error("No se pudo generar el QR (¿falló el CDN?):", err);
       }
