@@ -31,10 +31,14 @@ npm start
 En la consola aparecerá un código QR. Ábrelo desde WhatsApp en tu celular:
 **Ajustes → Dispositivos vinculados → Vincular un dispositivo**, y escanéalo.
 
-Una vez conectado, escribe la palabra `box` en un grupo donde esté el número
-vinculado. El bot debe responder `Voy` citando tu mensaje.
+Una vez conectado, activa el bot desde el panel y escribe la palabra `box` en
+un grupo donde esté el número vinculado. El bot debe responder `Voy` citando
+tu mensaje.
 
-Para cambiar la palabra clave o agregar más, edita `bot/keywords.js`.
+Las palabras clave que activan el bot y las frases que lo bloquean (para
+evitar falsos positivos) están en `keywords.js`, en `positiveKeywords` y
+`excludedKeywords`. Si un mensaje contiene una frase excluida, el bot no
+responde aunque también contenga una palabra clave positiva.
 
 ## 2. Subir a GitHub
 

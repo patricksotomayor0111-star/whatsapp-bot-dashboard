@@ -8,7 +8,7 @@ const P = require("pino");
 const qrcode = require("qrcode-terminal");
 const path = require("path");
 const fs = require("fs");
-const { keywordRules } = require("./keywords");
+const { positiveKeywords, excludedKeywords, defaultResponse } = require("./keywords");
 
 const SESSION_PATH = path.join(__dirname, "session");
 
@@ -109,26 +109,24 @@ async function startBot() {
     const text = extractText(msg).trim().toLowerCase();
     if (!text) return;
 
-    const rule = keywordRules.find(
-      (r) =>
-        (r.groupId === "*" || r.groupId === chatId) &&
-        text === r.keyword.toLowerCase()
+    const tieneExclusion = excludedKeywords.some((k) => text.includes(k));
+    if (tieneExclusion) return;
+
+    const keywordEncontrada = positiveKeywords.find((k) => text.includes(k));
+    if (!keywordEncontrada) return;
+
+    botState.lastActivity = {
+      chatId,
+      keyword: keywordEncontrada,
+      response: defaultResponse,
+      time: new Date().toISOString(),
+    };
+
+    await sock.sendMessage(
+      chatId,
+      { text: defaultResponse },
+      { quoted: msg } // esto genera la respuesta citada (igual que la captura)
     );
-
-    if (rule) {
-      botState.lastActivity = {
-        chatId,
-        keyword: rule.keyword,
-        response: rule.response,
-        time: new Date().toISOString(),
-      };
-
-      await sock.sendMessage(
-        chatId,
-        { text: rule.response },
-        { quoted: msg } // esto genera la respuesta citada (igual que la captura)
-      );
-    }
   });
 
   return sock;

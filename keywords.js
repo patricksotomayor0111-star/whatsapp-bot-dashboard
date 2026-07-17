@@ -1,16 +1,77 @@
-// Reglas de palabras clave por grupo.
-// groupId: '*' aplica a TODOS los grupos donde esté el bot.
-// Para limitar a un grupo específico, usa su ID real, ej: '120363012345678901@g.us'
-// (ese ID se ve en la consola de Railway cuando el bot recibe un mensaje del grupo).
-
-const keywordRules = [
-  {
-    groupId: "*",
-    keyword: "box",
-    response: "Voy",
-  },
-  // Agrega más reglas aquí, por ejemplo:
-  // { groupId: '*', keyword: 'llego', response: 'Perfecto, te espero' },
+// Si el mensaje de un grupo contiene alguna de estas frases (y ninguna de las
+// excluidas), el bot responde citando el mensaje original.
+const positiveKeywords = [
+  "box",
+  "moto", "motorizado", "unidad", "movil", "movilidad", "recoger", "deli", "dely",
+  "pedido listo", "tenemos pedido", "hay pedido", "pedido en camino",
+  "ya esta listo el pedido", "pedido listo en", "venir",
+  "pueden venir", "vengan", "venga", "vayan", "acercarse", "acercarce",
+  "acercandose", "se pueden acercar", "vayan a ptb", "vayan a pds",
+  "vayan a mega", "ptb a mega plaza", "ptb a pds", "ptb a plaza de sol",
+  "ptb mega", "pds a ptb", "pds a mega", "ptb a parcona",
+  "se acerca al local", "acercandose al local", "venor", "movi", "v3nir",
+  "5 min", "10 min", "7 min", "5min", "10min", "7min",
+  "en 5 minutos", "en 7 minutos", "en 10 minutos",
+  "5 minutos", "7 minutos", "10 minutos", "amigo tengo pedido", "buenas noches tengo pedido",
+  "confirmo pedido", "confirmado", "confirmado pedido", "venie",
+  "una unidad", "un motorizado", "un box", "un movil",
+  "un delivery", "delivery por favor", "delivery porfa",
+  "necesito delivery", "manden delivery", "me envia un delivery",
+  "me envias un delivery", "puede mandar un delivery",
+  "enviar un delivery", "delivery a tienda", "delivery al local", "necesito un delivery",
+  "me envia uno porfa", "me envias uno", "puede mandar uno",
+  "me podria enviar", "me podrias enviar", "podria enviar",
+  "por favor me envia", "por favor envien",
+  "venir al local", "pasar al local", "acerquese al local",
+  "alguien puede acercarse", "alguien cerca", "hay alguien", "viniendo", "recoger pedido",
+  "el pedido esta listo pueden pasar por el",
+  "pueden pasar por el pedido", "pasen por el pedido",
 ];
 
-module.exports = { keywordRules };
+// Si el mensaje contiene alguna de estas frases, el bot NO responde,
+// aunque también contenga una palabra clave positiva de arriba.
+const excludedKeywords = [
+  "cuanto", "cuánto", "precio", "costo", "tarifa", "cobran", "cobras", "makro", "plaza vea", "tottus", "compra", "ica", "ref", "en la recta",
+  "cuanto sale", "cuanto cuesta", "cuánto sale", "cuánto cuesta", "casa", "piso", "unidad vecinal", "color", "al frente", "frente al", "grifo",
+  "a cuanto", "a cuánto", "me pueden dar precio", "precio del delivery",
+  "cuanto es el delivery", "cuanto me sale", "cuanto cobran",
+  "cuanto es", "cuanto sera", "cuánto sera", "a cuánto esta", "a cuanto esta", "tiene costo", "tiene precio", "free", "gratis",
+  "viene a recoger", "va a recoger", "pasa a recoger", "pasar a recoger",
+  "viene a recojerlo", "viene a recogerlo", "lo recoge", "manda a recoger",
+  "puede pasar", "ya puede pasar", "pasar por su pedido", "viene por su pedido",
+  "ya puedes recoger", "puedes pasar a recogerlo", "puedes pasar a recojerlo",
+  "va a pasar", "viene a pasar", "pasa por su pedido",
+  "su pedido esta listo", "tu pedido esta listo", "ya esta listo su pedido",
+  "listo para recoger", "pedido para recoger", "ya tiene su pedido",
+  "el pedido esta listo para recoger", "pedido listo para recoger",
+  "puede venir por su pedido", "puede pasar por su pedido",
+  "ya tiene su pedido listo", "lo enviamos con otro delivery",
+  "pedido pequeno", "pedido pequeño", "pedido grande",
+  "a que hora vienes por tu pedido", "a que hora viene por su pedido",
+  "con pos", "otro delivery con pos", "digale que envio con otro delivery",
+  "con otro delivery", "otro delivery lleva", "enviamos con otro",
+  "20 minutos", "25 minutos", "30 minutos", "40 minutos", "45 minutos",
+  "20min", "25min", "30min", "40min", "45min",
+  "en 20 min", "en 25 min", "en 30 min", "en 40 min", "en 45 min",
+  "20 min", "25 min", "30 min", "40 min", "45 min",
+  "confirmo en unos minutos", "confirmamos en unos minutos",
+  "confirmo en un momento", "confirmo en breve", "confirmo en",
+  "confirmamos en", "les aviso cuando", "le aviso cuando",
+  "les mandaremos mensaje cuando", "cuando este listo les",
+  "buenas tardes por si sale", "buenas noches por si sale", "buenos dias por si sale",
+  "por si sale algun pedido", "por si sale otro pedido", "por si sale otro",
+  "emapica", "municipalidad", "hospital", "banco", "essalud", "minsa",
+  "universidad", "iglesia", "santo domingo", "san francisco", "san jose",
+  "minedu", "ministerio", "comisaria", "prefecture", "prefectura",
+  "mercado", "supermercado", "plaza vea", "metro ", "tottus",
+  "para la urb", "para urb", "para jr", "para av ", "para calle",
+  "para pasaje", "manzana", "mz ", "lote ", "lt ", "etapa",
+  "?", "+51", "del mas cercano", "exclusivamente para delivery",
+  "aqui esta amigo", "puede recogerlo", "ya puedes pasar",
+  "ya puede recoger", "compra", "alguien disponible",
+];
+
+// Respuesta que se envía citando el mensaje cuando hay una palabra clave positiva
+const defaultResponse = "Voy";
+
+module.exports = { positiveKeywords, excludedKeywords, defaultResponse };
