@@ -80,16 +80,18 @@ app.post("/api/groups/:groupId/active", (req, res) => {
   res.json({ ok: true, active: sectors.isGroupActive(req.params.groupId) });
 });
 
+// Restaura el modo enfoque: vuelve al comportamiento normal por sector/grupo.
+// OJO: esta ruta debe ir ANTES que "/api/focus/:groupId", si no Express
+// interpreta "clear" como si fuera un groupId (por eso el bug de antes).
+app.post("/api/focus/clear", (req, res) => {
+  sectors.clearFocus();
+  res.json({ ok: true });
+});
+
 // Modo enfoque: agrega un grupo a la lista de enfocados (solo esos responden)
 app.post("/api/focus/:groupId", (req, res) => {
   sectors.addFocusGroup(req.params.groupId);
   res.json({ ok: true, focusedGroups: sectors.getFocusedGroups() });
-});
-
-// Restaura el modo enfoque: vuelve al comportamiento normal por sector/grupo
-app.post("/api/focus/clear", (req, res) => {
-  sectors.clearFocus();
-  res.json({ ok: true });
 });
 
 // Pausa o reanuda las respuestas automáticas sin desconectar WhatsApp
