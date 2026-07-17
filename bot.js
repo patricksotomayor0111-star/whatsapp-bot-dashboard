@@ -61,8 +61,40 @@ function getExcludedMatchers() {
   return buildMatchers([...excludedKeywords, ...dynamicKeywords.getExtraExcluded()]);
 }
 
-function getSpecialMatchers(chatId) {
-  return buildMatchers(dynamicKeywords.getSpecialForGroup(chatId));
+// Palabras de relleno que se ignoran al buscar keywords especiales por grupo:
+// "hola que hace una compra" se reduce a las palabras importantes ["hola","compra"].
+const STOP_WORDS = new Set([
+  "el", "la", "los", "las", "un", "una", "unos", "unas", "de", "del", "al", "a", "en", "y", "o", "u",
+  "que", "hace", "hacer", "hizo", "es", "son", "era", "fue", "ser", "estar", "esta", "estan", "estas",
+  "para", "por", "con", "sin", "se", "su", "sus", "mi", "mis", "tu", "tus", "le", "les", "lo", "me", "te", "nos",
+  "ese", "esa", "esos", "esas", "este", "estos", "ya", "no", "si", "mas", "muy", "pero",
+  "como", "cuando", "donde", "quien", "cual", "hay", "ha", "he", "has", "han", "va", "van", "voy", "vas",
+  "yo", "el", "ella", "ellos", "ellas", "nosotros", "ustedes", "tambien", "solo", "sobre", "entre",
+]);
+
+// De una frase deja solo las palabras "importantes" (sin conectores ni palabras de 1 letra).
+function getSignificantWords(phrase) {
+  return normalizeText(phrase)
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 2 && !STOP_WORDS.has(w));
+}
+
+// Las keywords especiales por grupo no buscan la frase completa: alcanza con
+// que TODAS sus palabras importantes aparezcan en el mensaje (en cualquier
+// orden, con lo que sea en el medio). Así "hola que hace una compra" también
+// detecta "hola quiero una compra en metro" (tiene "hola" y "compra").
+function buscarKeywordEspecial(text, chatId) {
+  const frases = dynamicKeywords.getSpecialForGroup(chatId);
+  for (const frase of frases) {
+    const palabras = getSignificantWords(frase);
+    if (palabras.length === 0) continue;
+    const resultados = palabras.map((w) => buildKeywordRegex(w).exec(text));
+    if (resultados.every(Boolean)) {
+      const primero = resultados[0];
+      return { keyword: frase, index: primero.index, length: primero[0].length };
+    }
+  }
+  return null;
 }
 
 // Deja solo los dígitos y se queda con los últimos 9 (número peruano sin
@@ -212,8 +244,8 @@ async function startBot() {
       };
 
       // Las keywords especiales de ESTE grupo ganan siempre, sin importar
-      // las exclusiones globales.
-      let match = buscarMatch(getSpecialMatchers(chatId));
+      // las exclusiones globales (búsqueda flexible por palabras, no frase exacta).
+      let match = buscarKeywordEspecial(text, chatId);
 
       if (!match) {
         const tieneExclusion = getExcludedMatchers().some(({ regex }) => regex.test(text));
