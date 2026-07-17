@@ -195,16 +195,18 @@ async function fetchSectors() {
   }
 }
 
-async function fetchGroups() {
+async function fetchGroups(force = false) {
   try {
     const res = await fetch("/api/groups");
     const data = await res.json();
-    groupsData = data.groups || [];
+    const nuevosGrupos = data.groups || [];
+    const cambio = JSON.stringify(nuevosGrupos) !== JSON.stringify(groupsData);
+    groupsData = nuevosGrupos;
+    if (sectorDefs.length === 0) await fetchSectors();
+    if (cambio || force) renderSectors(searchInput.value);
   } catch (err) {
     console.error("No se pudo obtener la lista de grupos:", err);
   }
-  if (sectorDefs.length === 0) await fetchSectors();
-  renderSectors(searchInput.value);
 }
 
 // ---------- Búsqueda ----------
@@ -326,13 +328,16 @@ async function pollStatus() {
     updateBotUI();
 
     if (isConnected && !wasConnected) {
-      fetchGroups();
-    } else if (isConnected) {
-      renderSectors(searchInput.value);
-    } else {
+      // Recién se conectó: carga los grupos y dibuja la lista una vez (forzado,
+      // por si todavía no hay grupos y groupsData sigue vacío como antes).
+      fetchGroups(true);
+    } else if (!isConnected && groupsData.length > 0) {
+      // Se desconectó: limpia la lista una vez, no en cada poll.
       groupsData = [];
       renderSectors(searchInput.value);
     }
+    // Si sigue conectado sin cambios, no se vuelve a dibujar la lista entera
+    // en cada poll (eso es lo que causaba el salto de scroll).
   } catch (err) {
     console.error("No se pudo consultar el estado del bot:", err);
   }
@@ -360,4 +365,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   renderSectors();
   pollStatus();
   setInterval(pollStatus, 3000);
+  // Refresca la lista de grupos cada rato (solo redibuja si algo cambió).
+  setInterval(() => {
+    if (isConnected) fetchGroups();
+  }, 20000);
 });
