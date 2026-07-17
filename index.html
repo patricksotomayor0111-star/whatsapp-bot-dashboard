@@ -307,7 +307,7 @@
       </section>
 
       <!-- Lista de grupos agrupados por sector -->
-      <section id="sectorList" class="space-y-4 fade-in" style="animation-delay:.25s">
+      <section id="sectorList" class="space-y-2 fade-in" style="animation-delay:.25s">
         <!-- Los sectores se inyectan dinámicamente desde script.js -->
       </section>
 
@@ -341,17 +341,17 @@
 
   <!-- Plantilla reutilizable de grupo -->
   <template id="groupTemplate">
-    <div class="group-row flex flex-col gap-2 py-3">
-      <div class="flex items-center justify-between gap-2">
-        <p class="group-name text-sm font-medium text-slate-700 truncate flex-1 min-w-0">Nombre del grupo</p>
+    <div class="group-row flex flex-col gap-1 py-1.5">
+      <div class="flex items-center justify-between gap-1.5">
+        <p class="group-name text-[13px] font-medium text-slate-700 truncate flex-1 min-w-0">Nombre del grupo</p>
         <button class="focus-btn target-btn shrink-0" aria-label="Modo enfoque para este grupo" title="Enfocar este grupo">🎯</button>
       </div>
-      <div class="flex items-center justify-between gap-2">
-        <p class="group-participants text-xs text-slate-400 flex-1 min-w-0 truncate">0 participantes</p>
+      <div class="flex items-center justify-between gap-1.5">
+        <p class="group-participants text-[10px] text-slate-400 flex-1 min-w-0 truncate">0 participantes</p>
         <button class="group-active-badge shrink-0" aria-label="Activar/Desactivar este grupo"></button>
-        <select class="sector-select shrink-0 text-xs border border-slate-200 rounded-lg px-1.5 py-1.5 bg-white text-slate-600 focus:outline-none focus:ring-2 focus:ring-brand-green/40"></select>
-        <button class="copy-id-btn shrink-0 w-8 h-8 rounded-lg bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center transition-colors" aria-label="Copiar ID del grupo" title="Copiar ID del grupo">
-          <i class="fa-regular fa-copy text-xs"></i>
+        <select class="sector-select shrink-0 text-[11px] border border-slate-200 rounded-lg px-1 py-0.5 bg-white text-slate-600 focus:outline-none focus:ring-2 focus:ring-brand-green/40"></select>
+        <button class="copy-id-btn shrink-0 w-6 h-6 rounded-lg bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center transition-colors" aria-label="Copiar ID del grupo" title="Copiar ID del grupo">
+          <i class="fa-regular fa-copy text-[10px]"></i>
         </button>
       </div>
     </div>

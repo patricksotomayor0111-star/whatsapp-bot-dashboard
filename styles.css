@@ -124,19 +124,19 @@ body {
 }
 
 .sector-header {
-  padding: 18px 20px;
+  padding: 12px 16px;
   background: transparent;
   border: none;
   cursor: pointer;
 }
 
 .sector-groups {
-  padding: 0 20px;
+  padding: 0 16px;
   max-height: 0;
 }
 
 .sector-groups.open {
-  padding: 0 20px 8px 20px;
+  padding: 0 16px 4px 16px;
 }
 
 .sector-chevron.open {
@@ -182,25 +182,26 @@ body {
 .badge-active {
   background-color: rgba(34, 197, 94, 0.12);
   color: #16a34a;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
-  padding: 4px 10px;
+  padding: 3px 8px;
   border-radius: 999px;
 }
 
 .badge-inactive {
   background-color: rgba(148, 163, 184, 0.15);
   color: #64748b;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
-  padding: 4px 10px;
+  padding: 3px 8px;
   border-radius: 999px;
 }
 
 .target-btn {
-  width: 30px;
-  height: 30px;
-  border-radius: 10px;
+  width: 24px;
+  height: 24px;
+  font-size: 12px;
+  border-radius: 8px;
   background-color: rgba(245, 158, 11, 0.12);
   color: #F59E0B;
   display: flex;
