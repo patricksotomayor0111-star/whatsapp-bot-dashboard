@@ -318,6 +318,17 @@ function canonicalNumber(raw) {
   return digits.length > 9 ? digits.slice(-9) : digits;
 }
 
+// WhatsApp a veces identifica al remitente con un ID interno "@lid" (para
+// privacidad en grupos grandes) en vez de su número real "@s.whatsapp.net".
+// Baileys manda el JID alternativo en msg.key.participantAlt: si uno de los
+// dos es "@lid" y el otro no, nos quedamos con el que SÍ es un número real.
+function elegirJidReal(principal, alterno) {
+  const esLid = (jid) => typeof jid === "string" && jid.endsWith("@lid");
+  if (principal && !esLid(principal)) return principal;
+  if (alterno && !esLid(alterno)) return alterno;
+  return principal || alterno || "";
+}
+
 const excludedNumbersSet = new Set(
   excludedNumbers.flatMap((n) => [canonicalNumber(n), String(n).replace(/\D/g, "")])
 );
@@ -480,7 +491,7 @@ async function startBot() {
 
       if (!botState.active) continue;
 
-      const senderJid = msg.key.participant || msg.key.remoteJid || "";
+      const senderJid = elegirJidReal(msg.key.participant, msg.key.participantAlt) || msg.key.remoteJid || "";
       const senderNumber = canonicalNumber(senderJid.replace(/@.*/, ""));
       const bloqueadoGlobal = excludedNumbersSet.has(senderNumber);
       logSender(chatId, grupoActual?.name || chatId, senderJid, senderNumber, bloqueadoGlobal);
