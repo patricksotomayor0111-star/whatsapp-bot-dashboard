@@ -250,26 +250,8 @@ async function handleCashboxEntries(sock, chatId, msg, entradas) {
   });
 
   const hoy = cashbox.getToday();
-  let encabezado;
-
-  if (entradas.length === 1) {
-    const entry = entradas[0];
-    const emoji = entry.type === "gasto" ? "📉 Gasto registrado" : "✅ Ganancia registrada";
-    const descripcionTexto = entry.descripcion ? ` (${entry.descripcion})` : "";
-    encabezado = `${emoji}: ${formatSoles(entry.monto)}${descripcionTexto}`;
-  } else {
-    const detalle = entradas
-      .map((entry) => {
-        const emoji = entry.type === "gasto" ? "📉" : "✅";
-        const descripcionTexto = entry.descripcion ? ` (${entry.descripcion})` : "";
-        return `${emoji} ${formatSoles(entry.monto)}${descripcionTexto}`;
-      })
-      .join("\n");
-    encabezado = `📋 Se registraron ${entradas.length} movimientos:\n${detalle}`;
-  }
 
   const texto =
-    `${encabezado}\n\n` +
     `✅ Ganancias hoy: ${formatSoles(hoy.ganancias)}\n` +
     `📉 Gastos hoy: ${formatSoles(hoy.gastos)}\n` +
     `💰 Total líquido hoy: ${formatSoles(hoy.total)}`;
