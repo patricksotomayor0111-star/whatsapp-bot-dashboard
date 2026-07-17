@@ -127,12 +127,11 @@ const specialSeedByName = {
 //
 // OJO con los LID: a veces WhatsApp identifica a la misma persona con un
 // ID alterno tipo "272984178720993@lid" en vez de su número real, sobre
-// todo en grupos grandes. Si eso pasa, hay que agregar también ese número
-// (los últimos 9 dígitos del LID) como otra excepción en el mismo grupo,
-// si no el bot no lo va a reconocer. Ya nos pasó con "Hola": el número real
-// es 910795590, pero WhatsApp a veces lo manda como LID 178720993.
+// todo en grupos grandes. En "Hola" pasó justo eso: el número real
+// 910795590 nunca funcionó (WhatsApp siempre manda a esta persona con el
+// LID), así que se dejó SOLO el alias 178720993 (últimos 9 dígitos del LID).
 const FRASES_EXCEPCION_HOLA = [
-  { phrase: "Pendiente\nRecojo de cliente", active: false },
+  { phrase: "Pendiente\nRecojo de cliente", active: true },
   { phrase: "Pendiente\nCompra de cliente", active: true },
 ];
 
@@ -143,8 +142,7 @@ const FRASES_EXCEPCION_REPORTES = [
 
 const numberExceptionSeed = {
   "Hola": {
-    "910795590": FRASES_EXCEPCION_HOLA,
-    "178720993": FRASES_EXCEPCION_HOLA, // alias por LID de la misma persona
+    "178720993": FRASES_EXCEPCION_HOLA, // alias por LID (el número real 910795590 no funcionaba ahí)
   },
   "REPORTES BOX DELIVERY": {
     "960186738": FRASES_EXCEPCION_REPORTES,
