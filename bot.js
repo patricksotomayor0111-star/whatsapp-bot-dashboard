@@ -128,6 +128,76 @@ function buscarExcepcionNumero(text, chatId, senderNumber) {
   return null;
 }
 
+// ---------- Filtro de tiempo (0 a 15 minutos) ----------
+// Si el mensaje menciona una cantidad de minutos ("en 20 minutos") o una
+// hora de reloj ("11:15 am"), el bot solo responde si eso cae entre 0 y 15
+// minutos desde ahora (hora de Perú). Si no menciona nada de tiempo, esta
+// regla no aplica y no afecta la detección normal.
+const MAX_MINUTOS_RESPUESTA = 15;
+
+// "en 20 minutos", "en 20 min", "en 20min", "en 20 m", "en 20",
+// "20 minutos", "20 min", "20min" (sin "en" pero con unidad explícita)
+function extractRelativeMinutes(text) {
+  let m = text.match(/\ben\s*(\d{1,3})\s*(?:min(?:uto)?s?\.?|m)?\b/i);
+  if (m) return parseInt(m[1], 10);
+  m = text.match(/\b(\d{1,3})\s*min(?:uto)?s?\.?\b/i);
+  if (m) return parseInt(m[1], 10);
+  return null;
+}
+
+// "11:15 am", "11:15am", "11:15 a.m.", "11.15", "11.15 am", "a las 11:15",
+// "11h15", "11 y 15", "11:15 pm"
+function extractClockTime(text) {
+  const m = text.match(/\b(\d{1,2})(?:\s*:\s*|\s*\.\s*|\s*h\s*|\s+y\s+)(\d{2})(?:\s*(a\.?\s*m\.?|p\.?\s*m\.?))?\b/i);
+  if (!m) return null;
+  const hour = parseInt(m[1], 10);
+  const minute = parseInt(m[2], 10);
+  if (hour > 23 || minute > 59) return null;
+  const meridiem = m[3] ? m[3].toLowerCase().replace(/[.\s]/g, "") : null; // "am", "pm" o null
+  return { hour, minute, meridiem };
+}
+
+// Hora actual en Perú (UTC-5, sin horario de verano), sin importar en qué
+// zona horaria esté corriendo el servidor.
+function getPeruNow() {
+  const now = new Date();
+  const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
+  return new Date(utcMs - 5 * 3600000);
+}
+
+// True si ALGUNA interpretación de la hora mencionada (am/pm, o ambas si no
+// se especifica) cae entre 0 y 15 minutos en el FUTURO respecto a ahora.
+function horaEstaEnRango(hour, minute, meridiem, now) {
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const candidatosHora = [];
+  if (meridiem === "am") {
+    candidatosHora.push(hour % 12);
+  } else if (meridiem === "pm") {
+    candidatosHora.push((hour % 12) + 12);
+  } else {
+    candidatosHora.push(hour % 24);
+    if (hour <= 11) candidatosHora.push(hour + 12);
+  }
+  return candidatosHora.some((h) => {
+    const diff = h * 60 + minute - nowMinutes;
+    return diff >= 0 && diff <= MAX_MINUTOS_RESPUESTA;
+  });
+}
+
+// Punto de entrada: true si el mensaje NO tiene ninguna mención de tiempo
+// (la regla no aplica), o si la que tiene cae dentro del rango permitido.
+function tiempoEnRango(text) {
+  const minutosRelativos = extractRelativeMinutes(text);
+  if (minutosRelativos !== null) {
+    return minutosRelativos >= 0 && minutosRelativos <= MAX_MINUTOS_RESPUESTA;
+  }
+  const horaMencionada = extractClockTime(text);
+  if (horaMencionada) {
+    return horaEstaEnRango(horaMencionada.hour, horaMencionada.minute, horaMencionada.meridiem, getPeruNow());
+  }
+  return true;
+}
+
 // Deja solo los dígitos y se queda con los últimos 9 (número peruano sin
 // el "51" ni "+"), así "+51 934 343 343", "51934343343" y "934343343"
 // se comparan como el mismo número.
@@ -331,6 +401,11 @@ async function startBot() {
       }
 
       if (!match) continue;
+
+      // Si el mensaje menciona una hora o una cantidad de minutos fuera de
+      // 0-15, no responde — aplica por igual a especiales, excepciones y
+      // keywords normales.
+      if (!tiempoEnRango(text)) continue;
 
       const sectorId = getGroupSector(chatId);
       const focusedGroups = getFocusedGroups();
