@@ -201,7 +201,14 @@ function applyGroupSeed() {
     if (excepcionesPorNumero) {
       Object.entries(excepcionesPorNumero).forEach(([numero, frasesExcepcion]) => {
         if (!numberExceptions.hasExceptions(g.id, numero)) {
-          frasesExcepcion.forEach((frase) => numberExceptions.addException(g.id, numero, frase));
+          // Cada frase puede venir como texto simple (arranca activa) o
+          // como { phrase, active } si debe arrancar apagada.
+          frasesExcepcion.forEach((item) => {
+            const frase = typeof item === "string" ? item : item.phrase;
+            const activa = typeof item === "string" ? true : item.active !== false;
+            numberExceptions.addException(g.id, numero, frase);
+            if (!activa) numberExceptions.setExceptionActive(g.id, numero, frase, false);
+          });
         }
       });
     }
