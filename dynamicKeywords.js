@@ -80,6 +80,12 @@ function getAllSpecial() {
   return data.specialByGroup;
 }
 
+// True solo si a este grupo ya se le agregó alguna keyword especial antes
+// (incluso si después se borraron todas y quedó en []).
+function hasSpecialForGroup(groupId) {
+  return Object.prototype.hasOwnProperty.call(data.specialByGroup, groupId);
+}
+
 function addSpecialForGroup(groupId, phrase) {
   const p = normalizePhrase(phrase);
   if (!p) throw new Error("La keyword no puede estar vacía");
@@ -92,8 +98,10 @@ function addSpecialForGroup(groupId, phrase) {
 
 function removeSpecialForGroup(groupId, phrase) {
   if (!data.specialByGroup[groupId]) return;
+  // Ojo: aunque quede en [], NO se borra la clave del grupo. Así
+  // hasSpecialForGroup() sigue devolviendo true y el seed automático
+  // (groupSeed.js) no vuelve a poner las frases que el usuario ya quitó.
   data.specialByGroup[groupId] = data.specialByGroup[groupId].filter((p) => p !== normalizePhrase(phrase));
-  if (data.specialByGroup[groupId].length === 0) delete data.specialByGroup[groupId];
   save();
 }
 
@@ -106,6 +114,7 @@ module.exports = {
   removeExtraExcluded,
   getSpecialForGroup,
   getAllSpecial,
+  hasSpecialForGroup,
   addSpecialForGroup,
   removeSpecialForGroup,
 };

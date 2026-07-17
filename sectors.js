@@ -56,6 +56,12 @@ function getGroupSector(groupId) {
   return data.groupSectors[groupId] || DEFAULT_SECTOR;
 }
 
+// True solo si a este grupo ya se le asignó un sector explícitamente
+// (a diferencia de getGroupSector, que devuelve "otros" por defecto).
+function hasGroupSector(groupId) {
+  return Object.prototype.hasOwnProperty.call(data.groupSectors, groupId);
+}
+
 function setGroupSector(groupId, sectorId) {
   if (!SECTOR_IDS.includes(sectorId)) throw new Error("Sector inválido: " + sectorId);
   data.groupSectors[groupId] = sectorId;
@@ -133,6 +139,7 @@ module.exports = {
   DEFAULT_SECTOR,
   getGroupSector,
   setGroupSector,
+  hasGroupSector,
   esSectorSinRemarcar,
   isSectorActive,
   setSectorActive,

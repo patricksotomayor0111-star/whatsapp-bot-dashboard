@@ -11,6 +11,7 @@ const fs = require("fs");
 const { positiveKeywords, excludedKeywords, defaultResponse } = require("./keywords");
 const { excludedNumbers } = require("./excludedNumbers");
 const dynamicKeywords = require("./dynamicKeywords");
+const { sectorSeedByName, specialSeedByName } = require("./groupSeed");
 const {
   getGroupSector,
   isSectorActive,
@@ -18,6 +19,8 @@ const {
   esSectorSinRemarcar,
   getFocusedGroups,
   getResponseDelay,
+  hasGroupSector,
+  setGroupSector,
 } = require("./sectors");
 
 const MAX_HISTORY = 100;
@@ -144,9 +147,28 @@ async function refreshGroups(sock) {
         participants: g.participants?.length || 0,
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
+
+    applyGroupSeed();
   } catch (err) {
     console.error("No se pudo obtener la lista de grupos:", err.message);
   }
+}
+
+// La primera vez que aparece un grupo con un nombre conocido de groupSeed.js,
+// le aplica su sector y sus keywords especiales automáticamente. Si ya se
+// configuró antes (a mano o por un seed anterior), no lo vuelve a tocar.
+function applyGroupSeed() {
+  botState.groups.forEach((g) => {
+    const sectorId = sectorSeedByName[g.name];
+    if (sectorId && !hasGroupSector(g.id)) {
+      setGroupSector(g.id, sectorId);
+    }
+
+    const frases = specialSeedByName[g.name];
+    if (frases && !dynamicKeywords.hasSpecialForGroup(g.id)) {
+      frases.forEach((frase) => dynamicKeywords.addSpecialForGroup(g.id, frase));
+    }
+  });
 }
 
 // Cierra sesión de WhatsApp y borra las credenciales guardadas,
