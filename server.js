@@ -19,6 +19,18 @@ app.get("/styles.css", (req, res) => {
 app.get("/script.js", (req, res) => {
   res.sendFile(path.join(__dirname, "script.js"));
 });
+app.get("/manifest.json", (req, res) => {
+  res.sendFile(path.join(__dirname, "manifest.json"));
+});
+app.get("/sw.js", (req, res) => {
+  res.sendFile(path.join(__dirname, "sw.js"));
+});
+app.get("/icon-192.png", (req, res) => {
+  res.sendFile(path.join(__dirname, "icon-192.png"));
+});
+app.get("/icon-512.png", (req, res) => {
+  res.sendFile(path.join(__dirname, "icon-512.png"));
+});
 
 // El dashboard consulta esto para saber si el bot está conectado
 // y, si no lo está, obtener el QR para vincular.
