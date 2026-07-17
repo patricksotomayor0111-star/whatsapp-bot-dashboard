@@ -127,7 +127,7 @@ const FRASES_EXCEPCION_CLIENTE = [
 ];
 
 const numberExceptionSeed = {
-  "CARTAS RESTAURANTES": {
+  "Hola": {
     "910795590": FRASES_EXCEPCION_CLIENTE,
   },
   "REPORTES BOX DELIVERY": {

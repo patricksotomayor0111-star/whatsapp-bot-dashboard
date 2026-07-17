@@ -56,8 +56,10 @@ const specialKeywordList = document.getElementById("specialKeywordList");
 const specialKeywordInput = document.getElementById("specialKeywordInput");
 const addSpecialKeywordBtn = document.getElementById("addSpecialKeywordBtn");
 
+const exceptionsOverview = document.getElementById("exceptionsOverview");
+const exceptionsOverviewEmpty = document.getElementById("exceptionsOverviewEmpty");
+const exceptionGroupSelect = document.getElementById("exceptionGroupSelect");
 const exceptionNumberInput = document.getElementById("exceptionNumberInput");
-const exceptionKeywordList = document.getElementById("exceptionKeywordList");
 const exceptionKeywordInput = document.getElementById("exceptionKeywordInput");
 const addExceptionKeywordBtn = document.getElementById("addExceptionKeywordBtn");
 
@@ -705,10 +707,7 @@ addExcludedKeywordBtn.addEventListener("click", async () => {
   }
 });
 
-specialGroupSelect.addEventListener("change", () => {
-  renderSpecialKeywords();
-  renderExceptionsForSelection();
-});
+specialGroupSelect.addEventListener("change", renderSpecialKeywords);
 
 addSpecialKeywordBtn.addEventListener("click", async () => {
   const groupId = specialGroupSelect.value;
@@ -731,87 +730,114 @@ addSpecialKeywordBtn.addEventListener("click", async () => {
   }
 });
 
-// ---------- Excepciones por número ----------
-async function fetchExceptionsForSelection() {
-  const groupId = specialGroupSelect.value;
-  const number = exceptionNumberInput.value.trim();
-  if (!groupId || !number) {
-    exceptionKeywordList.innerHTML = "";
-    return;
-  }
+// ---------- Frases por sector (excepciones número+grupo+frase) ----------
+function populateExceptionGroupSelect() {
+  const seleccionActual = exceptionGroupSelect.value;
+  exceptionGroupSelect.innerHTML = '<option value="">— Selecciona un grupo —</option>';
+  groupsData.forEach((g) => {
+    const opt = document.createElement("option");
+    opt.value = g.id;
+    opt.textContent = g.name;
+    exceptionGroupSelect.appendChild(opt);
+  });
+  if (seleccionActual) exceptionGroupSelect.value = seleccionActual;
+}
+
+async function fetchExceptionsOverview() {
   try {
-    const res = await fetch(`/api/exceptions/${encodeURIComponent(groupId)}/${encodeURIComponent(number)}`);
-    const data = await res.json();
-    renderExceptions(data.list || []);
+    const [groupsRes, sectorsRes, exceptionsRes] = await Promise.all([
+      fetch("/api/groups").then((r) => r.json()),
+      fetch("/api/sectors").then((r) => r.json()),
+      fetch("/api/exceptions").then((r) => r.json()),
+    ]);
+    renderExceptionsOverview(groupsRes.groups, sectorsRes.sectors, exceptionsRes.exceptions);
   } catch (err) {
     console.error("No se pudo obtener las excepciones:", err);
   }
 }
 
-function renderExceptionsForSelection() {
-  fetchExceptionsForSelection();
-}
+function renderExceptionsOverview(groups, sectorDefsList, exceptionsMap) {
+  exceptionsOverview.innerHTML = "";
 
-function renderExceptions(list) {
-  exceptionKeywordList.innerHTML = "";
-  const groupId = specialGroupSelect.value;
-  const number = exceptionNumberInput.value.trim();
+  const groupsById = {};
+  groups.forEach((g) => {
+    groupsById[g.id] = g;
+  });
 
-  if (list.length === 0) {
-    const p = document.createElement("p");
-    p.className = "text-xs text-slate-400";
-    p.textContent = "Sin excepciones para este número en este grupo.";
-    exceptionKeywordList.appendChild(p);
+  // sectorId -> groupId -> { groupName, entries: [{ number, phrase, active }] }
+  const bySector = {};
+  Object.entries(exceptionsMap).forEach(([key, list]) => {
+    if (!list || list.length === 0) return;
+    const [groupId, number] = key.split("::");
+    const group = groupsById[groupId];
+    const sectorId = group ? group.sectorId || "otros" : "otros";
+    const groupName = group ? group.name : groupId;
+    if (!bySector[sectorId]) bySector[sectorId] = {};
+    if (!bySector[sectorId][groupId]) bySector[sectorId][groupId] = { groupName, entries: [] };
+    list.forEach((item) => bySector[sectorId][groupId].entries.push({ number, ...item }));
+  });
+
+  const sectoresConDatos = sectorDefsList.filter((s) => bySector[s.id]);
+
+  if (sectoresConDatos.length === 0) {
+    exceptionsOverviewEmpty.classList.remove("hidden");
     return;
   }
+  exceptionsOverviewEmpty.classList.add("hidden");
 
-  list.forEach(({ phrase, active }) => {
-    const row = document.createElement("div");
-    row.className = "flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm bg-rose-50 text-rose-700";
+  sectoresConDatos.forEach((sector) => {
+    const sectionEl = document.createElement("div");
 
-    const label = document.createElement("span");
-    label.className = "truncate flex-1 whitespace-pre-line";
-    label.textContent = phrase;
+    const titleEl = document.createElement("p");
+    titleEl.className = "text-xs font-bold text-slate-800 mb-2";
+    titleEl.innerHTML = `<i class="fa-solid fa-lock text-rose-500"></i> Frases ${sector.label}`;
+    sectionEl.appendChild(titleEl);
 
-    const toggleBtn = document.createElement("button");
-    toggleBtn.textContent = active ? "ON" : "OFF";
-    toggleBtn.className = `shrink-0 text-[10px] font-bold px-2 py-1 rounded-full ${
-      active ? "bg-brand-green text-white" : "bg-slate-300 text-slate-600"
-    }`;
-    toggleBtn.addEventListener("click", async () => {
-      await fetch(`/api/exceptions/${encodeURIComponent(groupId)}/${encodeURIComponent(number)}/toggle`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phrase, active: !active }),
+    Object.entries(bySector[sector.id]).forEach(([groupId, { groupName, entries }]) => {
+      const groupCard = document.createElement("div");
+      groupCard.className = "card bg-white mb-2";
+
+      const groupTitle = document.createElement("p");
+      groupTitle.className = "text-xs font-bold text-slate-700 mb-2";
+      groupTitle.innerHTML = `<i class="fa-solid fa-lock text-slate-400"></i> ${groupName}`;
+      groupCard.appendChild(groupTitle);
+
+      entries.forEach(({ number, phrase, active }) => {
+        const row = document.createElement("div");
+        row.className = "flex items-center justify-between gap-2 py-1.5";
+
+        const label = document.createElement("span");
+        label.className = "text-sm text-slate-600 whitespace-pre-line";
+        label.textContent = phrase;
+
+        const toggleBtn = document.createElement("button");
+        toggleBtn.textContent = active ? "ON" : "OFF";
+        toggleBtn.className = `shrink-0 text-[10px] font-bold px-3 py-1 rounded-full ${
+          active ? "bg-brand-green text-white" : "bg-slate-300 text-slate-600"
+        }`;
+        toggleBtn.addEventListener("click", async () => {
+          await fetch(`/api/exceptions/${encodeURIComponent(groupId)}/${encodeURIComponent(number)}/toggle`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ phrase, active: !active }),
+          });
+          fetchExceptionsOverview();
+        });
+
+        row.appendChild(label);
+        row.appendChild(toggleBtn);
+        groupCard.appendChild(row);
       });
-      fetchExceptionsForSelection();
+
+      sectionEl.appendChild(groupCard);
     });
 
-    const removeBtn = document.createElement("button");
-    removeBtn.innerHTML = '<i class="fa-solid fa-xmark text-xs"></i>';
-    removeBtn.className = "shrink-0 opacity-60 hover:opacity-100";
-    removeBtn.addEventListener("click", async () => {
-      await fetch(`/api/exceptions/${encodeURIComponent(groupId)}/${encodeURIComponent(number)}/remove`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phrase }),
-      });
-      fetchExceptionsForSelection();
-    });
-
-    row.appendChild(label);
-    row.appendChild(toggleBtn);
-    row.appendChild(removeBtn);
-    exceptionKeywordList.appendChild(row);
+    exceptionsOverview.appendChild(sectionEl);
   });
 }
 
-exceptionNumberInput.addEventListener("input", () => {
-  fetchExceptionsForSelection();
-});
-
 addExceptionKeywordBtn.addEventListener("click", async () => {
-  const groupId = specialGroupSelect.value;
+  const groupId = exceptionGroupSelect.value;
   const number = exceptionNumberInput.value.trim();
   const phrase = exceptionKeywordInput.value.trim();
   if (!groupId) {
@@ -829,8 +855,9 @@ addExceptionKeywordBtn.addEventListener("click", async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ phrase }),
     });
+    exceptionNumberInput.value = "";
     exceptionKeywordInput.value = "";
-    fetchExceptionsForSelection();
+    await fetchExceptionsOverview();
   } catch (err) {
     console.error("No se pudo agregar la excepción:", err);
   }
@@ -842,8 +869,10 @@ keywordsLink.addEventListener("click", (e) => {
   keywordsOverlay.classList.remove("hidden");
   keywordsOverlay.classList.add("flex");
   exceptionNumberInput.value = "";
-  exceptionKeywordList.innerHTML = "";
+  exceptionKeywordInput.value = "";
   fetchKeywords();
+  populateExceptionGroupSelect();
+  fetchExceptionsOverview();
 });
 
 closeKeywords.addEventListener("click", () => {
