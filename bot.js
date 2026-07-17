@@ -207,6 +207,32 @@ function tiempoEnRango(text) {
 // queda como descripción. "mil" multiplica x1000 (ej: "5 mil" = 5000).
 const CASHBOX_GROUP_NAME = "GANANCIAS";
 
+// ---------- Grupos que también responden a fotos (sin texto) ----------
+// En estos grupos, el pedido a veces viene como una foto (nota escrita a
+// mano, boleta/recibo) en vez de texto con palabra clave. El bot responde
+// igual si detecta una imagen, siempre que se cumplan las demás reglas
+// (número no bloqueado, sector/grupo activos, etc.) — no las salta.
+const IMAGE_TRIGGER_GROUP_NAMES = new Set(
+  ["CANTONES - BOX DELIVERY", "CHIFA LIU BOX DELIVERY", "CARTAS RESTAURANTES"].map((n) =>
+    n.trim().toUpperCase()
+  )
+);
+
+function esGrupoConTriggerDeImagen(nombreGrupo) {
+  return IMAGE_TRIGGER_GROUP_NAMES.has((nombreGrupo || "").trim().toUpperCase());
+}
+
+// True si el mensaje trae una imagen (foto), sin importar si viene
+// envuelta en un mensaje efímero o "ver una vez", igual que extractText().
+function tieneImagen(msg) {
+  const m =
+    msg.message.ephemeralMessage?.message ||
+    msg.message.viewOnceMessage?.message ||
+    msg.message.viewOnceMessageV2?.message ||
+    msg.message;
+  return Boolean(m.imageMessage);
+}
+
 function parseCashboxLine(rawLine) {
   const text = rawLine.trim();
   if (!text) return null;
@@ -507,7 +533,8 @@ async function startBot() {
       logSender(chatId, grupoActual?.name || chatId, senderJid, senderNumber, bloqueadoGlobal);
 
       const text = normalizeText(rawText);
-      if (!text) continue;
+      const esImagenTrigger = esGrupoConTriggerDeImagen(grupoActual?.name) && tieneImagen(msg);
+      if (!text && !esImagenTrigger) continue;
 
       // Se usa exec() (no find()) para saber en qué posición del texto
       // aparece la palabra clave y poder resaltarla en el historial.
@@ -533,6 +560,9 @@ async function startBot() {
         // que el sector/grupo estén apagados (eso se revisa más abajo,
         // igual que para el resto).
         match = buscarKeywordEspecial(text, chatId);
+        if (!match && esImagenTrigger) {
+          match = { keyword: "(foto)", index: 0, length: 0 };
+        }
         if (!match) {
           // Las keywords globales agregadas desde el panel tampoco respetan
           // las exclusiones (pero sí las que ya venían en keywords.js).
@@ -575,7 +605,7 @@ async function startBot() {
         chatId,
         groupName: grupoActual?.name || chatId,
         senderNumber,
-        text: rawText,
+        text: rawText || "📷 (foto sin texto)",
         matchIndex: match.index,
         matchLength: match.length,
         keyword: match.keyword,
