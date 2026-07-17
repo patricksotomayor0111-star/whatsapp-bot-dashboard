@@ -22,7 +22,6 @@ const restoreBtn = document.getElementById("restoreBtn");
 const botToggleBtn = document.getElementById("botToggleBtn");
 const botToggleLabel = document.getElementById("botToggleLabel");
 const botStatusText = document.getElementById("botStatusText");
-const botStatusDot = document.getElementById("botStatusDot");
 
 const logoutBtn = document.getElementById("logoutBtn");
 
@@ -36,11 +35,14 @@ const historyOverlay = document.getElementById("historyOverlay");
 const closeHistory = document.getElementById("closeHistory");
 const historyList = document.getElementById("historyList");
 const historyEmpty = document.getElementById("historyEmpty");
+const historyCount = document.getElementById("historyCount");
 
-const delayLink = document.getElementById("delayLink");
-const delayOverlay = document.getElementById("delayOverlay");
-const closeDelay = document.getElementById("closeDelay");
-const delayOptions = document.getElementById("delayOptions");
+const delaySelect = document.getElementById("delaySelect");
+const saveDelayBtn = document.getElementById("saveDelayBtn");
+
+const moveGroupSelect = document.getElementById("moveGroupSelect");
+const moveSectorSelect = document.getElementById("moveSectorSelect");
+const moveGroupBtn = document.getElementById("moveGroupBtn");
 
 const keywordsLink = document.getElementById("keywordsLink");
 const keywordsOverlay = document.getElementById("keywordsOverlay");
@@ -71,6 +73,30 @@ let isConnected = false;
 let isActive = true;
 let lastRenderedQr = null;
 let qrInstance = null;
+let groupsWithExceptions = new Set();
+let sectorsWithExceptions = new Set();
+
+// Calcula qué grupos (y en qué sectores caen) tienen excepciones de número
+// configuradas, para poder mostrarles el candado 🔒 en la lista.
+async function fetchExceptionsForLocks() {
+  try {
+    const res = await fetch("/api/exceptions");
+    const data = await res.json();
+    const nuevosGrupos = new Set();
+    Object.entries(data.exceptions || {}).forEach(([key, list]) => {
+      if (!list || list.length === 0) return;
+      const [groupId] = key.split("::");
+      nuevosGrupos.add(groupId);
+    });
+    groupsWithExceptions = nuevosGrupos;
+    sectorsWithExceptions = new Set(
+      groupsData.filter((g) => groupsWithExceptions.has(g.id)).map((g) => g.sectorId || "otros")
+    );
+    renderSectors(searchInput.value);
+  } catch (err) {
+    console.error("No se pudo obtener las excepciones para los candados:", err);
+  }
+}
 
 // ---------- Render de sectores y sus grupos ----------
 function renderSectors(filtro = "") {
@@ -91,28 +117,25 @@ function renderSectors(filtro = "") {
 
     const sectorNode = sectorTemplate.content.cloneNode(true);
     const nameEl = sectorNode.querySelector(".sector-name");
-    const countEl = sectorNode.querySelector(".sector-count");
-    const chevron = sectorNode.querySelector(".sector-chevron");
+    const sectorLockIcon = sectorNode.querySelector(".sector-lock-icon");
     const header = sectorNode.querySelector(".sector-header");
     const badge = sectorNode.querySelector(".sector-toggle-badge");
     const groupsContainer = sectorNode.querySelector(".sector-groups");
 
     nameEl.textContent = sector.label;
-    countEl.textContent = `(${gruposDelSector.length})`;
+    if (sectorsWithExceptions.has(sector.id)) sectorLockIcon.classList.remove("hidden");
     updateSectorBadge(badge, sectorActiveMap[sector.id] !== false);
 
     gruposFiltrados.forEach((grupo) => {
       const groupNode = groupTemplate.content.cloneNode(true);
       const rowEl = groupNode.querySelector(".group-row");
       const nameSpan = groupNode.querySelector(".group-name");
-      const participantsEl = groupNode.querySelector(".group-participants");
-      const sectorSelect = groupNode.querySelector(".sector-select");
+      const groupLockIcon = groupNode.querySelector(".group-lock-icon");
       const activeBadge = groupNode.querySelector(".group-active-badge");
       const focusBtn = groupNode.querySelector(".focus-btn");
-      const copyBtn = groupNode.querySelector(".copy-id-btn");
 
       nameSpan.textContent = grupo.name;
-      participantsEl.textContent = `${grupo.participants} participante${grupo.participants === 1 ? "" : "s"}`;
+      if (groupsWithExceptions.has(grupo.id)) groupLockIcon.classList.remove("hidden");
 
       const estaEnfocado = focusedGroups.includes(grupo.id);
       if (estaEnfocado) {
@@ -150,43 +173,6 @@ function renderSectors(filtro = "") {
         }
       });
 
-      sectorDefs.forEach((s) => {
-        const opt = document.createElement("option");
-        opt.value = s.id;
-        opt.textContent = s.label;
-        if (s.id === sector.id) opt.selected = true;
-        sectorSelect.appendChild(opt);
-      });
-
-      sectorSelect.addEventListener("click", (e) => e.stopPropagation());
-      sectorSelect.addEventListener("change", async () => {
-        const nuevoSectorId = sectorSelect.value;
-        try {
-          await fetch(`/api/groups/${encodeURIComponent(grupo.id)}/sector`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ sectorId: nuevoSectorId }),
-          });
-          grupo.sectorId = nuevoSectorId;
-          renderSectors(searchInput.value);
-        } catch (err) {
-          console.error("No se pudo cambiar el sector del grupo:", err);
-        }
-      });
-
-      copyBtn.addEventListener("click", async (e) => {
-        e.stopPropagation();
-        try {
-          await navigator.clipboard.writeText(grupo.id);
-          copyBtn.innerHTML = '<i class="fa-solid fa-check text-xs"></i>';
-          setTimeout(() => {
-            copyBtn.innerHTML = '<i class="fa-regular fa-copy text-xs"></i>';
-          }, 1200);
-        } catch (err) {
-          console.error("No se pudo copiar el ID:", err);
-        }
-      });
-
       groupsContainer.appendChild(groupNode);
     });
 
@@ -195,12 +181,10 @@ function renderSectors(filtro = "") {
     if (shouldOpen) {
       groupsContainer.classList.add("open");
       groupsContainer.style.maxHeight = groupsContainer.scrollHeight + "px";
-      chevron.classList.add("open");
     }
 
     header.addEventListener("click", () => {
       const isOpen = groupsContainer.classList.toggle("open");
-      chevron.classList.toggle("open");
       groupsContainer.style.maxHeight = isOpen ? groupsContainer.scrollHeight + "px" : "0px";
     });
 
@@ -328,34 +312,25 @@ restoreBtn.addEventListener("click", async () => {
 // ---------- Estado real del bot ----------
 function updateBotUI() {
   if (!isConnected) {
-    botStatusText.textContent = "Bot Desconectado";
+    botStatusText.textContent = "Bot ⛔ Desconectado";
     botToggleLabel.textContent = "Activar";
     botToggleBtn.disabled = true;
     botToggleBtn.classList.remove("bg-brand-green");
     botToggleBtn.classList.add("bg-brand-red", "opacity-50");
-    botStatusDot.classList.remove("bg-brand-green", "pulse-active");
-    botStatusDot.classList.add("bg-brand-red");
-    botStatusDot.style.boxShadow = "0 0 0 4px rgba(239,68,68,0.15)";
     qrCard.classList.remove("hidden");
   } else if (isActive) {
-    botStatusText.textContent = "Bot Activo";
+    botStatusText.textContent = "Bot ✅ Activo";
     botToggleLabel.textContent = "Desactivar";
     botToggleBtn.disabled = false;
     botToggleBtn.classList.remove("bg-brand-red", "opacity-50");
     botToggleBtn.classList.add("bg-brand-green");
-    botStatusDot.classList.remove("bg-brand-red");
-    botStatusDot.classList.add("bg-brand-green", "pulse-active");
-    botStatusDot.style.boxShadow = "0 0 0 4px rgba(34,197,94,0.15)";
     qrCard.classList.add("hidden");
   } else {
-    botStatusText.textContent = "Bot Desconectado";
+    botStatusText.textContent = "Bot ⛔ Inactivo";
     botToggleLabel.textContent = "Activar";
     botToggleBtn.disabled = false;
     botToggleBtn.classList.remove("bg-brand-green", "opacity-50");
     botToggleBtn.classList.add("bg-brand-red");
-    botStatusDot.classList.remove("bg-brand-green", "pulse-active");
-    botStatusDot.classList.add("bg-brand-red");
-    botStatusDot.style.boxShadow = "0 0 0 4px rgba(239,68,68,0.15)";
     qrCard.classList.add("hidden");
   }
 }
@@ -429,7 +404,7 @@ async function pollStatus() {
     if (isConnected && !wasConnected) {
       // Recién se conectó: carga los grupos y dibuja la lista una vez (forzado,
       // por si todavía no hay grupos y groupsData sigue vacío como antes).
-      fetchGroups(true);
+      fetchGroups(true).then(() => fetchExceptionsForLocks());
     } else if (!isConnected && groupsData.length > 0) {
       // Se desconectó: limpia la lista una vez, no en cada poll.
       groupsData = [];
@@ -479,6 +454,7 @@ function buildHighlightedText(text, matchIndex, matchLength) {
 
 function renderHistory(entries) {
   historyList.innerHTML = "";
+  historyCount.textContent = `(${entries.length})`;
   if (entries.length === 0) {
     historyEmpty.classList.remove("hidden");
     return;
@@ -521,11 +497,22 @@ async function fetchHistory() {
 
 historyLink.addEventListener("click", (e) => {
   e.preventDefault();
-  closeDrawerFn();
   historyOverlay.classList.remove("hidden");
   historyOverlay.classList.add("flex");
   fetchHistory();
 });
+
+// Actualiza el contador "(N)" del historial apenas se abre Opciones,
+// sin necesidad de entrar al historial completo.
+async function refreshHistoryCount() {
+  try {
+    const res = await fetch("/api/history");
+    const data = await res.json();
+    historyCount.textContent = `(${(data.history || []).length})`;
+  } catch (err) {
+    console.error("No se pudo obtener el contador del historial:", err);
+  }
+}
 
 closeHistory.addEventListener("click", () => {
   historyOverlay.classList.add("hidden");
@@ -536,30 +523,13 @@ closeHistory.addEventListener("click", () => {
 let currentDelayMs = 300;
 
 function renderDelayOptions() {
-  delayOptions.innerHTML = "";
+  delaySelect.innerHTML = "";
   for (let ms = 100; ms <= 1000; ms += 100) {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.textContent = `${ms} ms`;
-    btn.className =
-      ms === currentDelayMs
-        ? "btn-capsule bg-brand-green text-white justify-center"
-        : "btn-capsule bg-white text-slate-600 border border-slate-200 justify-center";
-    btn.addEventListener("click", async () => {
-      try {
-        const res = await fetch("/api/config/delay", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ delayMs: ms }),
-        });
-        const data = await res.json();
-        currentDelayMs = data.delayMs;
-        renderDelayOptions();
-      } catch (err) {
-        console.error("No se pudo cambiar el delay:", err);
-      }
-    });
-    delayOptions.appendChild(btn);
+    const opt = document.createElement("option");
+    opt.value = ms;
+    opt.textContent = `${ms} ms`;
+    if (ms === currentDelayMs) opt.selected = true;
+    delaySelect.appendChild(opt);
   }
 }
 
@@ -574,17 +544,20 @@ async function fetchDelay() {
   renderDelayOptions();
 }
 
-delayLink.addEventListener("click", (e) => {
-  e.preventDefault();
-  closeDrawerFn();
-  delayOverlay.classList.remove("hidden");
-  delayOverlay.classList.add("flex");
-  fetchDelay();
-});
-
-closeDelay.addEventListener("click", () => {
-  delayOverlay.classList.add("hidden");
-  delayOverlay.classList.remove("flex");
+saveDelayBtn.addEventListener("click", async () => {
+  const ms = parseInt(delaySelect.value, 10);
+  try {
+    const res = await fetch("/api/config/delay", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ delayMs: ms }),
+    });
+    const data = await res.json();
+    currentDelayMs = data.delayMs;
+    renderDelayOptions();
+  } catch (err) {
+    console.error("No se pudo cambiar el delay:", err);
+  }
 });
 
 // ---------- Palabras clave ----------
@@ -808,6 +781,7 @@ async function fetchExceptionsOverview() {
       fetch("/api/exceptions").then((r) => r.json()),
     ]);
     renderExceptionsOverview(groupsRes.groups, sectorsRes.sectors, exceptionsRes.exceptions);
+    fetchExceptionsForLocks();
   } catch (err) {
     console.error("No se pudo obtener las excepciones:", err);
   }
@@ -920,6 +894,56 @@ addExceptionKeywordBtn.addEventListener("click", async () => {
   }
 });
 
+// ---------- Mover grupo de sector ----------
+function populateMoveSelects() {
+  const grupoActual = moveGroupSelect.value;
+  moveGroupSelect.innerHTML = '<option value="">— Selecciona un grupo —</option>';
+  groupsData.forEach((g) => {
+    const opt = document.createElement("option");
+    opt.value = g.id;
+    opt.textContent = g.name;
+    moveGroupSelect.appendChild(opt);
+  });
+  if (grupoActual) moveGroupSelect.value = grupoActual;
+
+  const sectorActual = moveSectorSelect.value;
+  moveSectorSelect.innerHTML = '<option value="">— Mover a sector —</option>';
+  sectorDefs.forEach((s) => {
+    const opt = document.createElement("option");
+    opt.value = s.id;
+    opt.textContent = s.label;
+    moveSectorSelect.appendChild(opt);
+  });
+  if (sectorActual) moveSectorSelect.value = sectorActual;
+}
+
+moveGroupBtn.addEventListener("click", async () => {
+  const groupId = moveGroupSelect.value;
+  const sectorId = moveSectorSelect.value;
+  if (!groupId) {
+    alert("Primero elige un grupo.");
+    return;
+  }
+  if (!sectorId) {
+    alert("Elige a qué sector moverlo.");
+    return;
+  }
+  try {
+    await fetch(`/api/groups/${encodeURIComponent(groupId)}/sector`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sectorId }),
+    });
+    const grupo = groupsData.find((g) => g.id === groupId);
+    if (grupo) grupo.sectorId = sectorId;
+    renderSectors(searchInput.value);
+    moveGroupSelect.value = "";
+    moveSectorSelect.value = "";
+  } catch (err) {
+    console.error("No se pudo mover el grupo de sector:", err);
+  }
+});
+
 keywordsLink.addEventListener("click", (e) => {
   e.preventDefault();
   closeDrawerFn();
@@ -931,6 +955,9 @@ keywordsLink.addEventListener("click", (e) => {
   fetchKeywords();
   populateExceptionGroupSelect();
   fetchExceptionsOverview();
+  populateMoveSelects();
+  fetchDelay();
+  refreshHistoryCount();
 });
 
 closeKeywords.addEventListener("click", () => {
@@ -949,4 +976,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   setInterval(() => {
     if (isConnected) fetchGroups();
   }, 20000);
+  // Refresca qué grupos tienen candado (excepciones) cada rato.
+  setInterval(() => {
+    if (isConnected) fetchExceptionsForLocks();
+  }, 30000);
 });
