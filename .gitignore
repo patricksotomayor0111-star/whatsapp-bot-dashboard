@@ -3,5 +3,6 @@ session/
 sectors-data.json
 dynamic-keywords-data.json
 number-exceptions-data.json
+cashbox-data.json
 .env
 *.log

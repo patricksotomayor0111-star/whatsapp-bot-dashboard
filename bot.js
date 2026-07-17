@@ -12,6 +12,7 @@ const { positiveKeywords, excludedKeywords, defaultResponse } = require("./keywo
 const { excludedNumbers } = require("./excludedNumbers");
 const dynamicKeywords = require("./dynamicKeywords");
 const numberExceptions = require("./numberExceptions");
+const cashbox = require("./cashbox");
 const { sectorSeedByName, specialSeedByName, numberExceptionSeed } = require("./groupSeed");
 const {
   getGroupSector,
@@ -198,6 +199,115 @@ function tiempoEnRango(text) {
   return true;
 }
 
+// ---------- Caja chica (grupo "GANANCIAS") ----------
+// Funciona siempre, sin importar si el botón principal del bot está
+// activo o no. Un mensaje que empieza con un número es una ganancia;
+// uno que empieza con "menos" + número es un gasto. El resto del texto
+// queda como descripción. "mil" multiplica x1000 (ej: "5 mil" = 5000).
+const CASHBOX_GROUP_NAME = "GANANCIAS";
+
+function parseCashboxEntry(rawText) {
+  const text = rawText.trim();
+  if (!text) return null;
+
+  let m = text.match(/^menos\s+(\d+(?:\.\d+)?)\s*(mil)?\s*(.*)$/i);
+  if (m) {
+    const monto = parseFloat(m[1]) * (m[2] ? 1000 : 1);
+    return { type: "gasto", monto, descripcion: m[3].trim() };
+  }
+
+  m = text.match(/^(\d+(?:\.\d+)?)\s*(mil)?\s*(.*)$/i);
+  if (m) {
+    const monto = parseFloat(m[1]) * (m[2] ? 1000 : 1);
+    return { type: "ganancia", monto, descripcion: m[3].trim() };
+  }
+
+  return null;
+}
+
+function formatSoles(n) {
+  return "S/ " + n.toLocaleString("es-PE", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
+async function handleCashboxEntry(sock, chatId, msg, entry) {
+  if (entry.type === "gasto") {
+    cashbox.addGasto(entry.monto);
+  } else {
+    cashbox.addGanancia(entry.monto);
+  }
+  const hoy = cashbox.getToday();
+  const emoji = entry.type === "gasto" ? "📉 Gasto registrado" : "✅ Ganancia registrada";
+  const descripcionTexto = entry.descripcion ? ` (${entry.descripcion})` : "";
+  const texto =
+    `${emoji}: ${formatSoles(entry.monto)}${descripcionTexto}\n\n` +
+    `✅ Ganancias hoy: ${formatSoles(hoy.ganancias)}\n` +
+    `📉 Gastos hoy: ${formatSoles(hoy.gastos)}\n` +
+    `💰 Total líquido hoy: ${formatSoles(hoy.total)}`;
+
+  try {
+    await sock.sendMessage(chatId, { text: texto }, { quoted: msg });
+  } catch (err) {
+    console.error("Error al confirmar registro de caja chica:", err.message);
+  }
+}
+
+// Formatea la fecha (en hora Perú) como "YYYY-MM-DD", para usarla como
+// identificador de "qué día ya se cerró" y no cerrar el mismo día dos veces.
+function peruDateLabel(now) {
+  const y = now.getFullYear();
+  const mo = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${y}-${mo}-${d}`;
+}
+
+// Revisa cada cierto tiempo si ya son las 11:59pm hora Perú para cerrar el
+// día (y, si es domingo, también la semana). Guarda qué día ya cerró para
+// no mandar el mensaje dos veces si esta función corre más de una vez
+// dentro del mismo minuto.
+async function checkCashboxSchedule() {
+  if (!currentSock || !botState.connected) return;
+
+  const now = getPeruNow();
+  if (now.getHours() !== 23 || now.getMinutes() !== 59) return;
+
+  const hoyLabel = peruDateLabel(now);
+  if (cashbox.getLastClosedDay() === hoyLabel) return;
+
+  const grupo = botState.groups.find((g) => g.name.trim().toUpperCase() === CASHBOX_GROUP_NAME);
+  if (!grupo) return;
+
+  const resumenDia = cashbox.closeDay(hoyLabel);
+  const textoDia =
+    `📦 Caja chica del día\n\n` +
+    `✅ Ganancias: ${formatSoles(resumenDia.ganancias)}\n` +
+    `📉 Gastos: ${formatSoles(resumenDia.gastos)}\n` +
+    `💰 Total líquido: ${formatSoles(resumenDia.total)}`;
+
+  try {
+    await currentSock.sendMessage(grupo.id, { text: textoDia });
+  } catch (err) {
+    console.error("Error al mandar el cierre diario de caja chica:", err.message);
+  }
+
+  // Domingo = 0 en getDay(). Además del cierre diario, manda el resumen semanal.
+  if (now.getDay() === 0 && cashbox.getLastClosedWeek() !== hoyLabel) {
+    const resumenSemana = cashbox.closeWeek(hoyLabel);
+    const textoSemana =
+      `🗓️ Resumen semanal\n\n` +
+      `✅ Total ganancias de la semana: ${formatSoles(resumenSemana.ganancias)}\n` +
+      `📉 Total gastos de la semana: ${formatSoles(resumenSemana.gastos)}`;
+    try {
+      await currentSock.sendMessage(grupo.id, { text: textoSemana });
+    } catch (err) {
+      console.error("Error al mandar el resumen semanal de caja chica:", err.message);
+    }
+  }
+}
+
+setInterval(() => {
+  checkCashboxSchedule().catch((err) => console.error("Error en checkCashboxSchedule:", err.message));
+}, 30000);
+
 // Deja solo los dígitos y se queda con los últimos 9 (número peruano sin
 // el "51" ni "+"), así "+51 934 343 343", "51934343343" y "934343343"
 // se comparan como el mismo número.
@@ -350,20 +460,29 @@ async function startBot() {
   // (por ejemplo si se mandan seguidos), así que hay que revisarlos todos,
   // no solo el primero.
   sock.ev.on("messages.upsert", async ({ messages }) => {
-    if (!botState.active) return;
-
     for (const msg of messages) {
       if (!msg?.message || msg.key.fromMe) continue;
 
       const chatId = msg.key.remoteJid;
       const grupoActual = botState.groups.find((g) => g.id === chatId);
+      const rawText = extractText(msg).trim();
+
+      // Caja chica: corre siempre, sin importar el botón principal.
+      if (grupoActual && grupoActual.name.trim().toUpperCase() === CASHBOX_GROUP_NAME) {
+        const entry = parseCashboxEntry(rawText);
+        if (entry) {
+          await handleCashboxEntry(sock, chatId, msg, entry);
+          continue;
+        }
+      }
+
+      if (!botState.active) continue;
 
       const senderJid = msg.key.participant || msg.key.remoteJid || "";
       const senderNumber = canonicalNumber(senderJid.replace(/@.*/, ""));
       const bloqueadoGlobal = excludedNumbersSet.has(senderNumber);
       logSender(chatId, grupoActual?.name || chatId, senderJid, senderNumber, bloqueadoGlobal);
 
-      const rawText = extractText(msg).trim();
       const text = normalizeText(rawText);
       if (!text) continue;
 

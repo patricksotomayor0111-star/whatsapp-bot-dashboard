@@ -19,6 +19,10 @@ const focusCard = document.getElementById("focusCard");
 const focusGroupName = document.getElementById("focusGroupName");
 const restoreBtn = document.getElementById("restoreBtn");
 
+const statGanancias = document.getElementById("statGanancias");
+const statGastos = document.getElementById("statGastos");
+const statTotal = document.getElementById("statTotal");
+
 const botToggleBtn = document.getElementById("botToggleBtn");
 const botToggleLabel = document.getElementById("botToggleLabel");
 const botStatusText = document.getElementById("botStatusText");
@@ -277,6 +281,23 @@ async function fetchGroups(force = false) {
     if (cambio || force) renderSectors(searchInput.value);
   } catch (err) {
     console.error("No se pudo obtener la lista de grupos:", err);
+  }
+}
+
+// ---------- Caja chica (Ganancias/Gastos del grupo "GANANCIAS") ----------
+function formatSoles(n) {
+  return "S/ " + Number(n || 0).toLocaleString("es-PE", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
+async function fetchCashboxToday() {
+  try {
+    const res = await fetch("/api/cashbox/today");
+    const data = await res.json();
+    statGanancias.textContent = formatSoles(data.ganancias);
+    statGastos.textContent = "-" + formatSoles(data.gastos);
+    statTotal.textContent = formatSoles(data.total);
+  } catch (err) {
+    console.error("No se pudo obtener la caja chica del día:", err);
   }
 }
 
@@ -974,6 +995,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   renderSectors();
   pollStatus();
   setInterval(pollStatus, 3000);
+  fetchCashboxToday();
+  setInterval(fetchCashboxToday, 15000);
   // Refresca la lista de grupos cada rato (solo redibuja si algo cambió).
   setInterval(() => {
     if (isConnected) fetchGroups();

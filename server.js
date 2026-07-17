@@ -4,6 +4,7 @@ const { startBot, botState, logoutBot } = require("./bot");
 const sectors = require("./sectors");
 const dynamicKeywords = require("./dynamicKeywords");
 const numberExceptions = require("./numberExceptions");
+const cashbox = require("./cashbox");
 
 const app = express();
 app.use(express.json());
@@ -223,6 +224,12 @@ app.post("/api/exceptions/:groupId/:number/remove", (req, res) => {
 app.post("/api/exceptions/:groupId/:number/toggle", (req, res) => {
   numberExceptions.setExceptionActive(req.params.groupId, req.params.number, req.body.phrase, req.body.active);
   res.json({ ok: true, list: numberExceptions.getExceptions(req.params.groupId, req.params.number) });
+});
+
+// Totales del día de la caja chica (grupo "GANANCIAS"): ganancias, gastos
+// y total líquido registrados hasta ahora.
+app.get("/api/cashbox/today", (req, res) => {
+  res.json(cashbox.getToday());
 });
 
 const PORT = process.env.PORT || 3000;
