@@ -203,13 +203,13 @@ function tiempoEnRango(text) {
 
 // ---------- Caja chica (grupo "GANANCIAS") ----------
 // Funciona siempre, sin importar si el botón principal del bot está
-// activo o no. Un mensaje que empieza con un número es una ganancia;
-// uno que empieza con "menos" + número es un gasto. El resto del texto
+// activo o no. Una línea que empieza con un número es una ganancia; una
+// que empieza con "menos" + número es un gasto. El resto de la línea
 // queda como descripción. "mil" multiplica x1000 (ej: "5 mil" = 5000).
 const CASHBOX_GROUP_NAME = "GANANCIAS";
 
-function parseCashboxEntry(rawText) {
-  const text = rawText.trim();
+function parseCashboxLine(rawLine) {
+  const text = rawLine.trim();
   if (!text) return null;
 
   let m = text.match(/^menos\s+(\d+(?:\.\d+)?)\s*(mil)?\s*(.*)$/i);
@@ -227,21 +227,50 @@ function parseCashboxEntry(rawText) {
   return null;
 }
 
+// Un mensaje puede traer varios movimientos juntos, uno por línea (ej: "menos
+// 5 gasolina" y "10 mister" en líneas separadas del mismo mensaje). Cada
+// línea se interpreta por separado; las que no matchean se ignoran.
+function parseCashboxMessage(rawText) {
+  return rawText
+    .split("\n")
+    .map((linea) => parseCashboxLine(linea))
+    .filter(Boolean);
+}
+
 function formatSoles(n) {
   return "S/ " + n.toLocaleString("es-PE", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
 
-async function handleCashboxEntry(sock, chatId, msg, entry) {
-  if (entry.type === "gasto") {
-    cashbox.addGasto(entry.monto);
-  } else {
-    cashbox.addGanancia(entry.monto);
-  }
+async function handleCashboxEntries(sock, chatId, msg, entradas) {
+  entradas.forEach((entrada) => {
+    if (entrada.type === "gasto") {
+      cashbox.addGasto(entrada.monto);
+    } else {
+      cashbox.addGanancia(entrada.monto);
+    }
+  });
+
   const hoy = cashbox.getToday();
-  const emoji = entry.type === "gasto" ? "📉 Gasto registrado" : "✅ Ganancia registrada";
-  const descripcionTexto = entry.descripcion ? ` (${entry.descripcion})` : "";
+  let encabezado;
+
+  if (entradas.length === 1) {
+    const entry = entradas[0];
+    const emoji = entry.type === "gasto" ? "📉 Gasto registrado" : "✅ Ganancia registrada";
+    const descripcionTexto = entry.descripcion ? ` (${entry.descripcion})` : "";
+    encabezado = `${emoji}: ${formatSoles(entry.monto)}${descripcionTexto}`;
+  } else {
+    const detalle = entradas
+      .map((entry) => {
+        const emoji = entry.type === "gasto" ? "📉" : "✅";
+        const descripcionTexto = entry.descripcion ? ` (${entry.descripcion})` : "";
+        return `${emoji} ${formatSoles(entry.monto)}${descripcionTexto}`;
+      })
+      .join("\n");
+    encabezado = `📋 Se registraron ${entradas.length} movimientos:\n${detalle}`;
+  }
+
   const texto =
-    `${emoji}: ${formatSoles(entry.monto)}${descripcionTexto}\n\n` +
+    `${encabezado}\n\n` +
     `✅ Ganancias hoy: ${formatSoles(hoy.ganancias)}\n` +
     `📉 Gastos hoy: ${formatSoles(hoy.gastos)}\n` +
     `💰 Total líquido hoy: ${formatSoles(hoy.total)}`;
@@ -482,9 +511,9 @@ async function startBot() {
 
       // Caja chica: corre siempre, sin importar el botón principal.
       if (grupoActual && grupoActual.name.trim().toUpperCase() === CASHBOX_GROUP_NAME) {
-        const entry = parseCashboxEntry(rawText);
-        if (entry) {
-          await handleCashboxEntry(sock, chatId, msg, entry);
+        const entradas = parseCashboxMessage(rawText);
+        if (entradas.length > 0) {
+          await handleCashboxEntries(sock, chatId, msg, entradas);
           continue;
         }
       }
