@@ -178,10 +178,7 @@ function renderSectors(filtro = "") {
 
     // Todos los sectores empiezan desplegados, menos "Otros" (se abre solo si hay búsqueda).
     const shouldOpen = term ? true : sector.id !== "otros";
-    if (shouldOpen) {
-      groupsContainer.classList.add("open");
-      groupsContainer.style.maxHeight = groupsContainer.scrollHeight + "px";
-    }
+    if (shouldOpen) groupsContainer.classList.add("open");
 
     header.addEventListener("click", () => {
       const isOpen = groupsContainer.classList.toggle("open");
@@ -207,6 +204,11 @@ function renderSectors(filtro = "") {
     });
 
     sectorListEl.appendChild(sectorNode);
+
+    // Recién ahora el sector está insertado en la página, así que scrollHeight
+    // ya da la altura real (antes de insertarlo siempre daba 0, y eso hacía
+    // que a veces el sector apareciera colapsado por error al recargar).
+    if (shouldOpen) groupsContainer.style.maxHeight = groupsContainer.scrollHeight + "px";
   });
 
   groupCount.textContent = `(${groupsData.length})`;
