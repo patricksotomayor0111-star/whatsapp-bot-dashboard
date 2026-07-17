@@ -637,17 +637,49 @@ function renderExcludedKeywords() {
   });
 }
 
+// Keywords especiales agregadas en esta sesión del panel (no depende de qué
+// grupo esté elegido en el dropdown — se quedan fijas hasta que cierres el
+// panel o las borres a mano).
+let recentSpecialAdds = [];
+
 function renderSpecialKeywords() {
-  const groupId = specialGroupSelect.value;
-  const items = groupId ? keywordsData.specialByGroup[groupId] || [] : [];
-  renderKeywordChips(specialKeywordList, items, "bg-orange-50 text-orange-700", async (phrase) => {
-    await fetch(`/api/keywords/special/${encodeURIComponent(groupId)}/remove`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ phrase }),
+  specialKeywordList.innerHTML = "";
+
+  if (recentSpecialAdds.length === 0) return;
+
+  recentSpecialAdds.forEach(({ groupId, groupName, phrase }) => {
+    const wrapper = document.createElement("div");
+    wrapper.className = "mb-2";
+
+    const label = document.createElement("p");
+    label.className = "text-[10px] text-slate-400 mb-1 truncate";
+    label.textContent = `Grupo: ${groupName}`;
+    wrapper.appendChild(label);
+
+    const chip = document.createElement("div");
+    chip.className = "flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm bg-orange-50 text-orange-700";
+
+    const text = document.createElement("span");
+    text.className = "truncate";
+    text.textContent = phrase;
+
+    const removeBtn = document.createElement("button");
+    removeBtn.innerHTML = '<i class="fa-solid fa-xmark text-xs"></i>';
+    removeBtn.className = "shrink-0 opacity-60 hover:opacity-100";
+    removeBtn.addEventListener("click", async () => {
+      await fetch(`/api/keywords/special/${encodeURIComponent(groupId)}/remove`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phrase }),
+      });
+      recentSpecialAdds = recentSpecialAdds.filter((it) => !(it.groupId === groupId && it.phrase === phrase));
+      renderSpecialKeywords();
     });
-    await fetchKeywords();
-    renderSpecialKeywords();
+
+    chip.appendChild(text);
+    chip.appendChild(removeBtn);
+    wrapper.appendChild(chip);
+    specialKeywordList.appendChild(wrapper);
   });
 }
 
@@ -673,9 +705,8 @@ async function fetchKeywords() {
   renderPositiveKeywords();
   renderExcludedKeywords();
   populateSpecialGroupSelect();
-  // La lista de especiales NO se muestra solo por abrir el panel o elegir
-  // un grupo — solo aparece justo después de agregar o quitar una.
-  specialKeywordList.innerHTML = "";
+  // La lista de especiales (recentSpecialAdds) no se toca acá: no depende
+  // de esta actualización ni de qué grupo esté elegido en el dropdown.
 }
 
 addPositiveKeywordBtn.addEventListener("click", async () => {
@@ -710,15 +741,12 @@ addExcludedKeywordBtn.addEventListener("click", async () => {
   }
 });
 
-// Al elegir un grupo NO se muestra su lista completa de keywords especiales
-// (para no llenar la pantalla con las que ya tenía) — la lista solo aparece
-// después de agregar una nueva.
-specialGroupSelect.addEventListener("change", () => {
-  specialKeywordList.innerHTML = "";
-});
+// Cambiar de grupo en el dropdown ya NO afecta la lista de keywords
+// especiales agregadas (queda fija hasta que cierres el panel o la borres).
 
 addSpecialKeywordBtn.addEventListener("click", async () => {
   const groupId = specialGroupSelect.value;
+  const groupName = specialGroupSelect.options[specialGroupSelect.selectedIndex]?.textContent || groupId;
   const phrase = specialKeywordInput.value.trim();
   if (!groupId) {
     alert("Primero elige un grupo.");
@@ -732,8 +760,11 @@ addSpecialKeywordBtn.addEventListener("click", async () => {
       body: JSON.stringify({ phrase }),
     });
     specialKeywordInput.value = "";
-    await fetchKeywords();
+    if (!recentSpecialAdds.some((it) => it.groupId === groupId && it.phrase === phrase)) {
+      recentSpecialAdds.push({ groupId, groupName, phrase });
+    }
     renderSpecialKeywords();
+    await fetchKeywords();
   } catch (err) {
     console.error("No se pudo agregar la keyword especial:", err);
   }
@@ -879,6 +910,8 @@ keywordsLink.addEventListener("click", (e) => {
   keywordsOverlay.classList.add("flex");
   exceptionNumberInput.value = "";
   exceptionKeywordInput.value = "";
+  recentSpecialAdds = [];
+  renderSpecialKeywords();
   fetchKeywords();
   populateExceptionGroupSelect();
   fetchExceptionsOverview();
