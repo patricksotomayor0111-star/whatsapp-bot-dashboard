@@ -9,6 +9,7 @@ const qrcode = require("qrcode-terminal");
 const path = require("path");
 const fs = require("fs");
 const { positiveKeywords, excludedKeywords, defaultResponse } = require("./keywords");
+const { excludedNumbers } = require("./excludedNumbers");
 const {
   getGroupSector,
   isSectorActive,
@@ -46,6 +47,18 @@ function buildKeywordRegex(rawKeyword) {
 
 const positiveMatchers = positiveKeywords.map((k) => ({ keyword: k, regex: buildKeywordRegex(k) }));
 const excludedMatchers = excludedKeywords.map((k) => ({ keyword: k, regex: buildKeywordRegex(k) }));
+
+// Deja solo los dígitos y se queda con los últimos 9 (número peruano sin
+// el "51" ni "+"), así "+51 934 343 343", "51934343343" y "934343343"
+// se comparan como el mismo número.
+function canonicalNumber(raw) {
+  const digits = String(raw || "").replace(/\D/g, "");
+  return digits.length > 9 ? digits.slice(-9) : digits;
+}
+
+const excludedNumbersSet = new Set(
+  excludedNumbers.flatMap((n) => [canonicalNumber(n), String(n).replace(/\D/g, "")])
+);
 
 // Estado compartido con el dashboard (server.js lo lee)
 const botState = {
@@ -143,6 +156,11 @@ async function startBot() {
 
     for (const msg of messages) {
       if (!msg?.message || msg.key.fromMe) continue;
+
+      // Ignora por completo a los números excluidos, sin importar qué escriban.
+      const senderJid = msg.key.participant || msg.key.remoteJid || "";
+      const senderNumber = canonicalNumber(senderJid.replace(/@.*/, ""));
+      if (excludedNumbersSet.has(senderNumber)) continue;
 
       const chatId = msg.key.remoteJid;
       const rawText = extractText(msg).trim();
