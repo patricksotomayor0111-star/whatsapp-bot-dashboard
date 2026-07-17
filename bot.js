@@ -10,6 +10,7 @@ const path = require("path");
 const fs = require("fs");
 const { positiveKeywords, excludedKeywords, defaultResponse } = require("./keywords");
 const { excludedNumbers } = require("./excludedNumbers");
+const dynamicKeywords = require("./dynamicKeywords");
 const {
   getGroupSector,
   isSectorActive,
@@ -45,8 +46,24 @@ function buildKeywordRegex(rawKeyword) {
   return new RegExp(prefix + escaped, "i");
 }
 
-const positiveMatchers = positiveKeywords.map((k) => ({ keyword: k, regex: buildKeywordRegex(k) }));
-const excludedMatchers = excludedKeywords.map((k) => ({ keyword: k, regex: buildKeywordRegex(k) }));
+function buildMatchers(keywordList) {
+  return keywordList.map((k) => ({ keyword: k, regex: buildKeywordRegex(k) }));
+}
+
+// Se reconstruyen en cada mensaje (no en el arranque) porque las keywords
+// globales/excluidas/especiales se pueden agregar o quitar desde el panel
+// en cualquier momento.
+function getPositiveMatchers() {
+  return buildMatchers([...positiveKeywords, ...dynamicKeywords.getExtraPositive()]);
+}
+
+function getExcludedMatchers() {
+  return buildMatchers([...excludedKeywords, ...dynamicKeywords.getExtraExcluded()]);
+}
+
+function getSpecialMatchers(chatId) {
+  return buildMatchers(dynamicKeywords.getSpecialForGroup(chatId));
+}
 
 // Deja solo los dígitos y se queda con los últimos 9 (número peruano sin
 // el "51" ni "+"), así "+51 934 343 343", "51934343343" y "934343343"
@@ -184,19 +201,26 @@ async function startBot() {
       const text = normalizeText(rawText);
       if (!text) continue;
 
-      const tieneExclusion = excludedMatchers.some(({ regex }) => regex.test(text));
-      if (tieneExclusion) continue;
-
       // Se usa exec() (no find()) para saber en qué posición del texto
       // aparece la palabra clave y poder resaltarla en el historial.
-      let match = null;
-      for (const m of positiveMatchers) {
-        const result = m.regex.exec(text);
-        if (result) {
-          match = { keyword: m.keyword, index: result.index, length: result[0].length };
-          break;
+      const buscarMatch = (matchers) => {
+        for (const m of matchers) {
+          const result = m.regex.exec(text);
+          if (result) return { keyword: m.keyword, index: result.index, length: result[0].length };
         }
+        return null;
+      };
+
+      // Las keywords especiales de ESTE grupo ganan siempre, sin importar
+      // las exclusiones globales.
+      let match = buscarMatch(getSpecialMatchers(chatId));
+
+      if (!match) {
+        const tieneExclusion = getExcludedMatchers().some(({ regex }) => regex.test(text));
+        if (tieneExclusion) continue;
+        match = buscarMatch(getPositiveMatchers());
       }
+
       if (!match) continue;
 
       const sectorId = getGroupSector(chatId);

@@ -42,6 +42,20 @@ const delayOverlay = document.getElementById("delayOverlay");
 const closeDelay = document.getElementById("closeDelay");
 const delayOptions = document.getElementById("delayOptions");
 
+const keywordsLink = document.getElementById("keywordsLink");
+const keywordsOverlay = document.getElementById("keywordsOverlay");
+const closeKeywords = document.getElementById("closeKeywords");
+const positiveKeywordList = document.getElementById("positiveKeywordList");
+const positiveKeywordInput = document.getElementById("positiveKeywordInput");
+const addPositiveKeywordBtn = document.getElementById("addPositiveKeywordBtn");
+const excludedKeywordList = document.getElementById("excludedKeywordList");
+const excludedKeywordInput = document.getElementById("excludedKeywordInput");
+const addExcludedKeywordBtn = document.getElementById("addExcludedKeywordBtn");
+const specialGroupSelect = document.getElementById("specialGroupSelect");
+const specialKeywordList = document.getElementById("specialKeywordList");
+const specialKeywordInput = document.getElementById("specialKeywordInput");
+const addSpecialKeywordBtn = document.getElementById("addSpecialKeywordBtn");
+
 let groupsData = [];
 let focusedGroups = [];
 let sectorDefs = [];
@@ -564,6 +578,171 @@ delayLink.addEventListener("click", (e) => {
 closeDelay.addEventListener("click", () => {
   delayOverlay.classList.add("hidden");
   delayOverlay.classList.remove("flex");
+});
+
+// ---------- Palabras clave ----------
+let keywordsData = { positive: [], excluded: [], specialByGroup: {} };
+
+function renderKeywordChips(container, items, colorClasses, onRemove) {
+  container.innerHTML = "";
+  if (items.length === 0) {
+    const p = document.createElement("p");
+    p.className = "text-xs text-slate-400";
+    p.textContent = "Sin keywords extras.";
+    container.appendChild(p);
+    return;
+  }
+  items.forEach((phrase) => {
+    const chip = document.createElement("div");
+    chip.className = `flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm ${colorClasses}`;
+    const label = document.createElement("span");
+    label.className = "truncate";
+    label.textContent = phrase;
+    const removeBtn = document.createElement("button");
+    removeBtn.innerHTML = '<i class="fa-solid fa-xmark text-xs"></i>';
+    removeBtn.className = "shrink-0 opacity-60 hover:opacity-100";
+    removeBtn.addEventListener("click", () => onRemove(phrase));
+    chip.appendChild(label);
+    chip.appendChild(removeBtn);
+    container.appendChild(chip);
+  });
+}
+
+function renderPositiveKeywords() {
+  renderKeywordChips(positiveKeywordList, keywordsData.positive, "bg-green-50 text-green-700", async (phrase) => {
+    await fetch("/api/keywords/positive/remove", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phrase }),
+    });
+    keywordsData.positive = keywordsData.positive.filter((p) => p !== phrase);
+    renderPositiveKeywords();
+  });
+}
+
+function renderExcludedKeywords() {
+  renderKeywordChips(excludedKeywordList, keywordsData.excluded, "bg-red-50 text-red-700", async (phrase) => {
+    await fetch("/api/keywords/excluded/remove", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phrase }),
+    });
+    keywordsData.excluded = keywordsData.excluded.filter((p) => p !== phrase);
+    renderExcludedKeywords();
+  });
+}
+
+function renderSpecialKeywords() {
+  const groupId = specialGroupSelect.value;
+  const items = groupId ? keywordsData.specialByGroup[groupId] || [] : [];
+  renderKeywordChips(specialKeywordList, items, "bg-orange-50 text-orange-700", async (phrase) => {
+    await fetch(`/api/keywords/special/${encodeURIComponent(groupId)}/remove`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phrase }),
+    });
+    keywordsData.specialByGroup[groupId] = (keywordsData.specialByGroup[groupId] || []).filter((p) => p !== phrase);
+    renderSpecialKeywords();
+  });
+}
+
+function populateSpecialGroupSelect() {
+  const seleccionActual = specialGroupSelect.value;
+  specialGroupSelect.innerHTML = '<option value="">— Selecciona un grupo —</option>';
+  groupsData.forEach((g) => {
+    const opt = document.createElement("option");
+    opt.value = g.id;
+    opt.textContent = g.name;
+    specialGroupSelect.appendChild(opt);
+  });
+  if (seleccionActual) specialGroupSelect.value = seleccionActual;
+}
+
+async function fetchKeywords() {
+  try {
+    const res = await fetch("/api/keywords");
+    keywordsData = await res.json();
+  } catch (err) {
+    console.error("No se pudo obtener las keywords:", err);
+  }
+  renderPositiveKeywords();
+  renderExcludedKeywords();
+  populateSpecialGroupSelect();
+  renderSpecialKeywords();
+}
+
+addPositiveKeywordBtn.addEventListener("click", async () => {
+  const phrase = positiveKeywordInput.value.trim();
+  if (!phrase) return;
+  try {
+    const res = await fetch("/api/keywords/positive", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phrase }),
+    });
+    const data = await res.json();
+    keywordsData.positive = data.positive;
+    positiveKeywordInput.value = "";
+    renderPositiveKeywords();
+  } catch (err) {
+    console.error("No se pudo agregar la keyword:", err);
+  }
+});
+
+addExcludedKeywordBtn.addEventListener("click", async () => {
+  const phrase = excludedKeywordInput.value.trim();
+  if (!phrase) return;
+  try {
+    const res = await fetch("/api/keywords/excluded", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phrase }),
+    });
+    const data = await res.json();
+    keywordsData.excluded = data.excluded;
+    excludedKeywordInput.value = "";
+    renderExcludedKeywords();
+  } catch (err) {
+    console.error("No se pudo agregar la keyword excluida:", err);
+  }
+});
+
+specialGroupSelect.addEventListener("change", renderSpecialKeywords);
+
+addSpecialKeywordBtn.addEventListener("click", async () => {
+  const groupId = specialGroupSelect.value;
+  const phrase = specialKeywordInput.value.trim();
+  if (!groupId) {
+    alert("Primero elige un grupo.");
+    return;
+  }
+  if (!phrase) return;
+  try {
+    const res = await fetch(`/api/keywords/special/${encodeURIComponent(groupId)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phrase }),
+    });
+    const data = await res.json();
+    keywordsData.specialByGroup[groupId] = data.special;
+    specialKeywordInput.value = "";
+    renderSpecialKeywords();
+  } catch (err) {
+    console.error("No se pudo agregar la keyword especial:", err);
+  }
+});
+
+keywordsLink.addEventListener("click", (e) => {
+  e.preventDefault();
+  closeDrawerFn();
+  keywordsOverlay.classList.remove("hidden");
+  keywordsOverlay.classList.add("flex");
+  fetchKeywords();
+});
+
+closeKeywords.addEventListener("click", () => {
+  keywordsOverlay.classList.add("hidden");
+  keywordsOverlay.classList.remove("flex");
 });
 
 // ---------- Inicialización ----------

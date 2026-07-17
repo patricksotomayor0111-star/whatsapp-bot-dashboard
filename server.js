@@ -2,6 +2,7 @@ const express = require("express");
 const path = require("path");
 const { startBot, botState, logoutBot } = require("./bot");
 const sectors = require("./sectors");
+const dynamicKeywords = require("./dynamicKeywords");
 
 const app = express();
 app.use(express.json());
@@ -125,6 +126,59 @@ app.post("/api/config/delay", (req, res) => {
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+});
+
+// Keywords agregadas desde el panel (además de las de keywords.js)
+app.get("/api/keywords", (req, res) => {
+  res.json({
+    positive: dynamicKeywords.getExtraPositive(),
+    excluded: dynamicKeywords.getExtraExcluded(),
+    specialByGroup: dynamicKeywords.getAllSpecial(),
+  });
+});
+
+app.post("/api/keywords/positive", (req, res) => {
+  try {
+    dynamicKeywords.addExtraPositive(req.body.phrase);
+    res.json({ ok: true, positive: dynamicKeywords.getExtraPositive() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/keywords/positive/remove", (req, res) => {
+  dynamicKeywords.removeExtraPositive(req.body.phrase);
+  res.json({ ok: true, positive: dynamicKeywords.getExtraPositive() });
+});
+
+app.post("/api/keywords/excluded", (req, res) => {
+  try {
+    dynamicKeywords.addExtraExcluded(req.body.phrase);
+    res.json({ ok: true, excluded: dynamicKeywords.getExtraExcluded() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/keywords/excluded/remove", (req, res) => {
+  dynamicKeywords.removeExtraExcluded(req.body.phrase);
+  res.json({ ok: true, excluded: dynamicKeywords.getExtraExcluded() });
+});
+
+// Keywords especiales de un grupo: si ese grupo recibe un mensaje con esta
+// frase, el bot responde sin importar las exclusiones.
+app.post("/api/keywords/special/:groupId", (req, res) => {
+  try {
+    dynamicKeywords.addSpecialForGroup(req.params.groupId, req.body.phrase);
+    res.json({ ok: true, special: dynamicKeywords.getSpecialForGroup(req.params.groupId) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/keywords/special/:groupId/remove", (req, res) => {
+  dynamicKeywords.removeSpecialForGroup(req.params.groupId, req.body.phrase);
+  res.json({ ok: true, special: dynamicKeywords.getSpecialForGroup(req.params.groupId) });
 });
 
 const PORT = process.env.PORT || 3000;
