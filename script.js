@@ -31,6 +31,17 @@ const closeDrawer = document.getElementById("closeDrawer");
 const drawer = document.getElementById("drawer");
 const drawerOverlay = document.getElementById("drawerOverlay");
 
+const historyLink = document.getElementById("historyLink");
+const historyOverlay = document.getElementById("historyOverlay");
+const closeHistory = document.getElementById("closeHistory");
+const historyList = document.getElementById("historyList");
+const historyEmpty = document.getElementById("historyEmpty");
+
+const delayLink = document.getElementById("delayLink");
+const delayOverlay = document.getElementById("delayOverlay");
+const closeDelay = document.getElementById("closeDelay");
+const delayOptions = document.getElementById("delayOptions");
+
 let groupsData = [];
 let focusedGroups = [];
 let sectorDefs = [];
@@ -158,7 +169,8 @@ function renderSectors(filtro = "") {
       groupsContainer.appendChild(groupNode);
     });
 
-    const shouldOpen = Boolean(term);
+    // Todos los sectores empiezan desplegados, menos "Otros" (se abre solo si hay búsqueda).
+    const shouldOpen = term ? true : sector.id !== "otros";
     if (shouldOpen) {
       groupsContainer.classList.add("open");
       groupsContainer.style.maxHeight = groupsContainer.scrollHeight + "px";
@@ -423,6 +435,136 @@ function closeDrawerFn() {
 menuBtn.addEventListener("click", openDrawer);
 closeDrawer.addEventListener("click", closeDrawerFn);
 drawerOverlay.addEventListener("click", closeDrawerFn);
+
+// ---------- Historial ----------
+function buildHighlightedText(text, matchIndex, matchLength) {
+  const p = document.createElement("p");
+  p.className = "text-sm text-slate-700 leading-relaxed";
+  if (typeof matchIndex !== "number" || matchIndex < 0) {
+    p.textContent = text;
+    return p;
+  }
+  const before = text.slice(0, matchIndex);
+  const matched = text.slice(matchIndex, matchIndex + matchLength);
+  const after = text.slice(matchIndex + matchLength);
+  p.appendChild(document.createTextNode(before));
+  const mark = document.createElement("span");
+  mark.className = "text-green-600 font-bold bg-green-50 rounded px-0.5";
+  mark.textContent = matched;
+  p.appendChild(mark);
+  p.appendChild(document.createTextNode(after));
+  return p;
+}
+
+function renderHistory(entries) {
+  historyList.innerHTML = "";
+  if (entries.length === 0) {
+    historyEmpty.classList.remove("hidden");
+    return;
+  }
+  historyEmpty.classList.add("hidden");
+
+  entries.forEach((entry) => {
+    const card = document.createElement("div");
+    card.className = "card bg-white";
+
+    const header = document.createElement("div");
+    header.className = "flex items-center justify-between gap-2 mb-2";
+
+    const groupNameEl = document.createElement("span");
+    groupNameEl.className = "text-xs font-bold text-slate-800 truncate";
+    groupNameEl.textContent = entry.groupName;
+
+    const timeEl = document.createElement("span");
+    timeEl.className = "text-[10px] text-slate-400 shrink-0";
+    timeEl.textContent = new Date(entry.time).toLocaleString("es-PE");
+
+    header.appendChild(groupNameEl);
+    header.appendChild(timeEl);
+    card.appendChild(header);
+    card.appendChild(buildHighlightedText(entry.text, entry.matchIndex, entry.matchLength));
+
+    historyList.appendChild(card);
+  });
+}
+
+async function fetchHistory() {
+  try {
+    const res = await fetch("/api/history");
+    const data = await res.json();
+    renderHistory(data.history || []);
+  } catch (err) {
+    console.error("No se pudo obtener el historial:", err);
+  }
+}
+
+historyLink.addEventListener("click", (e) => {
+  e.preventDefault();
+  closeDrawerFn();
+  historyOverlay.classList.remove("hidden");
+  historyOverlay.classList.add("flex");
+  fetchHistory();
+});
+
+closeHistory.addEventListener("click", () => {
+  historyOverlay.classList.add("hidden");
+  historyOverlay.classList.remove("flex");
+});
+
+// ---------- Delay de respuesta ----------
+let currentDelayMs = 300;
+
+function renderDelayOptions() {
+  delayOptions.innerHTML = "";
+  for (let ms = 100; ms <= 1000; ms += 100) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = `${ms} ms`;
+    btn.className =
+      ms === currentDelayMs
+        ? "btn-capsule bg-brand-green text-white justify-center"
+        : "btn-capsule bg-white text-slate-600 border border-slate-200 justify-center";
+    btn.addEventListener("click", async () => {
+      try {
+        const res = await fetch("/api/config/delay", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ delayMs: ms }),
+        });
+        const data = await res.json();
+        currentDelayMs = data.delayMs;
+        renderDelayOptions();
+      } catch (err) {
+        console.error("No se pudo cambiar el delay:", err);
+      }
+    });
+    delayOptions.appendChild(btn);
+  }
+}
+
+async function fetchDelay() {
+  try {
+    const res = await fetch("/api/config/delay");
+    const data = await res.json();
+    currentDelayMs = data.delayMs;
+  } catch (err) {
+    console.error("No se pudo obtener el delay:", err);
+  }
+  renderDelayOptions();
+}
+
+delayLink.addEventListener("click", (e) => {
+  e.preventDefault();
+  closeDrawerFn();
+  delayOverlay.classList.remove("hidden");
+  delayOverlay.classList.add("flex");
+  fetchDelay();
+});
+
+closeDelay.addEventListener("click", () => {
+  delayOverlay.classList.add("hidden");
+  delayOverlay.classList.remove("flex");
+});
 
 // ---------- Inicialización ----------
 document.addEventListener("DOMContentLoaded", async () => {

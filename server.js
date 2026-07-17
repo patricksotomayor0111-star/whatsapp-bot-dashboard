@@ -102,6 +102,25 @@ app.post("/api/bot/logout", async (req, res) => {
   res.json({ ok: true });
 });
 
+// Historial de respuestas del bot (para la sección "Historial" del panel)
+app.get("/api/history", (req, res) => {
+  res.json({ history: botState.history });
+});
+
+// Delay de respuesta configurable (100ms a 1000ms)
+app.get("/api/config/delay", (req, res) => {
+  res.json({ delayMs: sectors.getResponseDelay() });
+});
+
+app.post("/api/config/delay", (req, res) => {
+  try {
+    sectors.setResponseDelay(req.body.delayMs);
+    res.json({ ok: true, delayMs: sectors.getResponseDelay() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {

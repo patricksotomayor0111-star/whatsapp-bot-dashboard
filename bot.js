@@ -15,7 +15,10 @@ const {
   isGroupActive,
   esSectorSinRemarcar,
   getFocusedGroups,
+  getResponseDelay,
 } = require("./sectors");
+
+const MAX_HISTORY = 100;
 
 const SESSION_PATH = path.join(__dirname, "session");
 
@@ -49,6 +52,7 @@ const botState = {
   connected: false,
   qr: null,
   lastActivity: null,
+  history: [],
   groups: [],
   active: false, // arranca inactivo: hay que activarlo manualmente desde el panel tras vincular
 };
@@ -141,13 +145,23 @@ async function startBot() {
       if (!msg?.message || msg.key.fromMe) continue;
 
       const chatId = msg.key.remoteJid;
-      const text = normalizeText(extractText(msg).trim());
+      const rawText = extractText(msg).trim();
+      const text = normalizeText(rawText);
       if (!text) continue;
 
       const tieneExclusion = excludedMatchers.some(({ regex }) => regex.test(text));
       if (tieneExclusion) continue;
 
-      const match = positiveMatchers.find(({ regex }) => regex.test(text));
+      // Se usa exec() (no find()) para saber en qué posición del texto
+      // aparece la palabra clave y poder resaltarla en el historial.
+      let match = null;
+      for (const m of positiveMatchers) {
+        const result = m.regex.exec(text);
+        if (result) {
+          match = { keyword: m.keyword, index: result.index, length: result[0].length };
+          break;
+        }
+      }
       if (!match) continue;
 
       const sectorId = getGroupSector(chatId);
@@ -165,14 +179,23 @@ async function startBot() {
       }
 
       const sinRemarcar = esSectorSinRemarcar(sectorId);
+      const grupo = botState.groups.find((g) => g.id === chatId);
 
-      botState.lastActivity = {
+      const entry = {
         chatId,
+        groupName: grupo?.name || chatId,
+        text: rawText,
+        matchIndex: match.index,
+        matchLength: match.length,
         keyword: match.keyword,
         response: defaultResponse,
         time: new Date().toISOString(),
         sent: false,
       };
+      botState.lastActivity = entry;
+
+      // Pequeña espera antes de responder, para que se sienta más natural.
+      await new Promise((resolve) => setTimeout(resolve, getResponseDelay()));
 
       try {
         await sock.sendMessage(
@@ -180,10 +203,16 @@ async function startBot() {
           { text: defaultResponse },
           sinRemarcar ? {} : { quoted: msg } // el sector Comodín no cita el mensaje original
         );
-        botState.lastActivity.sent = true;
+        entry.sent = true;
+        botState.history.unshift(entry);
+        if (botState.history.length > MAX_HISTORY) botState.history.length = MAX_HISTORY;
+
+        // El bot se apaga solo después de responder: hay que reactivarlo a mano.
+        botState.active = false;
+        break;
       } catch (err) {
         console.error("Error al enviar la respuesta:", err.message);
-        botState.lastActivity.error = err.message;
+        entry.error = err.message;
       }
     }
   });

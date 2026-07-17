@@ -17,6 +17,8 @@ const SECTOR_IDS = SECTOR_DEFS.map((s) => s.id);
 const DEFAULT_SECTOR = "otros";
 const SECTOR_SIN_REMARCAR = "comodin"; // en este sector el bot responde sin citar el mensaje
 
+const DEFAULT_DELAY_MS = 300;
+
 function loadData() {
   try {
     const raw = fs.readFileSync(DATA_PATH, "utf8");
@@ -26,9 +28,16 @@ function loadData() {
       sectorActive: parsed.sectorActive || {},
       groupActive: parsed.groupActive || {},
       focusedGroups: parsed.focusedGroups || [],
+      responseDelayMs: parsed.responseDelayMs || DEFAULT_DELAY_MS,
     };
   } catch (err) {
-    return { groupSectors: {}, sectorActive: {}, groupActive: {}, focusedGroups: [] };
+    return {
+      groupSectors: {},
+      sectorActive: {},
+      groupActive: {},
+      focusedGroups: [],
+      responseDelayMs: DEFAULT_DELAY_MS,
+    };
   }
 }
 
@@ -105,6 +114,20 @@ function clearFocus() {
   save();
 }
 
+// ---------- Delay de respuesta ----------
+function getResponseDelay() {
+  return data.responseDelayMs;
+}
+
+function setResponseDelay(ms) {
+  const value = Number(ms);
+  if (!Number.isInteger(value) || value < 100 || value > 1000 || value % 100 !== 0) {
+    throw new Error("El delay debe ser un múltiplo de 100 entre 100 y 1000");
+  }
+  data.responseDelayMs = value;
+  save();
+}
+
 module.exports = {
   SECTOR_DEFS,
   DEFAULT_SECTOR,
@@ -119,4 +142,6 @@ module.exports = {
   getFocusedGroups,
   addFocusGroup,
   clearFocus,
+  getResponseDelay,
+  setResponseDelay,
 };
