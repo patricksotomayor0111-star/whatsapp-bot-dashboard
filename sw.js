@@ -39,3 +39,28 @@ self.addEventListener("fetch", (event) => {
       .catch(() => caches.match(event.request))
   );
 });
+
+// Notificaciones push: el servidor manda esto cuando el bot responde un
+// mensaje, para avisarte aunque tengas el celular bloqueado o estés en
+// otra app.
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch (err) {
+    data = {};
+  }
+  const title = data.title || "🤖 Bot Panel";
+  const options = {
+    body: data.body || "El bot respondió un mensaje.",
+    icon: "/icon-192.png",
+    badge: "/icon-192.png",
+    vibrate: [200, 100, 200],
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil(self.clients.openWindow("/"));
+});

@@ -29,6 +29,9 @@ const botStatusText = document.getElementById("botStatusText");
 
 const logoutBtn = document.getElementById("logoutBtn");
 
+const togglePushBtn = document.getElementById("togglePushBtn");
+const pushStatus = document.getElementById("pushStatus");
+
 const menuBtn = document.getElementById("menuBtn");
 const closeDrawer = document.getElementById("closeDrawer");
 const drawer = document.getElementById("drawer");
@@ -429,6 +432,84 @@ logoutBtn.addEventListener("click", async () => {
     await fetch("/api/bot/logout", { method: "POST" });
   } catch (err) {
     console.error("No se pudo desvincular:", err);
+  }
+});
+
+// ---------- Notificaciones push ----------
+// Convierte la clave pública VAPID (base64 url-safe) al formato que
+// necesita pushManager.subscribe().
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; i++) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
+async function updatePushStatus() {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+    pushStatus.textContent = "Tu navegador no soporta notificaciones push.";
+    togglePushBtn.disabled = true;
+    return;
+  }
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub && Notification.permission === "granted") {
+      togglePushBtn.textContent = "🔕 Desactivar notificaciones";
+      pushStatus.textContent = "Notificaciones activadas en este dispositivo.";
+    } else {
+      togglePushBtn.textContent = "🔔 Activar notificaciones";
+      pushStatus.textContent = "Notificaciones desactivadas en este dispositivo.";
+    }
+  } catch (err) {
+    console.error("No se pudo consultar el estado de las notificaciones:", err);
+  }
+}
+
+togglePushBtn.addEventListener("click", async () => {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+  const reg = await navigator.serviceWorker.ready;
+  const existingSub = await reg.pushManager.getSubscription();
+
+  if (existingSub) {
+    try {
+      await fetch("/api/push/unsubscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ endpoint: existingSub.endpoint }),
+      });
+      await existingSub.unsubscribe();
+    } catch (err) {
+      console.error("No se pudo desactivar las notificaciones:", err);
+    }
+    await updatePushStatus();
+    return;
+  }
+
+  const permission = await Notification.requestPermission();
+  if (permission !== "granted") {
+    pushStatus.textContent = "No diste permiso de notificaciones en el navegador.";
+    return;
+  }
+
+  try {
+    const keyRes = await fetch("/api/push/vapid-public-key");
+    const { publicKey } = await keyRes.json();
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(publicKey),
+    });
+    await fetch("/api/push/subscribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subscription: sub }),
+    });
+    await updatePushStatus();
+  } catch (err) {
+    console.error("No se pudo activar las notificaciones:", err);
+    pushStatus.textContent = "No se pudo activar. Probá de nuevo.";
   }
 });
 
@@ -1125,6 +1206,7 @@ keywordsLink.addEventListener("click", (e) => {
   fetchDelay();
   fetchTimeWindow();
   refreshHistoryCount();
+  updatePushStatus();
 });
 
 closeKeywords.addEventListener("click", () => {

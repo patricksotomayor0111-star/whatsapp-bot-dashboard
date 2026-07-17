@@ -5,6 +5,7 @@ const sectors = require("./sectors");
 const dynamicKeywords = require("./dynamicKeywords");
 const numberExceptions = require("./numberExceptions");
 const cashbox = require("./cashbox");
+const pushSubscriptions = require("./pushSubscriptions");
 
 const app = express();
 app.use(express.json());
@@ -275,6 +276,23 @@ app.post("/api/exceptions/:groupId/:number/toggle", (req, res) => {
 // y total líquido registrados hasta ahora.
 app.get("/api/cashbox/today", (req, res) => {
   res.json(cashbox.getToday());
+});
+
+// Notificaciones push: el celular pide la clave pública para suscribirse,
+// y manda la suscripción para que el servidor le pueda avisar cuando el
+// bot responda un mensaje (ver bot.js).
+app.get("/api/push/vapid-public-key", (req, res) => {
+  res.json({ publicKey: pushSubscriptions.getPublicKey() });
+});
+
+app.post("/api/push/subscribe", (req, res) => {
+  pushSubscriptions.addSubscription(req.body.subscription);
+  res.json({ ok: true });
+});
+
+app.post("/api/push/unsubscribe", (req, res) => {
+  pushSubscriptions.removeSubscription(req.body.endpoint);
+  res.json({ ok: true });
 });
 
 const PORT = process.env.PORT || 3000;

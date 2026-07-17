@@ -13,6 +13,7 @@ const { excludedNumbers } = require("./excludedNumbers");
 const dynamicKeywords = require("./dynamicKeywords");
 const numberExceptions = require("./numberExceptions");
 const cashbox = require("./cashbox");
+const pushSubscriptions = require("./pushSubscriptions");
 const { sectorSeedByName, specialSeedByName, numberExceptionSeed } = require("./groupSeed");
 const {
   getGroupSector,
@@ -627,6 +628,15 @@ async function startBot() {
         entry.sent = true;
         botState.history.unshift(entry);
         if (botState.history.length > MAX_HISTORY) botState.history.length = MAX_HISTORY;
+
+        // Avisa por notificación push (si hay algún dispositivo suscrito)
+        // que el bot acaba de responder, sin bloquear el resto del flujo.
+        pushSubscriptions
+          .notifyAll({
+            title: "🤖 El bot respondió",
+            body: `${entry.groupName}: "${match.keyword}"`,
+          })
+          .catch((err) => console.error("Error al mandar notificación push:", err.message));
 
         // El bot se apaga solo después de responder: hay que reactivarlo a mano.
         botState.active = false;
