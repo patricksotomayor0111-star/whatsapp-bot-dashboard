@@ -22,6 +22,7 @@ app.get("/script.js", (req, res) => {
 app.get("/api/status", (req, res) => {
   res.json({
     connected: botState.connected,
+    active: botState.active,
     qr: botState.qr,
     lastActivity: botState.lastActivity,
     groupsCount: botState.groups.length,
@@ -31,6 +32,12 @@ app.get("/api/status", (req, res) => {
 // Lista de grupos reales de WhatsApp (solo disponible una vez conectado)
 app.get("/api/groups", (req, res) => {
   res.json({ groups: botState.groups });
+});
+
+// Pausa o reanuda las respuestas automáticas sin desconectar WhatsApp
+app.post("/api/bot/active", (req, res) => {
+  botState.active = Boolean(req.body.active);
+  res.json({ active: botState.active });
 });
 
 // Cierra la sesión de WhatsApp vinculada, para volver a mostrar un QR nuevo

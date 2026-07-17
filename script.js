@@ -22,6 +22,8 @@ const botToggleLabel = document.getElementById("botToggleLabel");
 const botStatusText = document.getElementById("botStatusText");
 const botStatusDot = document.getElementById("botStatusDot");
 
+const logoutBtn = document.getElementById("logoutBtn");
+
 const menuBtn = document.getElementById("menuBtn");
 const closeDrawer = document.getElementById("closeDrawer");
 const drawer = document.getElementById("drawer");
@@ -30,6 +32,7 @@ const drawerOverlay = document.getElementById("drawerOverlay");
 let currentFocusGroup = "Ninguno";
 let groupsData = [];
 let isConnected = false;
+let isActive = true;
 let lastRenderedQr = null;
 let qrInstance = null;
 
@@ -116,35 +119,62 @@ function setFocusGroup(nombre) {
 
 // ---------- Estado real del bot ----------
 function updateBotUI() {
-  if (isConnected) {
+  if (!isConnected) {
+    botStatusText.textContent = "Bot Desconectado";
+    botToggleLabel.textContent = "Pausar";
+    botToggleBtn.disabled = true;
+    botToggleBtn.classList.remove("bg-brand-green");
+    botToggleBtn.classList.add("bg-brand-red", "opacity-50");
+    botStatusDot.classList.remove("bg-brand-green", "bg-orange-400", "pulse-active");
+    botStatusDot.classList.add("bg-brand-red");
+    botStatusDot.style.boxShadow = "0 0 0 4px rgba(239,68,68,0.15)";
+    qrCard.classList.remove("hidden");
+  } else if (isActive) {
     botStatusText.textContent = "Bot Activo";
-    botToggleLabel.textContent = "Desvincular";
+    botToggleLabel.textContent = "Pausar";
     botToggleBtn.disabled = false;
-    botToggleBtn.classList.remove("bg-brand-red", "opacity-50");
+    botToggleBtn.classList.remove("bg-brand-red", "bg-orange-400", "opacity-50");
     botToggleBtn.classList.add("bg-brand-green");
-    botStatusDot.classList.remove("bg-brand-red");
+    botStatusDot.classList.remove("bg-brand-red", "bg-orange-400");
     botStatusDot.classList.add("bg-brand-green", "pulse-active");
     botStatusDot.style.boxShadow = "0 0 0 4px rgba(34,197,94,0.15)";
     qrCard.classList.add("hidden");
   } else {
-    botStatusText.textContent = "Bot Desconectado";
-    botToggleLabel.textContent = "Vincular";
-    botToggleBtn.disabled = true;
-    botToggleBtn.classList.remove("bg-brand-green");
-    botToggleBtn.classList.add("bg-brand-red", "opacity-50");
-    botStatusDot.classList.remove("bg-brand-green", "pulse-active");
-    botStatusDot.classList.add("bg-brand-red");
-    botStatusDot.style.boxShadow = "0 0 0 4px rgba(239,68,68,0.15)";
-    qrCard.classList.remove("hidden");
+    botStatusText.textContent = "Bot Pausado";
+    botToggleLabel.textContent = "Reanudar";
+    botToggleBtn.disabled = false;
+    botToggleBtn.classList.remove("bg-brand-red", "bg-brand-green", "opacity-50");
+    botToggleBtn.classList.add("bg-orange-400");
+    botStatusDot.classList.remove("bg-brand-red", "bg-brand-green", "pulse-active");
+    botStatusDot.classList.add("bg-orange-400");
+    botStatusDot.style.boxShadow = "0 0 0 4px rgba(251,146,60,0.15)";
+    qrCard.classList.add("hidden");
   }
 }
 
-// El botón solo tiene sentido para desvincular: para "activar" hay que escanear el QR
+// Pausa o reanuda las respuestas automáticas SIN desconectar WhatsApp
 botToggleBtn.addEventListener("click", async () => {
   if (!isConnected) return;
+  const nuevoEstado = !isActive;
+  botToggleBtn.disabled = true;
+  try {
+    const res = await fetch("/api/bot/active", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ active: nuevoEstado }),
+    });
+    const data = await res.json();
+    isActive = Boolean(data.active);
+  } catch (err) {
+    console.error("No se pudo cambiar el estado del bot:", err);
+  }
+  updateBotUI();
+});
+
+// Desvincula WhatsApp por completo (hay que volver a escanear el QR)
+logoutBtn.addEventListener("click", async () => {
   const confirmado = confirm("¿Desvincular WhatsApp? Tendrás que escanear el QR de nuevo.");
   if (!confirmado) return;
-  botToggleBtn.disabled = true;
   try {
     await fetch("/api/bot/logout", { method: "POST" });
   } catch (err) {
@@ -159,6 +189,7 @@ async function pollStatus() {
     const data = await res.json();
     const wasConnected = isConnected;
     isConnected = Boolean(data.connected);
+    isActive = Boolean(data.active);
 
     if (isConnected) {
       qrHint.textContent = "";

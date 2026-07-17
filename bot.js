@@ -18,6 +18,7 @@ const botState = {
   qr: null,
   lastActivity: null,
   groups: [],
+  active: true, // si es false, el bot sigue conectado pero no responde a nada
 };
 
 let currentSock = null;
@@ -99,6 +100,8 @@ async function startBot() {
 
   // Detección de palabra clave y respuesta citando el mensaje original
   sock.ev.on("messages.upsert", async ({ messages }) => {
+    if (!botState.active) return;
+
     const msg = messages[0];
     if (!msg?.message || msg.key.fromMe) return;
 
