@@ -23,6 +23,7 @@ const {
   getResponseDelay,
   hasGroupSector,
   setGroupSector,
+  getTimeWindowMinutes,
 } = require("./sectors");
 
 const MAX_HISTORY = 100;
@@ -129,12 +130,11 @@ function buscarExcepcionNumero(text, chatId, senderNumber) {
   return null;
 }
 
-// ---------- Filtro de tiempo (0 a 15 minutos) ----------
+// ---------- Filtro de tiempo (0 a N minutos, configurable desde el panel) ----------
 // Si el mensaje menciona una cantidad de minutos ("en 20 minutos") o una
-// hora de reloj ("11:15 am"), el bot solo responde si eso cae entre 0 y 15
-// minutos desde ahora (hora de Perú). Si no menciona nada de tiempo, esta
-// regla no aplica y no afecta la detección normal.
-const MAX_MINUTOS_RESPUESTA = 15;
+// hora de reloj ("11:15 am"), el bot solo responde si eso cae entre 0 y N
+// minutos desde ahora (hora de Perú, N configurable en Opciones). Si no
+// menciona nada de tiempo, esta regla no aplica y no afecta la detección normal.
 
 // "en 20 minutos", "en 20 min", "en 20min", "en 20 m", "en 20",
 // "20 minutos", "20 min", "20min" (sin "en" pero con unidad explícita)
@@ -167,7 +167,7 @@ function getPeruNow() {
 }
 
 // True si ALGUNA interpretación de la hora mencionada (am/pm, o ambas si no
-// se especifica) cae entre 0 y 15 minutos en el FUTURO respecto a ahora.
+// se especifica) cae dentro de la ventana configurada, en el FUTURO respecto a ahora.
 function horaEstaEnRango(hour, minute, meridiem, now) {
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
   const candidatosHora = [];
@@ -179,9 +179,10 @@ function horaEstaEnRango(hour, minute, meridiem, now) {
     candidatosHora.push(hour % 24);
     if (hour <= 11) candidatosHora.push(hour + 12);
   }
+  const maxMinutos = getTimeWindowMinutes();
   return candidatosHora.some((h) => {
     const diff = h * 60 + minute - nowMinutes;
-    return diff >= 0 && diff <= MAX_MINUTOS_RESPUESTA;
+    return diff >= 0 && diff <= maxMinutos;
   });
 }
 
@@ -190,7 +191,7 @@ function horaEstaEnRango(hour, minute, meridiem, now) {
 function tiempoEnRango(text) {
   const minutosRelativos = extractRelativeMinutes(text);
   if (minutosRelativos !== null) {
-    return minutosRelativos >= 0 && minutosRelativos <= MAX_MINUTOS_RESPUESTA;
+    return minutosRelativos >= 0 && minutosRelativos <= getTimeWindowMinutes();
   }
   const horaMencionada = extractClockTime(text);
   if (horaMencionada) {
@@ -522,8 +523,8 @@ async function startBot() {
       if (!match) continue;
 
       // Si el mensaje menciona una hora o una cantidad de minutos fuera de
-      // 0-15, no responde — aplica por igual a especiales, excepciones y
-      // keywords normales.
+      // la ventana configurada (0 a N minutos), no responde — aplica por
+      // igual a especiales, excepciones y keywords normales.
       if (!tiempoEnRango(text)) continue;
 
       const sectorId = getGroupSector(chatId);

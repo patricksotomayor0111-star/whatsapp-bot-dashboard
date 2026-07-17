@@ -18,6 +18,7 @@ const DEFAULT_SECTOR = "otros";
 const SECTOR_SIN_REMARCAR = "comodin"; // en este sector el bot responde sin citar el mensaje
 
 const DEFAULT_DELAY_MS = 300;
+const DEFAULT_TIME_WINDOW_MINUTES = 15;
 
 function loadData() {
   try {
@@ -29,6 +30,8 @@ function loadData() {
       groupActive: parsed.groupActive || {},
       focusedGroups: parsed.focusedGroups || [],
       responseDelayMs: parsed.responseDelayMs || DEFAULT_DELAY_MS,
+      timeWindowMinutes:
+        parsed.timeWindowMinutes !== undefined ? parsed.timeWindowMinutes : DEFAULT_TIME_WINDOW_MINUTES,
     };
   } catch (err) {
     return {
@@ -37,6 +40,7 @@ function loadData() {
       groupActive: {},
       focusedGroups: [],
       responseDelayMs: DEFAULT_DELAY_MS,
+      timeWindowMinutes: DEFAULT_TIME_WINDOW_MINUTES,
     };
   }
 }
@@ -134,6 +138,20 @@ function setResponseDelay(ms) {
   save();
 }
 
+// ---------- Ventana de tiempo (0 a N minutos) ----------
+function getTimeWindowMinutes() {
+  return data.timeWindowMinutes;
+}
+
+function setTimeWindowMinutes(minutes) {
+  const value = Number(minutes);
+  if (!Number.isInteger(value) || value < 0 || value > 15) {
+    throw new Error("La ventana de tiempo debe ser un número entero entre 0 y 15");
+  }
+  data.timeWindowMinutes = value;
+  save();
+}
+
 module.exports = {
   SECTOR_DEFS,
   DEFAULT_SECTOR,
@@ -151,4 +169,6 @@ module.exports = {
   clearFocus,
   getResponseDelay,
   setResponseDelay,
+  getTimeWindowMinutes,
+  setTimeWindowMinutes,
 };

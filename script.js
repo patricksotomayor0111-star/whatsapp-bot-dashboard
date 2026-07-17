@@ -44,6 +44,9 @@ const historyCount = document.getElementById("historyCount");
 const delaySelect = document.getElementById("delaySelect");
 const saveDelayBtn = document.getElementById("saveDelayBtn");
 
+const timeWindowSelect = document.getElementById("timeWindowSelect");
+const saveTimeWindowBtn = document.getElementById("saveTimeWindowBtn");
+
 const moveGroupSelect = document.getElementById("moveGroupSelect");
 const moveSectorSelect = document.getElementById("moveSectorSelect");
 const moveGroupBtn = document.getElementById("moveGroupBtn");
@@ -583,6 +586,47 @@ saveDelayBtn.addEventListener("click", async () => {
   }
 });
 
+// ---------- Ventana de tiempo (0 a N minutos) ----------
+let currentTimeWindowMinutes = 15;
+
+function renderTimeWindowOptions() {
+  timeWindowSelect.innerHTML = "";
+  for (let min = 0; min <= 15; min++) {
+    const opt = document.createElement("option");
+    opt.value = min;
+    opt.textContent = min === 1 ? "1 minuto" : `${min} minutos`;
+    if (min === currentTimeWindowMinutes) opt.selected = true;
+    timeWindowSelect.appendChild(opt);
+  }
+}
+
+async function fetchTimeWindow() {
+  try {
+    const res = await fetch("/api/config/timewindow");
+    const data = await res.json();
+    currentTimeWindowMinutes = data.minutes;
+  } catch (err) {
+    console.error("No se pudo obtener la ventana de tiempo:", err);
+  }
+  renderTimeWindowOptions();
+}
+
+saveTimeWindowBtn.addEventListener("click", async () => {
+  const minutes = parseInt(timeWindowSelect.value, 10);
+  try {
+    const res = await fetch("/api/config/timewindow", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ minutes }),
+    });
+    const data = await res.json();
+    currentTimeWindowMinutes = data.minutes;
+    renderTimeWindowOptions();
+  } catch (err) {
+    console.error("No se pudo cambiar la ventana de tiempo:", err);
+  }
+});
+
 // ---------- Palabras clave ----------
 let keywordsData = { positive: [], excluded: [], specialByGroup: {} };
 
@@ -980,6 +1024,7 @@ keywordsLink.addEventListener("click", (e) => {
   fetchExceptionsOverview();
   populateMoveSelects();
   fetchDelay();
+  fetchTimeWindow();
   refreshHistoryCount();
 });
 

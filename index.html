@@ -128,6 +128,16 @@
           </div>
         </section>
 
+        <!-- Ventana de tiempo -->
+        <section>
+          <p class="eyebrow text-slate-600"><i class="fa-solid fa-hourglass-half"></i> VENTANA DE TIEMPO</p>
+          <p class="text-xs text-slate-400 mt-1 mb-2">Si el mensaje menciona una hora o minutos, el bot solo responde si cae entre 0 y este máximo de minutos desde ahora.</p>
+          <div class="flex gap-2">
+            <select id="timeWindowSelect" class="flex-1 min-w-0 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-green/40"></select>
+            <button id="saveTimeWindowBtn" class="shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold bg-blue-500 text-white active:scale-95 transition-all">Guardar</button>
+          </div>
+        </section>
+
         <!-- Keywords globales -->
         <section>
           <p class="eyebrow text-brand-green"><i class="fa-solid fa-circle-check"></i> KEYWORDS GLOBALES</p>

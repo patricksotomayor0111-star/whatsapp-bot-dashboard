@@ -144,6 +144,20 @@ app.post("/api/config/delay", (req, res) => {
   }
 });
 
+// Ventana de tiempo (0 a N minutos) configurable para el filtro de horarios
+app.get("/api/config/timewindow", (req, res) => {
+  res.json({ minutes: sectors.getTimeWindowMinutes() });
+});
+
+app.post("/api/config/timewindow", (req, res) => {
+  try {
+    sectors.setTimeWindowMinutes(req.body.minutes);
+    res.json({ ok: true, minutes: sectors.getTimeWindowMinutes() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // Keywords agregadas desde el panel (además de las de keywords.js)
 app.get("/api/keywords", (req, res) => {
   res.json({
