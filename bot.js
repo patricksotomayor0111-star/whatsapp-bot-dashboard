@@ -68,7 +68,20 @@ const botState = {
   history: [],
   groups: [],
   active: false, // arranca inactivo: hay que activarlo manualmente desde el panel tras vincular
+  recentSenders: [], // diagnóstico temporal: últimos remitentes vistos por grupo
 };
+
+function logSender(chatId, groupName, senderJid, senderNumber, blocked) {
+  botState.recentSenders.unshift({
+    chatId,
+    groupName,
+    senderJid,
+    senderNumber,
+    blocked,
+    time: new Date().toISOString(),
+  });
+  if (botState.recentSenders.length > 30) botState.recentSenders.length = 30;
+}
 
 let currentSock = null;
 
@@ -157,12 +170,16 @@ async function startBot() {
     for (const msg of messages) {
       if (!msg?.message || msg.key.fromMe) continue;
 
+      const chatId = msg.key.remoteJid;
+      const grupoActual = botState.groups.find((g) => g.id === chatId);
+
       // Ignora por completo a los números excluidos, sin importar qué escriban.
       const senderJid = msg.key.participant || msg.key.remoteJid || "";
       const senderNumber = canonicalNumber(senderJid.replace(/@.*/, ""));
-      if (excludedNumbersSet.has(senderNumber)) continue;
+      const bloqueado = excludedNumbersSet.has(senderNumber);
+      logSender(chatId, grupoActual?.name || chatId, senderJid, senderNumber, bloqueado);
+      if (bloqueado) continue;
 
-      const chatId = msg.key.remoteJid;
       const rawText = extractText(msg).trim();
       const text = normalizeText(rawText);
       if (!text) continue;
@@ -197,11 +214,11 @@ async function startBot() {
       }
 
       const sinRemarcar = esSectorSinRemarcar(sectorId);
-      const grupo = botState.groups.find((g) => g.id === chatId);
 
       const entry = {
         chatId,
-        groupName: grupo?.name || chatId,
+        groupName: grupoActual?.name || chatId,
+        senderNumber,
         text: rawText,
         matchIndex: match.index,
         matchLength: match.length,

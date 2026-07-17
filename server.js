@@ -107,6 +107,12 @@ app.get("/api/history", (req, res) => {
   res.json({ history: botState.history });
 });
 
+// Diagnóstico temporal: últimos remitentes detectados por grupo, para
+// verificar por qué un número excluido sí/no fue bloqueado en cierto grupo.
+app.get("/api/debug/senders", (req, res) => {
+  res.json({ recentSenders: botState.recentSenders });
+});
+
 // Delay de respuesta configurable (100ms a 1000ms)
 app.get("/api/config/delay", (req, res) => {
   res.json({ delayMs: sectors.getResponseDelay() });
