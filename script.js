@@ -147,7 +147,7 @@ function renderSectors(filtro = "") {
 
       nameSpan.textContent = grupo.name;
       if (groupsWithExceptions.has(grupo.id)) groupLockIcon.classList.remove("hidden");
-      if (grupo.noRemarcar) noRemarcarIcon.classList.remove("hidden");
+      if (grupo.sinRemarcarEfectivo) noRemarcarIcon.classList.remove("hidden");
 
       const estaEnfocado = focusedGroups.includes(grupo.id);
       if (estaEnfocado) {

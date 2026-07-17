@@ -49,13 +49,18 @@ app.get("/api/status", (req, res) => {
 // con el sector asignado, si está activo individualmente y si está enfocado.
 app.get("/api/groups", (req, res) => {
   const focusedGroups = sectors.getFocusedGroups();
-  const groups = botState.groups.map((g) => ({
-    ...g,
-    sectorId: sectors.getGroupSector(g.id),
-    active: sectors.isGroupActive(g.id),
-    focused: focusedGroups.includes(g.id),
-    noRemarcar: sectors.isGroupNoRemarcar(g.id),
-  }));
+  const groups = botState.groups.map((g) => {
+    const sectorId = sectors.getGroupSector(g.id);
+    const noRemarcar = sectors.isGroupNoRemarcar(g.id);
+    return {
+      ...g,
+      sectorId,
+      active: sectors.isGroupActive(g.id),
+      focused: focusedGroups.includes(g.id),
+      noRemarcar, // el interruptor individual (para el toggle de Opciones)
+      sinRemarcarEfectivo: sectors.esSectorSinRemarcar(sectorId) || noRemarcar, // individual O por sector (para el ícono en la lista)
+    };
+  });
   res.json({ groups, focusedGroups });
 });
 
