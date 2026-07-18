@@ -66,6 +66,7 @@ const excludedKeywords = [
   "mercado", "supermercado", "plaza vea", "metro ", "tottus",
   "para la urb", "para urb", "para jr", "para av ", "para calle",
   "para pasaje", "manzana", "mz ", "lote ", "lt ", "etapa",
+  "av.", "avenida",
   "+51", "del mas cercano", "exclusivamente para delivery",
   "aqui esta amigo", "puede recogerlo", "ya puedes pasar",
   "ya puede recoger", "compra", "alguien disponible",

@@ -107,8 +107,9 @@ function matchPorPalabras(text, frase) {
   return { keyword: frase, index: primero.index, length: primero[0].length };
 }
 
-// Las keywords especiales de un grupo ganan siempre, sin importar exclusiones
-// ni si el sector/grupo está apagado.
+// Las keywords especiales de un grupo: frases propias de ESE grupo que se
+// saltan las palabras excluidas, pero respetan los bloqueos de número y que
+// el sector/grupo estén activos (eso se chequea más adelante en el flujo).
 function buscarKeywordEspecial(text, chatId) {
   for (const frase of dynamicKeywords.getSpecialForGroup(chatId)) {
     const m = matchPorPalabras(text, frase);
@@ -231,6 +232,20 @@ function tieneImagen(msg) {
     msg.message.viewOnceMessageV2?.message ||
     msg.message;
   return Boolean(m.imageMessage);
+}
+
+// True si el mensaje viene marcado como "reenviado" (la flechita de
+// WhatsApp). Un pedido reenviado suele ser una dirección o un pedido
+// copiado de otro chat, no un pedido directo — el bot no los responde.
+function esMensajeReenviado(msg) {
+  const m =
+    msg.message.ephemeralMessage?.message ||
+    msg.message.viewOnceMessage?.message ||
+    msg.message.viewOnceMessageV2?.message ||
+    msg.message;
+  const inner = m.extendedTextMessage || m.imageMessage || m.videoMessage || m.documentMessage || {};
+  const ctx = inner.contextInfo || {};
+  return Boolean(ctx.isForwarded) || (ctx.forwardingScore || 0) > 0;
 }
 
 function parseCashboxLine(rawLine) {
@@ -607,6 +622,11 @@ async function startBot() {
       const text = normalizeText(rawText);
       const esImagenTrigger = esGrupoConTriggerDeImagen(grupoActual?.name) && tieneImagen(msg);
       if (!text && !esImagenTrigger) continue;
+
+      // Los mensajes reenviados no cuentan nunca (ni para keywords, ni
+      // especiales, ni excepciones): suelen ser direcciones o pedidos
+      // copiados de otro chat, no un pedido directo.
+      if (esMensajeReenviado(msg)) continue;
 
       // Se usa exec() (no find()) para saber en qué posición del texto
       // aparece la palabra clave y poder resaltarla en el historial.
