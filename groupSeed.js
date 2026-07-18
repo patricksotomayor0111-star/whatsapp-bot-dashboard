@@ -127,9 +127,11 @@ const specialSeedByName = {
 //
 // OJO con los LID: a veces WhatsApp identifica a la misma persona con un
 // ID alterno tipo "272984178720993@lid" en vez de su número real, sobre
-// todo en grupos grandes. En "Hola" pasó justo eso: el número real
-// 910795590 nunca funcionó (WhatsApp siempre manda a esta persona con el
-// LID), así que se dejó SOLO el alias 178720993 (últimos 9 dígitos del LID).
+// todo en grupos grandes. Desde la actualización a Baileys v7 el bot ya
+// resuelve el número real detrás del LID, así que la misma persona puede
+// llegar identificada de cualquiera de las dos formas según el mensaje.
+// Por eso la excepción de "Hola" está bajo AMBAS identidades: el número
+// real (910795590) y el alias del LID (178720993).
 const FRASES_EXCEPCION_HOLA = [
   { phrase: "Pendiente\nRecojo de cliente", active: true },
   { phrase: "Pendiente\nCompra de cliente", active: true },
@@ -142,7 +144,8 @@ const FRASES_EXCEPCION_REPORTES = [
 
 const numberExceptionSeed = {
   "Hola": {
-    "178720993": FRASES_EXCEPCION_HOLA, // alias por LID (el número real 910795590 no funcionaba ahí)
+    "910795590": FRASES_EXCEPCION_HOLA, // número real (lo que resuelve Baileys v7)
+    "178720993": FRASES_EXCEPCION_HOLA, // alias por LID (respaldo si el número no se pudo resolver)
   },
   "REPORTES BOX DELIVERY": {
     "960186738": FRASES_EXCEPCION_REPORTES,
