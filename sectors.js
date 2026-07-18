@@ -162,6 +162,14 @@ function addFocusGroup(groupId) {
   }
 }
 
+function removeFocusGroup(groupId) {
+  const idx = data.focusedGroups.indexOf(groupId);
+  if (idx !== -1) {
+    data.focusedGroups.splice(idx, 1);
+    save();
+  }
+}
+
 function clearFocus() {
   data.focusedGroups = [];
   save();
@@ -291,6 +299,7 @@ module.exports = {
   setGroupActive,
   getFocusedGroups,
   addFocusGroup,
+  removeFocusGroup,
   clearFocus,
   getResponseDelay,
   setResponseDelay,

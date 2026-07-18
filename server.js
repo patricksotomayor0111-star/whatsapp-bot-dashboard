@@ -134,9 +134,16 @@ app.post("/api/focus/clear", (req, res) => {
   res.json({ ok: true });
 });
 
-// Modo enfoque: agrega un grupo a la lista de enfocados (solo esos responden)
+// Modo enfoque: el mismo botón 🎯 agrega o quita el grupo de la lista de
+// enfocados (un toque enfoca, otro toque lo saca; si era el último, el
+// modo enfoque se apaga solo).
 app.post("/api/focus/:groupId", (req, res) => {
-  sectors.addFocusGroup(req.params.groupId);
+  const groupId = req.params.groupId;
+  if (sectors.getFocusedGroups().includes(groupId)) {
+    sectors.removeFocusGroup(groupId);
+  } else {
+    sectors.addFocusGroup(groupId);
+  }
   res.json({ ok: true, focusedGroups: sectors.getFocusedGroups() });
 });
 
