@@ -92,8 +92,8 @@ const FRASES_MCGRILL_CARTAS = [
 ];
 
 const specialSeedByName = {
-  "AYABACA - BUMANGUESA II": ["listo"],
   "ARTIA PASTELERIA (dribox)": ["ya esta listo"],
+  "PATRIA PEDIDOS ": ["unamoto"], // escriben "una moto" pegado y la keyword normal "moto" no lo detecta
   "PEPEFOD DELIVERY": ["por favor un recojo en raul porras barrenechea d4"],
   "CHIFA LIU BOX DELIVERY": ["hola pedido"],
   "HARVEST BOX DELIVERY": [
