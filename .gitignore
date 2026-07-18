@@ -5,5 +5,6 @@ dynamic-keywords-data.json
 number-exceptions-data.json
 cashbox-data.json
 push-data.json
+lid-map.json
 .env
 *.log

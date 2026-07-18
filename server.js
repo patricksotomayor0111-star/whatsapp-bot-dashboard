@@ -43,6 +43,7 @@ app.get("/api/status", (req, res) => {
     qr: botState.qr,
     lastActivity: botState.lastActivity,
     groupsCount: botState.groups.length,
+    build: "lid-v7", // marcador para verificar desde afuera qué versión del código está corriendo
   });
 });
 

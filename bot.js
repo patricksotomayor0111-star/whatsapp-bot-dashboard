@@ -1,9 +1,8 @@
-const {
-  default: makeWASocket,
-  useMultiFileAuthState,
-  DisconnectReason,
-  fetchLatestBaileysVersion,
-} = require("@whiskeysockets/baileys");
+// En Baileys v7 makeWASocket puede venir como export con nombre o como
+// default según el build (CJS/ESM), así que se toma el que exista.
+const baileysLib = require("@whiskeysockets/baileys");
+const makeWASocket = baileysLib.makeWASocket || baileysLib.default;
+const { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = baileysLib;
 const P = require("pino");
 const qrcode = require("qrcode-terminal");
 const path = require("path");
@@ -357,13 +356,74 @@ function canonicalNumber(raw) {
 
 // WhatsApp a veces identifica al remitente con un ID interno "@lid" (para
 // privacidad en grupos grandes) en vez de su número real "@s.whatsapp.net".
-// Baileys manda el JID alternativo en msg.key.participantAlt: si uno de los
-// dos es "@lid" y el otro no, nos quedamos con el que SÍ es un número real.
+// Baileys v7 manda el JID alternativo en msg.key.participantAlt: si uno de
+// los dos es "@lid" y el otro no, nos quedamos con el que SÍ es un número real.
+const esJidLid = (jid) => typeof jid === "string" && jid.endsWith("@lid");
+
 function elegirJidReal(principal, alterno) {
-  const esLid = (jid) => typeof jid === "string" && jid.endsWith("@lid");
-  if (principal && !esLid(principal)) return principal;
-  if (alterno && !esLid(alterno)) return alterno;
+  if (principal && !esJidLid(principal)) return principal;
+  if (alterno && !esJidLid(alterno)) return alterno;
   return principal || alterno || "";
+}
+
+// Mapa persistente LID -> número real, que se aprende solo: cada vez que un
+// mensaje trae los dos datos juntos (el LID y el número), se guarda la
+// equivalencia. Así, si más adelante llega un mensaje SOLO con el LID, se
+// puede resolver igual el número real y aplicar los bloqueos como
+// corresponde (esto era lo que dejaba pasar a números excluidos).
+const LID_MAP_PATH = path.join(__dirname, "lid-map.json");
+let lidMap = {};
+try {
+  lidMap = JSON.parse(fs.readFileSync(LID_MAP_PATH, "utf8"));
+} catch (err) {
+  lidMap = {};
+}
+
+function recordLidMapping(lidJid, pnJid) {
+  const lid = String(lidJid || "").replace(/@.*/, "");
+  const pn = canonicalNumber(String(pnJid || "").replace(/@.*/, ""));
+  if (!lid || !pn || lidMap[lid] === pn) return;
+  lidMap[lid] = pn;
+  try {
+    fs.writeFileSync(LID_MAP_PATH, JSON.stringify(lidMap, null, 2));
+  } catch (err) {
+    console.error("No se pudo guardar lid-map.json:", err.message);
+  }
+}
+
+// Resuelve el número real del remitente. Prioridad: JID con número real
+// (directo o por participantAlt) > mapa aprendido > mapa interno de Baileys
+// v7 > últimos dígitos del LID (último recurso, como antes).
+async function resolverSenderNumber(sock, msgKey) {
+  const participante = msgKey.participant || "";
+  const alterno = msgKey.participantAlt || "";
+  if (esJidLid(participante) && alterno && !esJidLid(alterno)) {
+    recordLidMapping(participante, alterno);
+  }
+
+  const senderJid = elegirJidReal(participante, alterno) || msgKey.remoteJid || "";
+  if (!esJidLid(senderJid)) {
+    return { senderJid, senderNumber: canonicalNumber(senderJid.replace(/@.*/, "")) };
+  }
+
+  const lidDigits = senderJid.replace(/@.*/, "");
+  let numeroReal = lidMap[lidDigits] || null;
+
+  if (!numeroReal) {
+    // Baileys v7 mantiene su propio mapa LID->número; se consulta de forma
+    // defensiva por si el método cambia de nombre entre versiones.
+    try {
+      const pn = await sock.signalRepository?.lidMapping?.getPNForLID?.(senderJid);
+      if (pn) {
+        numeroReal = canonicalNumber(String(pn).replace(/@.*/, ""));
+        recordLidMapping(senderJid, pn);
+      }
+    } catch (err) {
+      // sin mapeo disponible: se sigue con los dígitos del LID
+    }
+  }
+
+  return { senderJid, senderNumber: numeroReal || canonicalNumber(lidDigits) };
 }
 
 const excludedNumbersSet = new Set(
@@ -405,6 +465,18 @@ async function refreshGroups(sock) {
         participants: g.participants?.length || 0,
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
+
+    // Si Baileys v7 trae el número real junto al LID de cada participante,
+    // se aprenden todas las equivalencias de una vez (sin esperar a que
+    // cada persona escriba un mensaje).
+    Object.values(groupsMap).forEach((g) => {
+      (g.participants || []).forEach((p) => {
+        const id = p.id || "";
+        const alterno = p.phoneNumber || p.jid || "";
+        if (esJidLid(id) && alterno && !esJidLid(alterno)) recordLidMapping(id, alterno);
+        if (!esJidLid(id) && p.lid) recordLidMapping(p.lid, id);
+      });
+    });
 
     applyGroupSeed();
   } catch (err) {
@@ -528,8 +600,7 @@ async function startBot() {
 
       if (!botState.active) continue;
 
-      const senderJid = elegirJidReal(msg.key.participant, msg.key.participantAlt) || msg.key.remoteJid || "";
-      const senderNumber = canonicalNumber(senderJid.replace(/@.*/, ""));
+      const { senderJid, senderNumber } = await resolverSenderNumber(sock, msg.key);
       const bloqueadoGlobal = excludedNumbersSet.has(senderNumber);
       logSender(chatId, grupoActual?.name || chatId, senderJid, senderNumber, bloqueadoGlobal);
 
