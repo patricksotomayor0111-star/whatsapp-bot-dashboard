@@ -456,16 +456,17 @@ const botState = {
   recentSenders: [], // diagnóstico temporal: últimos remitentes vistos por grupo
 };
 
-function logSender(chatId, groupName, senderJid, senderNumber, blocked) {
+function logSender(chatId, groupName, senderJid, senderNumber, blocked, text) {
   botState.recentSenders.unshift({
     chatId,
     groupName,
     senderJid,
     senderNumber,
     blocked,
+    text: String(text || "").slice(0, 120),
     time: new Date().toISOString(),
   });
-  if (botState.recentSenders.length > 30) botState.recentSenders.length = 30;
+  if (botState.recentSenders.length > 50) botState.recentSenders.length = 50;
 }
 
 let currentSock = null;
@@ -613,11 +614,17 @@ async function startBot() {
         }
       }
 
-      if (!botState.active) continue;
-
+      // El registro de remitentes corre SIEMPRE (aunque el bot esté
+      // inactivo), para poder observar desde el panel quién escribe y si
+      // quedó bloqueado — sin que el bot responda. Solo se registran
+      // mensajes de grupos (no estados ni chats privados).
       const { senderJid, senderNumber } = await resolverSenderNumber(sock, msg.key);
       const bloqueadoGlobal = excludedNumbersSet.has(senderNumber);
-      logSender(chatId, grupoActual?.name || chatId, senderJid, senderNumber, bloqueadoGlobal);
+      if (chatId.endsWith("@g.us")) {
+        logSender(chatId, grupoActual?.name || chatId, senderJid, senderNumber, bloqueadoGlobal, extractText(msg));
+      }
+
+      if (!botState.active) continue;
 
       const text = normalizeText(rawText);
       const esImagenTrigger = esGrupoConTriggerDeImagen(grupoActual?.name) && tieneImagen(msg);
