@@ -281,7 +281,11 @@ function formatSoles(n) {
   return "S/ " + n.toLocaleString("es-PE", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
 
-async function handleCashboxEntries(sock, chatId, msg, entradas) {
+// Registra los movimientos EN SILENCIO (sin responder en el grupo): los
+// totales se ven en vivo en el panel ("RESUMEN DEL DÍA"). Los únicos
+// mensajes que la caja chica manda al grupo son el cierre diario de las
+// 11:59pm y el resumen semanal del domingo.
+function handleCashboxEntries(entradas) {
   entradas.forEach((entrada) => {
     if (entrada.type === "gasto") {
       cashbox.addGasto(entrada.monto);
@@ -289,19 +293,6 @@ async function handleCashboxEntries(sock, chatId, msg, entradas) {
       cashbox.addGanancia(entrada.monto);
     }
   });
-
-  const hoy = cashbox.getToday();
-
-  const texto =
-    `✅ Ganancias hoy: ${formatSoles(hoy.ganancias)}\n` +
-    `📉 Gastos hoy: ${formatSoles(hoy.gastos)}\n` +
-    `💰 Total líquido hoy: ${formatSoles(hoy.total)}`;
-
-  try {
-    await sock.sendMessage(chatId, { text: texto }, { quoted: msg });
-  } catch (err) {
-    console.error("Error al confirmar registro de caja chica:", err.message);
-  }
 }
 
 // Formatea la fecha (en hora Perú) como "YYYY-MM-DD", para usarla como
@@ -599,20 +590,28 @@ async function startBot() {
   // no solo el primero.
   sock.ev.on("messages.upsert", async ({ messages }) => {
     for (const msg of messages) {
-      if (!msg?.message || msg.key.fromMe) continue;
+      if (!msg?.message) continue;
 
       const chatId = msg.key.remoteJid;
       const grupoActual = botState.groups.find((g) => g.id === chatId);
       const rawText = extractText(msg).trim();
 
-      // Caja chica: corre siempre, sin importar el botón principal.
+      // Caja chica: corre siempre, sin importar el botón principal, e
+      // incluye TAMBIÉN los mensajes que escribe el propio dueño desde
+      // este número (fromMe) — únicamente en este grupo. Sin riesgo de
+      // bucle: los mensajes que manda el bot (cierres) empiezan con
+      // emoji, no con número, así que nunca se auto-registran.
       if (grupoActual && grupoActual.name.trim().toUpperCase() === CASHBOX_GROUP_NAME) {
         const entradas = parseCashboxMessage(rawText);
         if (entradas.length > 0) {
-          await handleCashboxEntries(sock, chatId, msg, entradas);
+          handleCashboxEntries(entradas);
           continue;
         }
       }
+
+      // Fuera de la caja chica, los mensajes propios se ignoran como
+      // siempre: el bot jamás debe responderse a sí mismo.
+      if (msg.key.fromMe) continue;
 
       // El registro de remitentes corre SIEMPRE (aunque el bot esté
       // inactivo), para poder observar desde el panel quién escribe y si
