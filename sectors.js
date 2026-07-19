@@ -18,7 +18,7 @@ const DEFAULT_SECTOR = "otros";
 const SECTOR_SIN_REMARCAR = "comodin"; // en este sector el bot responde sin citar el mensaje
 
 const DEFAULT_DELAY_MS = 300;
-const DEFAULT_TIME_WINDOW_MINUTES = 15;
+const DEFAULT_TIME_WINDOW_MINUTES = 10;
 
 function loadData() {
   try {

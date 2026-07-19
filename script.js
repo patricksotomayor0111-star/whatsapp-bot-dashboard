@@ -103,11 +103,22 @@ async function fetchExceptionsForLocks() {
       const [groupId] = key.split("::");
       nuevosGrupos.add(groupId);
     });
-    groupsWithExceptions = nuevosGrupos;
-    sectorsWithExceptions = new Set(
-      groupsData.filter((g) => groupsWithExceptions.has(g.id)).map((g) => g.sectorId || "otros")
+    const nuevosSectores = new Set(
+      groupsData.filter((g) => nuevosGrupos.has(g.id)).map((g) => g.sectorId || "otros")
     );
-    renderSectors(searchInput.value);
+
+    // Solo se redibuja la lista si los candados realmente cambiaron.
+    // Antes se redibujaba SIEMPRE (cada 30s), y ese redibujo hacía que la
+    // página "saltara" sola hacia arriba mientras estabas leyendo abajo.
+    const sinCambios =
+      nuevosGrupos.size === groupsWithExceptions.size &&
+      [...nuevosGrupos].every((id) => groupsWithExceptions.has(id)) &&
+      nuevosSectores.size === sectorsWithExceptions.size &&
+      [...nuevosSectores].every((id) => sectorsWithExceptions.has(id));
+
+    groupsWithExceptions = nuevosGrupos;
+    sectorsWithExceptions = nuevosSectores;
+    if (!sinCambios) renderSectors(searchInput.value);
   } catch (err) {
     console.error("No se pudo obtener las excepciones para los candados:", err);
   }
@@ -115,6 +126,10 @@ async function fetchExceptionsForLocks() {
 
 // ---------- Render de sectores y sus grupos ----------
 function renderSectors(filtro = "") {
+  // Se guarda dónde estaba el usuario para devolverlo ahí después de
+  // redibujar: si no, cada redibujo lo mandaba arriba de la página.
+  const scrollAntes = window.scrollY;
+
   sectorListEl.innerHTML = "";
   const term = filtro.trim().toLowerCase();
   let totalVisibles = 0;
@@ -267,6 +282,9 @@ function renderSectors(filtro = "") {
     emptyState.classList.add("hidden");
     visibleCount.textContent = term ? `Mostrando ${totalVisibles} grupo(s)` : "Mostrando todos";
   }
+
+  // Devuelve al usuario a donde estaba antes del redibujo.
+  window.scrollTo(0, scrollAntes);
 }
 
 function updateSectorBadge(badge, activo) {

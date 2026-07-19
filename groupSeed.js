@@ -94,6 +94,9 @@ const FRASES_MCGRILL_CARTAS = [
 const specialSeedByName = {
   "ARTIA PASTELERIA (dribox)": ["ya esta listo"],
   "PATRIA PEDIDOS ": ["unamoto"], // escriben "una moto" pegado y la keyword normal "moto" no lo detecta
+  "MONO ALITAS BOX DELIVERY": ["min"], // anuncian "número en X minutos"; la ventana de tiempo decide si responde
+  "Don Alejandro -BOX DELYBERY": ["se acerca", "mas cercano", "a tienda"], // frases reales del local (minadas de WhatsApp Web)
+  "MONKEY DONUTS BOX DELIVERY ": ["acepto"], // anuncian pedido confirmado con "Ya aceptó" (ojo: espacio final en el nombre real)
   "PEPEFOD DELIVERY": ["por favor un recojo en raul porras barrenechea d4"],
   "CHIFA LIU BOX DELIVERY": ["hola pedido"],
   "HARVEST BOX DELIVERY": [
