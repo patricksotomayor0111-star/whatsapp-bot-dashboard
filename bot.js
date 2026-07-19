@@ -261,7 +261,14 @@ function parseCashboxLine(rawLine) {
   m = text.match(/^(\d+(?:\.\d+)?)\s*(mil)?\s*(.*)$/i);
   if (m) {
     const monto = parseFloat(m[1]) * (m[2] ? 1000 : 1);
-    return { type: "ganancia", monto, descripcion: m[3].trim() };
+    const descripcion = m[3].trim();
+    // "1050 caja" o "1050 caja chica" no es una ganancia: es el conteo
+    // físico de la caja (borrón y cuenta nueva, ver cashbox.setCaja).
+    const descNorm = descripcion.toLowerCase();
+    if (descNorm === "caja" || descNorm === "caja chica") {
+      return { type: "caja", monto, descripcion: descNorm };
+    }
+    return { type: "ganancia", monto, descripcion };
   }
 
   return null;
@@ -288,9 +295,11 @@ function formatSoles(n) {
 function handleCashboxEntries(entradas) {
   entradas.forEach((entrada) => {
     if (entrada.type === "gasto") {
-      cashbox.addGasto(entrada.monto);
+      cashbox.addGasto(entrada.monto, entrada.descripcion);
+    } else if (entrada.type === "caja") {
+      cashbox.setCaja(entrada.monto);
     } else {
-      cashbox.addGanancia(entrada.monto);
+      cashbox.addGanancia(entrada.monto, entrada.descripcion);
     }
   });
 }
@@ -325,7 +334,9 @@ async function checkCashboxSchedule() {
     `📦 Caja chica del día\n\n` +
     `✅ Ganancias: ${formatSoles(resumenDia.ganancias)}\n` +
     `📉 Gastos: ${formatSoles(resumenDia.gastos)}\n` +
-    `💰 Total líquido: ${formatSoles(resumenDia.total)}`;
+    `💰 Total líquido: ${formatSoles(resumenDia.total)}\n` +
+    `🧮 Caja inicial: ${formatSoles(resumenDia.caja)}\n` +
+    `💵 Efectivo esperado: ${formatSoles(resumenDia.esperado)}`;
 
   try {
     await currentSock.sendMessage(grupo.id, { text: textoDia });

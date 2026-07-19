@@ -286,6 +286,38 @@ app.get("/api/cashbox/today", (req, res) => {
   res.json(cashbox.getToday());
 });
 
+// Descarga el registro completo de la caja chica (todos los días guardados,
+// no solo hoy) como CSV compatible con Excel en español: separador ";",
+// decimales con coma y BOM para que los acentos salgan bien.
+app.get("/api/cashbox/export", (req, res) => {
+  const montoCsv = (n) => Number(n || 0).toFixed(2).replace(".", ",");
+  const tipoLabel = { ganancia: "Ganancia", gasto: "Gasto", caja: "Conteo de caja" };
+
+  const lineas = ["Fecha;Hora;Tipo;Monto;Descripción"];
+  cashbox.getMovimientos().forEach((m) => {
+    const desc = String(m.descripcion || "").replace(/;/g, ",").replace(/\r?\n/g, " ");
+    lineas.push(`${m.fecha};${m.hora};${tipoLabel[m.tipo] || m.tipo};${montoCsv(m.monto)};${desc}`);
+  });
+
+  lineas.push("");
+  lineas.push("RESUMEN POR DÍA");
+  lineas.push("Fecha;Ganancias;Gastos;Líquido;Caja;Efectivo esperado");
+  cashbox.getCierres().forEach((c) => {
+    lineas.push(
+      `${c.fecha};${montoCsv(c.ganancias)};${montoCsv(c.gastos)};${montoCsv(c.total)};${montoCsv(c.caja)};${montoCsv(c.esperado)}`
+    );
+  });
+  const hoy = cashbox.getToday();
+  lineas.push(
+    `HOY (en curso);${montoCsv(hoy.ganancias)};${montoCsv(hoy.gastos)};${montoCsv(hoy.total)};${montoCsv(hoy.caja)};${montoCsv(hoy.esperado)}`
+  );
+
+  const csv = "﻿" + lineas.join("\r\n");
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", 'attachment; filename="caja-chica.csv"');
+  res.send(csv);
+});
+
 // Notificaciones push: el celular pide la clave pública para suscribirse,
 // y manda la suscripción para que el servidor le pueda avisar cuando el
 // bot responda un mensaje (ver bot.js).
