@@ -306,6 +306,20 @@ function parseCashboxLine(rawLine) {
   const text = rawLine.trim();
   if (!text) return null;
 
+  // Plata de Ana (aparte de la caja): si el mensaje tiene la palabra "ana".
+  // "Ana 100" / "100 ana guardar" -> Ana me deja plata para guardar.
+  // "menos 50 ana" -> le devuelvo / gasta de lo suyo. Se toma el primer
+  // número del mensaje sin importar el orden.
+  const norm = normalizeText(text);
+  if (/\bana\b/.test(norm)) {
+    const num = text.match(/(\d+(?:\.\d+)?)\s*(mil)?/i);
+    if (num) {
+      const monto = parseFloat(num[1]) * (num[2] ? 1000 : 1);
+      const tipo = /\bmenos\b/.test(norm) ? "ana_gasto" : "ana_guardo";
+      return { type: tipo, monto, descripcion: text };
+    }
+  }
+
   let m = text.match(/^menos\s+(\d+(?:\.\d+)?)\s*(mil)?\s*(.*)$/i);
   if (m) {
     const monto = parseFloat(m[1]) * (m[2] ? 1000 : 1);
@@ -352,6 +366,10 @@ function handleCashboxEntries(entradas) {
       cashbox.addGasto(entrada.monto, entrada.descripcion);
     } else if (entrada.type === "caja") {
       cashbox.setCaja(entrada.monto);
+    } else if (entrada.type === "ana_guardo") {
+      cashbox.addAnaGuardo(entrada.monto, entrada.descripcion);
+    } else if (entrada.type === "ana_gasto") {
+      cashbox.addAnaGasto(entrada.monto, entrada.descripcion);
     } else {
       cashbox.addGanancia(entrada.monto, entrada.descripcion);
     }

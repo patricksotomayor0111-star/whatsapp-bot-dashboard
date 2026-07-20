@@ -24,6 +24,9 @@ const statGastos = document.getElementById("statGastos");
 const statTotal = document.getElementById("statTotal");
 const statCaja = document.getElementById("statCaja");
 const statEsperado = document.getElementById("statEsperado");
+const statAnaGuardado = document.getElementById("statAnaGuardado");
+const statAnaGastado = document.getElementById("statAnaGastado");
+const statAnaSaldo = document.getElementById("statAnaSaldo");
 
 const botToggleBtn = document.getElementById("botToggleBtn");
 const botToggleLabel = document.getElementById("botToggleLabel");
@@ -367,6 +370,11 @@ async function fetchCashboxToday() {
     statTotal.textContent = formatSoles(data.total);
     statCaja.textContent = formatSoles(data.caja);
     statEsperado.textContent = formatSoles(data.esperado);
+    if (data.ana) {
+      statAnaGuardado.textContent = formatSoles(data.ana.guardado);
+      statAnaGastado.textContent = "-" + formatSoles(data.ana.gastado);
+      statAnaSaldo.textContent = formatSoles(data.ana.saldo);
+    }
   } catch (err) {
     console.error("No se pudo obtener la caja chica del día:", err);
   }

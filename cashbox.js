@@ -19,6 +19,11 @@ function loadData() {
       cierres: parsed.cierres || [],
       lastClosedDay: parsed.lastClosedDay || null,
       lastClosedWeek: parsed.lastClosedWeek || null,
+      // Plata de Ana (aparte de la caja): saldos acumulados que NO se
+      // reinician con el día ni la semana, y su propio detalle para el Excel.
+      anaGuardado: parsed.anaGuardado || 0,
+      anaGastado: parsed.anaGastado || 0,
+      anaMovimientos: parsed.anaMovimientos || [],
     };
   } catch (err) {
     return {
@@ -31,6 +36,9 @@ function loadData() {
       cierres: [],
       lastClosedDay: null,
       lastClosedWeek: null,
+      anaGuardado: 0,
+      anaGastado: 0,
+      anaMovimientos: [],
     };
   }
 }
@@ -117,6 +125,47 @@ function getToday() {
   };
 }
 
+// Plata de Ana: totalmente aparte de la caja. "Ana guardó" es lo que ella me
+// deja para custodiar; "Ana gastó" es lo que le devuelvo. Son acumulados que
+// no se reinician (es un saldo que le sigo debiendo hasta devolverlo).
+function registrarAna(tipo, monto, descripcion) {
+  const ahora = peruAhora();
+  data.anaMovimientos.push({
+    fecha: fechaLabel(ahora),
+    hora: horaLabel(ahora),
+    tipo,
+    monto,
+    descripcion: descripcion || "",
+  });
+  if (data.anaMovimientos.length > MAX_MOVIMIENTOS) {
+    data.anaMovimientos.splice(0, data.anaMovimientos.length - MAX_MOVIMIENTOS);
+  }
+}
+
+function addAnaGuardo(monto, descripcion) {
+  data.anaGuardado += monto;
+  registrarAna("guardo", monto, descripcion);
+  save();
+}
+
+function addAnaGasto(monto, descripcion) {
+  data.anaGastado += monto;
+  registrarAna("gasto", monto, descripcion);
+  save();
+}
+
+function getAna() {
+  return {
+    guardado: data.anaGuardado,
+    gastado: data.anaGastado,
+    saldo: data.anaGuardado - data.anaGastado,
+  };
+}
+
+function getAnaMovimientos() {
+  return data.anaMovimientos;
+}
+
 // Cierra el día: guarda el resumen en el historial de cierres (para el
 // Excel), suma lo del día a la semana, y deja día y caja en cero.
 function closeDay(dayLabel) {
@@ -179,4 +228,8 @@ module.exports = {
   getLastClosedDay,
   getLastClosedWeek,
   getMesActualLabel,
+  addAnaGuardo,
+  addAnaGasto,
+  getAna,
+  getAnaMovimientos,
 };

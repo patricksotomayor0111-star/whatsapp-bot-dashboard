@@ -286,7 +286,7 @@ app.post("/api/exceptions/:groupId/:number/toggle", (req, res) => {
 // Totales del día de la caja chica (grupo "GANANCIAS"): ganancias, gastos
 // y total líquido registrados hasta ahora.
 app.get("/api/cashbox/today", (req, res) => {
-  res.json(cashbox.getToday());
+  res.json({ ...cashbox.getToday(), ana: cashbox.getAna() });
 });
 
 // Presupuesto: límites mensuales por categoría y metas de deudas (Junta,
@@ -509,6 +509,35 @@ app.get("/api/cashbox/export", async (req, res) => {
       else fila.getCell("estado").font = { color: { argb: "FF16A34A" } };
     });
     pintarEncabezado(ws5);
+
+    // Ahorros de Ana: aparte de la caja. Sus totales y el detalle de cada
+    // movimiento (lo que dejó para guardar vs lo que se le devolvió).
+    const ana = cashbox.getAna();
+    const ws6 = wb.addWorksheet("Ana - Ahorros");
+    ws6.columns = [
+      { header: "Fecha", key: "fecha", width: 12 },
+      { header: "Hora", key: "hora", width: 8 },
+      { header: "Tipo", key: "tipo", width: 16 },
+      { header: "Monto", key: "monto", width: 13, style: { numFmt: FORMATO_SOLES } },
+      { header: "Detalle", key: "descripcion", width: 34 },
+    ];
+    const anaTipoLabel = { guardo: "Ana guardó", gasto: "Ana gastó / le di" };
+    cashbox.getAnaMovimientos().forEach((m) => {
+      const fila = ws6.addRow({
+        fecha: m.fecha,
+        hora: m.hora,
+        tipo: anaTipoLabel[m.tipo] || m.tipo,
+        monto: Number(m.monto || 0),
+        descripcion: m.descripcion || "",
+      });
+      fila.getCell("monto").font = { color: { argb: m.tipo === "gasto" ? "FFDC2626" : "FF16A34A" } };
+    });
+    ws6.addRow({});
+    const filaGuardado = ws6.addRow({ tipo: "TOTAL guardado", monto: ana.guardado });
+    const filaGastado = ws6.addRow({ tipo: "TOTAL devuelto/gastado", monto: ana.gastado });
+    const filaSaldo = ws6.addRow({ tipo: "SALDO en mi poder", monto: ana.saldo });
+    [filaGuardado, filaGastado, filaSaldo].forEach((f) => (f.font = { bold: true }));
+    pintarEncabezado(ws6);
 
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.setHeader("Content-Disposition", 'attachment; filename="caja-chica.xlsx"');
