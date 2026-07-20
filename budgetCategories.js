@@ -1,7 +1,7 @@
 const fs = require("fs");
-const path = require("path");
+const { dataPath } = require("./dataDir");
 
-const DATA_PATH = path.join(__dirname, "budget-categories-data.json");
+const DATA_PATH = dataPath("budget-categories-data.json");
 
 // Orden de prioridad: la primera palabra clave que aparezca en la
 // descripción gana (por eso "colegio" va antes que "mia" — así "13 mia

@@ -1,7 +1,7 @@
 const fs = require("fs");
-const path = require("path");
+const { dataPath } = require("./dataDir");
 
-const DATA_PATH = path.join(__dirname, "cashbox-data.json");
+const DATA_PATH = dataPath("cashbox-data.json");
 const MAX_CIERRES = 90; // días de historial de cierres que se conservan
 const MAX_MOVIMIENTOS = 20000; // tope de líneas de detalle (poda de las más viejas)
 

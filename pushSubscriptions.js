@@ -1,8 +1,8 @@
 const fs = require("fs");
-const path = require("path");
 const webpush = require("web-push");
+const { dataPath } = require("./dataDir");
 
-const DATA_PATH = path.join(__dirname, "push-data.json");
+const DATA_PATH = dataPath("push-data.json");
 
 function loadData() {
   try {

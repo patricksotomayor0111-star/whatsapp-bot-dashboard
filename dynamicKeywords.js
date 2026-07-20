@@ -1,7 +1,7 @@
 const fs = require("fs");
-const path = require("path");
+const { dataPath } = require("./dataDir");
 
-const DATA_PATH = path.join(__dirname, "dynamic-keywords-data.json");
+const DATA_PATH = dataPath("dynamic-keywords-data.json");
 
 function loadData() {
   try {

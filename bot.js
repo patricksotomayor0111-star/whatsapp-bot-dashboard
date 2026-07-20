@@ -13,6 +13,7 @@ const dynamicKeywords = require("./dynamicKeywords");
 const numberExceptions = require("./numberExceptions");
 const cashbox = require("./cashbox");
 const pushSubscriptions = require("./pushSubscriptions");
+const { dataPath } = require("./dataDir");
 const { sectorSeedByName, specialSeedByName, numberExceptionSeed } = require("./groupSeed");
 const {
   getGroupSector,
@@ -28,7 +29,7 @@ const {
 
 const MAX_HISTORY = 100;
 
-const SESSION_PATH = path.join(__dirname, "session");
+const SESSION_PATH = dataPath("session");
 
 // Quita tildes/acentos ("móvil" -> "movil", "envía" -> "envia") para que dé
 // igual si el mensaje o la palabra clave los llevan o no.
@@ -440,7 +441,7 @@ function elegirJidReal(principal, alterno) {
 // equivalencia. Así, si más adelante llega un mensaje SOLO con el LID, se
 // puede resolver igual el número real y aplicar los bloqueos como
 // corresponde (esto era lo que dejaba pasar a números excluidos).
-const LID_MAP_PATH = path.join(__dirname, "lid-map.json");
+const LID_MAP_PATH = dataPath("lid-map.json");
 let lidMap = {};
 try {
   lidMap = JSON.parse(fs.readFileSync(LID_MAP_PATH, "utf8"));

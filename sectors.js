@@ -1,7 +1,7 @@
 const fs = require("fs");
-const path = require("path");
+const { dataPath } = require("./dataDir");
 
-const DATA_PATH = path.join(__dirname, "sectors-data.json");
+const DATA_PATH = dataPath("sectors-data.json");
 
 const SECTOR_DEFS = [
   { id: "base", label: "Sector Base" },

@@ -1,7 +1,7 @@
 const fs = require("fs");
-const path = require("path");
+const { dataPath } = require("./dataDir");
 
-const DATA_PATH = path.join(__dirname, "number-exceptions-data.json");
+const DATA_PATH = dataPath("number-exceptions-data.json");
 
 function loadData() {
   try {
