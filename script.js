@@ -180,6 +180,7 @@ function renderSectors(filtro = "") {
       }
 
       updateActiveBadge(activeBadge, grupo.active !== false);
+      rowEl.classList.toggle("group-inactive", grupo.active === false);
       activeBadge.addEventListener("click", async (e) => {
         e.stopPropagation();
         const nuevoEstado = !(grupo.active !== false);
@@ -191,6 +192,7 @@ function renderSectors(filtro = "") {
           });
           grupo.active = nuevoEstado;
           updateActiveBadge(activeBadge, nuevoEstado);
+          rowEl.classList.toggle("group-inactive", !nuevoEstado);
         } catch (err) {
           console.error("No se pudo cambiar el estado del grupo:", err);
         }
