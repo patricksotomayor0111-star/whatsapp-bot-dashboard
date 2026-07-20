@@ -64,8 +64,9 @@
           </div>
           <h1 class="text-[17px] font-bold tracking-tight text-slate-900 leading-none">WhatsApp Bot</h1>
         </div>
-        <button id="menuBtn" aria-label="Abrir menú" class="btn-tap w-10 h-10 rounded-2xl flex items-center justify-center text-slate-600 hover:bg-slate-100 active:scale-90 transition-all duration-200">
+        <button id="menuBtn" aria-label="Abrir menú" class="btn-tap relative w-10 h-10 rounded-2xl flex items-center justify-center text-slate-600 hover:bg-slate-100 active:scale-90 transition-all duration-200">
           <i class="fa-solid fa-bars text-lg"></i>
+          <span id="menuBadge" class="hidden absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-brand-red text-white text-[10px] font-bold flex items-center justify-center leading-none">0</span>
         </button>
       </div>
     </header>
@@ -81,6 +82,7 @@
       </div>
       <nav class="flex-1 px-3 py-4 space-y-1">
         <a href="#" class="drawer-link"><i class="fa-solid fa-gauge w-5 text-brand-green"></i> Panel principal</a>
+        <a href="#" id="remindersLink" class="drawer-link"><i class="fa-solid fa-bell w-5 text-brand-green"></i> Pendientes <span id="drawerReminderBadge" class="hidden ml-auto min-w-[20px] h-5 px-1.5 rounded-full bg-brand-red text-white text-[11px] font-bold flex items-center justify-center leading-none">0</span></a>
         <a href="#" class="drawer-link"><i class="fa-solid fa-users w-5 text-brand-green"></i> Grupos</a>
         <a href="#" id="keywordsLink" class="drawer-link"><i class="fa-solid fa-gear w-5 text-brand-green"></i> Opciones</a>
         <a href="#" class="drawer-link"><i class="fa-solid fa-circle-question w-5 text-brand-green"></i> Ayuda</a>
@@ -104,6 +106,49 @@
     </div>
 
     <!-- Panel: Opciones -->
+    <!-- ===================== PENDIENTES (recordatorios de pago) ===================== -->
+    <div id="remindersOverlay" class="fixed inset-0 bg-brand-bg z-50 hidden flex-col">
+      <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-white">
+        <span class="font-bold text-slate-900">🔔 Pendientes</span>
+        <button id="closeReminders" class="w-9 h-9 rounded-xl flex items-center justify-center hover:bg-slate-100 active:scale-90 transition-all">
+          <i class="fa-solid fa-xmark text-lg text-slate-500"></i>
+        </button>
+      </div>
+      <div class="flex-1 overflow-y-auto px-5 py-5 space-y-6">
+        <p class="text-xs text-slate-400">Cada pago te avisa 1 día antes y todos los días a las 8am hasta que toques "Ya pagué". Marcar como pagado no registra el gasto: eso lo seguís escribiendo en el grupo GANANCIAS.</p>
+
+        <!-- Lista de recordatorios -->
+        <div id="remindersList" class="space-y-2"></div>
+
+        <!-- Agregar un pago nuevo -->
+        <section>
+          <p class="eyebrow text-brand-green"><i class="fa-solid fa-plus"></i> AGREGAR UN PAGO</p>
+          <div class="space-y-2 mt-2">
+            <input id="newReminderLabel" type="text" placeholder="Nombre (ej: Gimnasio)" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-green/40" />
+            <input id="newReminderMonto" type="number" placeholder="Monto (S/)" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-green/40" />
+            <select id="newReminderTipo" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-green/40">
+              <option value="semanal">Cada semana (elegir día)</option>
+              <option value="mensual_dia">Cada mes (día fijo)</option>
+              <option value="mensual_finmes">Fin de cada mes</option>
+              <option value="unica">Una sola vez (fecha)</option>
+            </select>
+            <select id="newReminderWeekday" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-green/40">
+              <option value="1">Lunes</option>
+              <option value="2">Martes</option>
+              <option value="3">Miércoles</option>
+              <option value="4">Jueves</option>
+              <option value="5">Viernes</option>
+              <option value="6">Sábado</option>
+              <option value="0">Domingo</option>
+            </select>
+            <input id="newReminderDay" type="number" min="1" max="31" placeholder="Día del mes (1-31)" class="hidden w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-green/40" />
+            <input id="newReminderDate" type="date" class="hidden w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-green/40" />
+            <button id="addReminderBtn" class="w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-brand-green text-white active:scale-95 transition-all">Agregar pago</button>
+          </div>
+        </section>
+      </div>
+    </div>
+
     <div id="keywordsOverlay" class="fixed inset-0 bg-brand-bg z-50 hidden flex-col">
       <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-white">
         <span class="font-bold text-slate-900">⚙️ Opciones</span>

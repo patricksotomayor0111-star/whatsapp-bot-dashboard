@@ -16,6 +16,8 @@ const CATEGORIAS_BASE = [
   { id: "comida_diaria", label: "Comida diaria", keywords: ["almuerzo", "desayuno"], tipo: "limite", limiteDefault: 900 },
   { id: "servicios", label: "Servicios (luz/agua/netflix)", keywords: ["luz", "agua", "netflix"], tipo: "limite", limiteDefault: 120 },
   { id: "arce", label: "Cuota ARCE", keywords: ["arce"], tipo: "limite", limiteDefault: 116 },
+  { id: "movistar", label: "Movistar internet", keywords: ["movistar", "internet"], tipo: "limite", limiteDefault: 46 },
+  { id: "terreno", label: "Terreno", keywords: ["terreno"], tipo: "limite", limiteDefault: 500 },
   { id: "junta", label: "Junta", keywords: ["junta"], tipo: "meta", metaDefault: 13000, saldoInicialDefault: 4500 },
   { id: "cuzco", label: "Caja Cuzco", keywords: ["cuzco"], tipo: "meta", metaDefault: 5976, saldoInicialDefault: 0 },
   { id: "universidad", label: "Universidad", keywords: ["universidad"], tipo: "meta", metaDefault: 5200, saldoInicialDefault: 0 },

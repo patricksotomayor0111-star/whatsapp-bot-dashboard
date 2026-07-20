@@ -7,6 +7,7 @@ const numberExceptions = require("./numberExceptions");
 const cashbox = require("./cashbox");
 const pushSubscriptions = require("./pushSubscriptions");
 const budgetCategories = require("./budgetCategories");
+const reminders = require("./reminders");
 const ExcelJS = require("exceljs");
 
 const app = express();
@@ -313,6 +314,45 @@ app.post("/api/budget/categories/:id/meta", (req, res) => {
   }
 });
 
+// Recordatorios de pagos (Junta, ARCE, Movistar, Cuzco, Luz, Terreno,
+// Universidad y los que agregue el usuario). "pendientes" es lo que va con
+// globo rojo en el menú; "all" es la lista completa editable.
+app.get("/api/reminders", (req, res) => {
+  res.json({ reminders: reminders.getAll(), pendientes: reminders.getPendientes() });
+});
+
+app.post("/api/reminders", (req, res) => {
+  try {
+    const id = reminders.addReminder(req.body || {});
+    res.json({ ok: true, id });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/reminders/:id/pagado", (req, res) => {
+  try {
+    reminders.marcarPagado(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/reminders/:id/activo", (req, res) => {
+  try {
+    reminders.setActivo(req.params.id, req.body.activo);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete("/api/reminders/:id", (req, res) => {
+  reminders.removeReminder(req.params.id);
+  res.json({ ok: true });
+});
+
 // Descarga el registro completo de la caja chica (todos los días guardados,
 // no solo hoy) como un Excel de verdad (.xlsx): columnas reales, encabezados
 // con color, montos "S/ 0.00" (gastos en rojo, ganancias en verde) y dos
@@ -439,6 +479,36 @@ app.get("/api/cashbox/export", async (req, res) => {
         fila.getCell("porcentaje").font = { bold: true, color: { argb: colorMeta } };
       });
     pintarEncabezado(ws4);
+
+    // Pagos programados: la lista de recordatorios con su próxima fecha y si
+    // está pendiente ahora mismo.
+    const cuandoLabel = {
+      semanal: (r) => "Cada " + ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"][r.dia],
+      mensual_dia: (r) => "Día " + r.dia + " de cada mes",
+      mensual_finmes: () => "Fin de cada mes",
+      unica: (r) => "Una vez (" + (r.fecha || "") + ")",
+    };
+    const ws5 = wb.addWorksheet("Pagos programados");
+    ws5.columns = [
+      { header: "Pago", key: "pago", width: 22 },
+      { header: "Monto", key: "monto", width: 13, style: { numFmt: FORMATO_SOLES } },
+      { header: "Cuándo", key: "cuando", width: 24 },
+      { header: "Próxima fecha", key: "proxima", width: 15 },
+      { header: "Estado", key: "estado", width: 14 },
+    ];
+    reminders.getAll().forEach((r) => {
+      const fila = ws5.addRow({
+        pago: r.label,
+        monto: Number(r.monto || 0),
+        cuando: (cuandoLabel[r.tipo] || (() => r.tipo))(r),
+        proxima: r.proxima || "",
+        estado: !r.activo ? "Desactivado" : r.pendiente ? "PENDIENTE" : "Al día",
+      });
+      if (r.activo && r.pendiente) fila.getCell("estado").font = { bold: true, color: { argb: "FFDC2626" } };
+      else if (!r.activo) fila.getCell("estado").font = { color: { argb: "FF94A3B8" } };
+      else fila.getCell("estado").font = { color: { argb: "FF16A34A" } };
+    });
+    pintarEncabezado(ws5);
 
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.setHeader("Content-Disposition", 'attachment; filename="caja-chica.xlsx"');

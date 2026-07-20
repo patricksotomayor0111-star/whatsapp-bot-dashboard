@@ -1297,6 +1297,210 @@ saveBudgetBtn.addEventListener("click", async () => {
   }
 });
 
+// ---------- Pendientes (recordatorios de pago) ----------
+const remindersLink = document.getElementById("remindersLink");
+const remindersOverlay = document.getElementById("remindersOverlay");
+const closeReminders = document.getElementById("closeReminders");
+const remindersList = document.getElementById("remindersList");
+const menuBadge = document.getElementById("menuBadge");
+const drawerReminderBadge = document.getElementById("drawerReminderBadge");
+const newReminderLabel = document.getElementById("newReminderLabel");
+const newReminderMonto = document.getElementById("newReminderMonto");
+const newReminderTipo = document.getElementById("newReminderTipo");
+const newReminderWeekday = document.getElementById("newReminderWeekday");
+const newReminderDay = document.getElementById("newReminderDay");
+const newReminderDate = document.getElementById("newReminderDate");
+const addReminderBtn = document.getElementById("addReminderBtn");
+
+const DIAS_SEMANA = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+
+function fmtFecha(label) {
+  if (!label) return "";
+  const [y, mo, d] = label.split("-");
+  return `${d}/${mo}`;
+}
+
+function textoCuando(r) {
+  if (r.tipo === "semanal") return "Cada " + (DIAS_SEMANA[r.dia] || "?");
+  if (r.tipo === "mensual_dia") return "Día " + r.dia + " de cada mes";
+  if (r.tipo === "mensual_finmes") return "Fin de cada mes";
+  if (r.tipo === "unica") return "Una vez: " + fmtFecha(r.fecha);
+  return "";
+}
+
+function actualizarBadges(cantidad) {
+  [menuBadge, drawerReminderBadge].forEach((b) => {
+    if (!b) return;
+    if (cantidad > 0) {
+      b.textContent = cantidad;
+      b.classList.remove("hidden");
+    } else {
+      b.classList.add("hidden");
+    }
+  });
+}
+
+async function fetchReminderBadge() {
+  try {
+    const res = await fetch("/api/reminders");
+    const data = await res.json();
+    actualizarBadges((data.pendientes || []).length);
+  } catch (err) {
+    // silencioso: si falla, simplemente no toca el badge
+  }
+}
+
+async function renderReminders() {
+  let data;
+  try {
+    const res = await fetch("/api/reminders");
+    data = await res.json();
+  } catch (err) {
+    remindersList.innerHTML = '<p class="text-sm text-slate-400">No se pudo cargar.</p>';
+    return;
+  }
+  const lista = data.reminders || [];
+  actualizarBadges((data.pendientes || []).length);
+  remindersList.innerHTML = "";
+
+  lista.forEach((r) => {
+    const card = document.createElement("div");
+    const pendiente = r.activo && r.pendiente;
+    card.className =
+      "rounded-xl border p-3 " +
+      (!r.activo
+        ? "bg-slate-50 border-slate-200 opacity-70"
+        : pendiente
+        ? "bg-red-50 border-red-200"
+        : "bg-white border-slate-200");
+
+    let estado;
+    if (!r.activo) estado = "Desactivado";
+    else if (pendiente) estado = `⚠️ Pendiente · vence ${fmtFecha(r.vence)}`;
+    else estado = `Al día · próximo ${fmtFecha(r.proxima)}`;
+
+    const top = document.createElement("div");
+    top.className = "flex items-start justify-between gap-2";
+    top.innerHTML = `
+      <div class="min-w-0">
+        <p class="text-sm font-semibold text-slate-800 truncate">${r.label} <span class="text-slate-500 font-normal">S/ ${r.monto}</span></p>
+        <p class="text-xs ${pendiente ? "text-brand-red font-medium" : "text-slate-400"} mt-0.5">${textoCuando(r)} · ${estado}</p>
+      </div>`;
+
+    const acciones = document.createElement("div");
+    acciones.className = "flex items-center gap-1 shrink-0";
+
+    if (pendiente) {
+      const btnPay = document.createElement("button");
+      btnPay.className = "rounded-lg px-2.5 py-1.5 text-xs font-semibold bg-brand-green text-white active:scale-95 transition-all whitespace-nowrap";
+      btnPay.textContent = "✓ Ya pagué";
+      btnPay.addEventListener("click", async () => {
+        await fetch(`/api/reminders/${encodeURIComponent(r.id)}/pagado`, { method: "POST" });
+        renderReminders();
+      });
+      acciones.appendChild(btnPay);
+    }
+
+    const btnToggle = document.createElement("button");
+    btnToggle.className = "w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 active:scale-90 transition-all";
+    btnToggle.title = r.activo ? "Desactivar" : "Activar";
+    btnToggle.innerHTML = r.activo ? '<i class="fa-solid fa-bell-slash"></i>' : '<i class="fa-solid fa-bell"></i>';
+    btnToggle.addEventListener("click", async () => {
+      await fetch(`/api/reminders/${encodeURIComponent(r.id)}/activo`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ activo: !r.activo }),
+      });
+      renderReminders();
+    });
+    acciones.appendChild(btnToggle);
+
+    const btnDel = document.createElement("button");
+    btnDel.className = "w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-red-50 hover:text-brand-red active:scale-90 transition-all";
+    btnDel.title = "Eliminar";
+    btnDel.innerHTML = '<i class="fa-solid fa-trash"></i>';
+    btnDel.addEventListener("click", async () => {
+      if (!confirm(`¿Eliminar "${r.label}" de la lista?`)) return;
+      await fetch(`/api/reminders/${encodeURIComponent(r.id)}`, { method: "DELETE" });
+      renderReminders();
+    });
+    acciones.appendChild(btnDel);
+
+    card.appendChild(top);
+    top.appendChild(acciones);
+    remindersList.appendChild(card);
+  });
+
+  if (lista.length === 0) {
+    remindersList.innerHTML = '<p class="text-sm text-slate-400">No hay pagos cargados.</p>';
+  }
+}
+
+function updateNewReminderFields() {
+  const tipo = newReminderTipo.value;
+  newReminderWeekday.classList.toggle("hidden", tipo !== "semanal");
+  newReminderDay.classList.toggle("hidden", tipo !== "mensual_dia");
+  newReminderDate.classList.toggle("hidden", tipo !== "unica");
+}
+
+newReminderTipo.addEventListener("change", updateNewReminderFields);
+
+addReminderBtn.addEventListener("click", async () => {
+  const label = newReminderLabel.value.trim();
+  const monto = newReminderMonto.value;
+  const tipo = newReminderTipo.value;
+  if (!label) {
+    alert("Ponle un nombre al pago.");
+    return;
+  }
+  const body = { label, monto, tipo };
+  if (tipo === "semanal") body.dia = Number(newReminderWeekday.value);
+  if (tipo === "mensual_dia") {
+    const d = Number(newReminderDay.value);
+    if (!d || d < 1 || d > 31) {
+      alert("Indica un día del mes válido (1 a 31).");
+      return;
+    }
+    body.dia = d;
+  }
+  if (tipo === "unica") {
+    if (!newReminderDate.value) {
+      alert("Elige la fecha del pago.");
+      return;
+    }
+    body.fecha = newReminderDate.value;
+  }
+  try {
+    await fetch("/api/reminders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    newReminderLabel.value = "";
+    newReminderMonto.value = "";
+    newReminderDay.value = "";
+    newReminderDate.value = "";
+    renderReminders();
+  } catch (err) {
+    console.error("No se pudo agregar el recordatorio:", err);
+  }
+});
+
+remindersLink.addEventListener("click", (e) => {
+  e.preventDefault();
+  closeDrawerFn();
+  remindersOverlay.classList.remove("hidden");
+  remindersOverlay.classList.add("flex");
+  updateNewReminderFields();
+  renderReminders();
+});
+
+closeReminders.addEventListener("click", () => {
+  remindersOverlay.classList.add("hidden");
+  remindersOverlay.classList.remove("flex");
+  fetchReminderBadge();
+});
+
 keywordsLink.addEventListener("click", (e) => {
   e.preventDefault();
   closeDrawerFn();
@@ -1339,4 +1543,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   setInterval(() => {
     if (isConnected) fetchExceptionsForLocks();
   }, 30000);
+  // Globo rojo de pagos pendientes en el menú (revisa cada minuto).
+  fetchReminderBadge();
+  setInterval(fetchReminderBadge, 60000);
 });

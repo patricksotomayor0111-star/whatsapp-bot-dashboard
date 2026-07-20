@@ -13,6 +13,7 @@ const dynamicKeywords = require("./dynamicKeywords");
 const numberExceptions = require("./numberExceptions");
 const cashbox = require("./cashbox");
 const pushSubscriptions = require("./pushSubscriptions");
+const reminders = require("./reminders");
 const { dataPath } = require("./dataDir");
 const { sectorSeedByName, specialSeedByName, numberExceptionSeed } = require("./groupSeed");
 const {
@@ -812,6 +813,34 @@ async function startBot() {
 
   return sock;
 }
+
+// ---------- Recordatorios de pagos: notificación diaria de las 8am ----------
+// Independiente de WhatsApp: cada tanto revisa si hay pagos pendientes y, una
+// sola vez por día (a partir de las 8am Perú), manda una notificación push.
+// Si el usuario no marca "Ya pagué", al día siguiente a las 8am vuelve a avisar.
+function describirDias(dias) {
+  if (dias > 1) return `en ${dias} días`;
+  if (dias === 1) return "mañana";
+  if (dias === 0) return "hoy";
+  return "vencido";
+}
+
+function chequearRecordatorios() {
+  const pendientes = reminders.necesitaNotificar();
+  if (!pendientes) return;
+  const detalle = pendientes.map((p) => `${p.label} S/ ${p.monto} (${describirDias(p.dias)})`).join(", ");
+  pushSubscriptions
+    .notifyAll({
+      title: "💸 Tenés pagos pendientes",
+      body: detalle,
+    })
+    .then(() => reminders.registrarNotificacion())
+    .catch((err) => console.error("Error al notificar recordatorios:", err.message));
+}
+
+// Se revisa cada 5 minutos; la lógica interna se asegura de mandar una sola
+// notificación por día.
+setInterval(chequearRecordatorios, 5 * 60 * 1000);
 
 function extractText(msg) {
   // Si el chat tiene mensajes que desaparecen (o es "ver una vez"), el texto
