@@ -118,6 +118,58 @@ function buscarKeywordEspecial(text, chatId) {
   return null;
 }
 
+// En estos 3 grupos suelen escribir "venir" apurados y con errores de
+// tipeo ("ve ir", "venie", "v3nir", "ven8r"...). En vez de ir agregando
+// cada variante a mano, se compara cada palabra del mensaje (y cada par
+// de palabras pegadas, por si separan "ve ir") contra "venir" con
+// distancia de edición <= 1, así se reconocen también errores que
+// todavía no vimos, sin arriesgar falsos positivos con otras palabras
+// de 5 letras (que difieren en 2 o más letras de "venir").
+const VENIR_FUZZY_GROUPS = new Set([
+  "LA BUMANGUESA BOX DELIVERY",
+  "AYABACA - BUMANGUESA II",
+  "BOLETAS LOCALES",
+]);
+const PALABRA_VENIR = "venir";
+
+function editDistanceAcotada(a, b, maxDist) {
+  if (Math.abs(a.length - b.length) > maxDist) return maxDist + 1;
+  const d = [];
+  for (let i = 0; i <= a.length; i++) d[i] = [i];
+  for (let j = 0; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const costo = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + costo);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + costo);
+      }
+    }
+  }
+  return d[a.length][b.length];
+}
+
+function buscarVenirTypo(text, grupoActual) {
+  const nombre = (grupoActual?.name || "").trim().toUpperCase();
+  if (!VENIR_FUZZY_GROUPS.has(nombre)) return null;
+
+  const palabras = text.split(/[^a-z0-9]+/).filter(Boolean);
+  const candidatos = [...palabras];
+  for (let i = 0; i < palabras.length - 1; i++) {
+    candidatos.push(palabras[i] + palabras[i + 1]);
+  }
+
+  for (const palabra of candidatos) {
+    if (palabra === PALABRA_VENIR) continue; // esa ya la agarra la keyword normal
+    if (palabra.length < 3 || palabra.length > 7) continue;
+    if (editDistanceAcotada(palabra, PALABRA_VENIR, 1) <= 1) {
+      const index = text.indexOf(palabra);
+      return { keyword: `venir (typo: "${palabra}")`, index: index < 0 ? 0 : index, length: palabra.length };
+    }
+  }
+  return null;
+}
+
 // Un número que está en la lista global de excluidos puede tener frases de
 // excepción para UN grupo puntual: si las escribe ahí, sí responde (pero
 // sigue bloqueado en cualquier otro grupo). A diferencia de las especiales,
@@ -680,6 +732,7 @@ async function startBot() {
             const tieneExclusion = getExcludedMatchers().some(({ regex }) => regex.test(text));
             if (!tieneExclusion) {
               match = buscarMatch(getBasePositiveMatchers());
+              if (!match) match = buscarVenirTypo(text, grupoActual);
             }
           }
         }
