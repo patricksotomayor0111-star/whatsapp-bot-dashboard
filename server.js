@@ -6,6 +6,7 @@ const dynamicKeywords = require("./dynamicKeywords");
 const numberExceptions = require("./numberExceptions");
 const cashbox = require("./cashbox");
 const pushSubscriptions = require("./pushSubscriptions");
+const ExcelJS = require("exceljs");
 
 const app = express();
 app.use(express.json());
@@ -287,35 +288,82 @@ app.get("/api/cashbox/today", (req, res) => {
 });
 
 // Descarga el registro completo de la caja chica (todos los días guardados,
-// no solo hoy) como CSV compatible con Excel en español: separador ";",
-// decimales con coma y BOM para que los acentos salgan bien.
-app.get("/api/cashbox/export", (req, res) => {
-  const montoCsv = (n) => Number(n || 0).toFixed(2).replace(".", ",");
-  const tipoLabel = { ganancia: "Ganancia", gasto: "Gasto", caja: "Conteo de caja" };
+// no solo hoy) como un Excel de verdad (.xlsx): columnas reales, encabezados
+// con color, montos "S/ 0.00" (gastos en rojo, ganancias en verde) y dos
+// hojas: Movimientos y Resumen por día. Al ser .xlsx no depende de cómo
+// cada programa interprete separadores, como pasaba con el CSV.
+app.get("/api/cashbox/export", async (req, res) => {
+  try {
+    const wb = new ExcelJS.Workbook();
+    const FORMATO_SOLES = '"S/ "#,##0.00';
+    const tipoLabel = { ganancia: "Ganancia", gasto: "Gasto", caja: "Conteo de caja" };
 
-  const lineas = ["Fecha;Hora;Tipo;Monto;Descripción"];
-  cashbox.getMovimientos().forEach((m) => {
-    const desc = String(m.descripcion || "").replace(/;/g, ",").replace(/\r?\n/g, " ");
-    lineas.push(`${m.fecha};${m.hora};${tipoLabel[m.tipo] || m.tipo};${montoCsv(m.monto)};${desc}`);
-  });
+    const pintarEncabezado = (ws) => {
+      const fila = ws.getRow(1);
+      fila.font = { bold: true, color: { argb: "FFFFFFFF" } };
+      fila.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF22C55E" } };
+    };
 
-  lineas.push("");
-  lineas.push("RESUMEN POR DÍA");
-  lineas.push("Fecha;Ganancias;Gastos;Líquido;Caja;Efectivo esperado");
-  cashbox.getCierres().forEach((c) => {
-    lineas.push(
-      `${c.fecha};${montoCsv(c.ganancias)};${montoCsv(c.gastos)};${montoCsv(c.total)};${montoCsv(c.caja)};${montoCsv(c.esperado)}`
-    );
-  });
-  const hoy = cashbox.getToday();
-  lineas.push(
-    `HOY (en curso);${montoCsv(hoy.ganancias)};${montoCsv(hoy.gastos)};${montoCsv(hoy.total)};${montoCsv(hoy.caja)};${montoCsv(hoy.esperado)}`
-  );
+    const ws = wb.addWorksheet("Movimientos");
+    ws.columns = [
+      { header: "Fecha", key: "fecha", width: 12 },
+      { header: "Hora", key: "hora", width: 8 },
+      { header: "Tipo", key: "tipo", width: 16 },
+      { header: "Monto", key: "monto", width: 13, style: { numFmt: FORMATO_SOLES } },
+      { header: "Descripción", key: "descripcion", width: 34 },
+    ];
+    cashbox.getMovimientos().forEach((m) => {
+      const fila = ws.addRow({
+        fecha: m.fecha,
+        hora: m.hora,
+        tipo: tipoLabel[m.tipo] || m.tipo,
+        monto: Number(m.monto || 0),
+        descripcion: m.descripcion || "",
+      });
+      if (m.tipo === "gasto") fila.getCell("monto").font = { color: { argb: "FFDC2626" } };
+      if (m.tipo === "ganancia") fila.getCell("monto").font = { color: { argb: "FF16A34A" } };
+    });
+    pintarEncabezado(ws);
 
-  const csv = "﻿" + lineas.join("\r\n");
-  res.setHeader("Content-Type", "text/csv; charset=utf-8");
-  res.setHeader("Content-Disposition", 'attachment; filename="caja-chica.csv"');
-  res.send(csv);
+    const ws2 = wb.addWorksheet("Resumen por día");
+    ws2.columns = [
+      { header: "Fecha", key: "fecha", width: 15 },
+      { header: "Ganancias", key: "ganancias", width: 13, style: { numFmt: FORMATO_SOLES } },
+      { header: "Gastos", key: "gastos", width: 13, style: { numFmt: FORMATO_SOLES } },
+      { header: "Líquido", key: "total", width: 13, style: { numFmt: FORMATO_SOLES } },
+      { header: "Caja", key: "caja", width: 13, style: { numFmt: FORMATO_SOLES } },
+      { header: "Efectivo esperado", key: "esperado", width: 18, style: { numFmt: FORMATO_SOLES } },
+    ];
+    cashbox.getCierres().forEach((c) => {
+      ws2.addRow({
+        fecha: c.fecha,
+        ganancias: Number(c.ganancias || 0),
+        gastos: Number(c.gastos || 0),
+        total: Number(c.total || 0),
+        caja: Number(c.caja || 0),
+        esperado: Number(c.esperado || 0),
+      });
+    });
+    const hoy = cashbox.getToday();
+    const filaHoy = ws2.addRow({
+      fecha: "HOY (en curso)",
+      ganancias: hoy.ganancias,
+      gastos: hoy.gastos,
+      total: hoy.total,
+      caja: hoy.caja,
+      esperado: hoy.esperado,
+    });
+    filaHoy.font = { bold: true };
+    pintarEncabezado(ws2);
+
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", 'attachment; filename="caja-chica.xlsx"');
+    await wb.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    console.error("No se pudo generar el Excel de caja chica:", err.message);
+    res.status(500).json({ error: "No se pudo generar el Excel" });
+  }
 });
 
 // Notificaciones push: el celular pide la clave pública para suscribirse,
