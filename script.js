@@ -1212,6 +1212,89 @@ saveRemarcarOverrideBtn.addEventListener("click", async () => {
   }
 });
 
+const budgetCategorySelect = document.getElementById("budgetCategorySelect");
+const budgetLimiteFields = document.getElementById("budgetLimiteFields");
+const budgetMetaFields = document.getElementById("budgetMetaFields");
+const budgetLimiteInput = document.getElementById("budgetLimiteInput");
+const budgetMetaInput = document.getElementById("budgetMetaInput");
+const budgetSaldoInicialInput = document.getElementById("budgetSaldoInicialInput");
+const saveBudgetBtn = document.getElementById("saveBudgetBtn");
+
+let budgetCategoriasData = [];
+
+async function populateBudgetCategories() {
+  try {
+    const res = await fetch("/api/budget/categories");
+    const data = await res.json();
+    budgetCategoriasData = data.categorias || [];
+  } catch (err) {
+    console.error("No se pudo obtener las categorías de presupuesto:", err);
+    budgetCategoriasData = [];
+  }
+  const seleccionActual = budgetCategorySelect.value;
+  budgetCategorySelect.innerHTML = '<option value="">— Selecciona una categoría —</option>';
+  budgetCategoriasData.forEach((c) => {
+    const opt = document.createElement("option");
+    opt.value = c.id;
+    opt.textContent = c.label;
+    budgetCategorySelect.appendChild(opt);
+  });
+  if (seleccionActual) budgetCategorySelect.value = seleccionActual;
+  updateBudgetFields();
+}
+
+function updateBudgetFields() {
+  const catId = budgetCategorySelect.value;
+  const cat = budgetCategoriasData.find((c) => c.id === catId);
+  if (!cat) {
+    budgetLimiteFields.classList.add("hidden");
+    budgetMetaFields.classList.add("hidden");
+    saveBudgetBtn.disabled = true;
+    saveBudgetBtn.textContent = "Elige una categoría primero";
+    saveBudgetBtn.className = "w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-slate-300 text-slate-500 active:scale-95 transition-all";
+    return;
+  }
+  saveBudgetBtn.disabled = false;
+  saveBudgetBtn.textContent = "Guardar";
+  saveBudgetBtn.className = "w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-emerald-600 text-white active:scale-95 transition-all";
+  if (cat.tipo === "meta") {
+    budgetMetaFields.classList.remove("hidden");
+    budgetLimiteFields.classList.add("hidden");
+    budgetMetaInput.value = cat.meta;
+    budgetSaldoInicialInput.value = cat.saldoInicial;
+  } else {
+    budgetLimiteFields.classList.remove("hidden");
+    budgetMetaFields.classList.add("hidden");
+    budgetLimiteInput.value = cat.limite ?? "";
+  }
+}
+
+budgetCategorySelect.addEventListener("change", updateBudgetFields);
+
+saveBudgetBtn.addEventListener("click", async () => {
+  const catId = budgetCategorySelect.value;
+  const cat = budgetCategoriasData.find((c) => c.id === catId);
+  if (!cat) return;
+  try {
+    if (cat.tipo === "meta") {
+      await fetch(`/api/budget/categories/${encodeURIComponent(catId)}/meta`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ meta: budgetMetaInput.value, saldoInicial: budgetSaldoInicialInput.value }),
+      });
+    } else {
+      await fetch(`/api/budget/categories/${encodeURIComponent(catId)}/limit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ limite: budgetLimiteInput.value === "" ? null : budgetLimiteInput.value }),
+      });
+    }
+    await populateBudgetCategories();
+  } catch (err) {
+    console.error("No se pudo guardar el presupuesto:", err);
+  }
+});
+
 keywordsLink.addEventListener("click", (e) => {
   e.preventDefault();
   closeDrawerFn();
@@ -1229,6 +1312,7 @@ keywordsLink.addEventListener("click", (e) => {
   fetchTimeWindow();
   refreshHistoryCount();
   updatePushStatus();
+  populateBudgetCategories();
 });
 
 closeKeywords.addEventListener("click", () => {

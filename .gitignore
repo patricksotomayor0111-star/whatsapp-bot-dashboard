@@ -4,6 +4,7 @@ sectors-data.json
 dynamic-keywords-data.json
 number-exceptions-data.json
 cashbox-data.json
+budget-categories-data.json
 push-data.json
 lid-map.json
 .env

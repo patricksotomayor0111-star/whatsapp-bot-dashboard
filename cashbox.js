@@ -161,6 +161,12 @@ function getLastClosedWeek() {
   return data.lastClosedWeek;
 }
 
+// "YYYY-MM" del mes actual (hora Perú), para agrupar gastos por mes en
+// el resumen de categorías con límite mensual.
+function getMesActualLabel() {
+  return fechaLabel(peruAhora()).slice(0, 7);
+}
+
 module.exports = {
   addGanancia,
   addGasto,
@@ -172,4 +178,5 @@ module.exports = {
   getCierres,
   getLastClosedDay,
   getLastClosedWeek,
+  getMesActualLabel,
 };

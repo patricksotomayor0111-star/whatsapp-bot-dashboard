@@ -246,6 +246,23 @@
           <p id="pushStatus" class="text-xs text-slate-400 mt-2"></p>
         </section>
 
+        <!-- Presupuesto: límites y metas -->
+        <section>
+          <p class="eyebrow text-emerald-700"><i class="fa-solid fa-piggy-bank"></i> PRESUPUESTO: LÍMITES Y METAS</p>
+          <p class="text-xs text-slate-400 mt-1 mb-2">Ajustá el límite mensual de cada categoría de gasto, o la meta total de las deudas (Junta, Caja Cuzco, Universidad).</p>
+          <select id="budgetCategorySelect" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 mb-2">
+            <option value="">— Selecciona una categoría —</option>
+          </select>
+          <div id="budgetLimiteFields" class="hidden">
+            <input id="budgetLimiteInput" type="number" placeholder="Límite mensual (S/), vacío = sin límite" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 mb-2" />
+          </div>
+          <div id="budgetMetaFields" class="hidden">
+            <input id="budgetMetaInput" type="number" placeholder="Meta total (S/)" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 mb-2" />
+            <input id="budgetSaldoInicialInput" type="number" placeholder="Ya pagado antes de hoy (S/)" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 mb-2" />
+          </div>
+          <button id="saveBudgetBtn" disabled class="w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-slate-300 text-slate-500 active:scale-95 transition-all">Elige una categoría primero</button>
+        </section>
+
         <!-- Cerrar sesión -->
         <button id="logoutBtn" class="w-full text-center text-sm text-brand-red font-medium py-2">
           Cerrar sesión

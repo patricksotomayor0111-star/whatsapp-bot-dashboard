@@ -6,6 +6,7 @@ const dynamicKeywords = require("./dynamicKeywords");
 const numberExceptions = require("./numberExceptions");
 const cashbox = require("./cashbox");
 const pushSubscriptions = require("./pushSubscriptions");
+const budgetCategories = require("./budgetCategories");
 const ExcelJS = require("exceljs");
 
 const app = express();
@@ -287,6 +288,31 @@ app.get("/api/cashbox/today", (req, res) => {
   res.json(cashbox.getToday());
 });
 
+// Presupuesto: límites mensuales por categoría y metas de deudas (Junta,
+// Caja Cuzco, Universidad), calculados a partir del registro de gastos.
+app.get("/api/budget/categories", (req, res) => {
+  const mesActual = cashbox.getMesActualLabel();
+  res.json({ categorias: budgetCategories.getResumen(cashbox.getMovimientos(), mesActual) });
+});
+
+app.post("/api/budget/categories/:id/limit", (req, res) => {
+  try {
+    budgetCategories.setLimit(req.params.id, req.body.limite);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/budget/categories/:id/meta", (req, res) => {
+  try {
+    budgetCategories.setMeta(req.params.id, req.body.meta, req.body.saldoInicial);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // Descarga el registro completo de la caja chica (todos los días guardados,
 // no solo hoy) como un Excel de verdad (.xlsx): columnas reales, encabezados
 // con color, montos "S/ 0.00" (gastos en rojo, ganancias en verde) y dos
@@ -355,6 +381,64 @@ app.get("/api/cashbox/export", async (req, res) => {
     });
     filaHoy.font = { bold: true };
     pintarEncabezado(ws2);
+
+    // Colorea según % usado/completado: verde tranquilo, ámbar cuidado,
+    // rojo si ya se pasó o está por pasarse del límite/meta.
+    const colorPorcentaje = (p) => {
+      if (p === null || p === undefined) return "FF64748B";
+      if (p >= 0.9) return "FFDC2626";
+      if (p >= 0.6) return "FFD97706";
+      return "FF16A34A";
+    };
+
+    const mesActual = cashbox.getMesActualLabel();
+    const resumenCategorias = budgetCategories.getResumen(cashbox.getMovimientos(), mesActual);
+
+    const ws3 = wb.addWorksheet("Gastos por categoría");
+    ws3.columns = [
+      { header: "Categoría", key: "categoria", width: 24 },
+      { header: "Gastado este mes", key: "gastado", width: 18, style: { numFmt: FORMATO_SOLES } },
+      { header: "Límite", key: "limite", width: 13, style: { numFmt: FORMATO_SOLES } },
+      { header: "Disponible", key: "disponible", width: 14, style: { numFmt: FORMATO_SOLES } },
+      { header: "% usado", key: "porcentaje", width: 11, style: { numFmt: "0%" } },
+    ];
+    resumenCategorias
+      .filter((c) => c.tipo === "limite")
+      .forEach((c) => {
+        const fila = ws3.addRow({
+          categoria: c.label,
+          gastado: c.gastado,
+          limite: c.limite === null ? "Sin límite" : c.limite,
+          disponible: c.disponible === null ? "—" : c.disponible,
+          porcentaje: c.porcentaje === null ? null : c.porcentaje,
+        });
+        fila.getCell("porcentaje").font = { bold: true, color: { argb: colorPorcentaje(c.porcentaje) } };
+      });
+    pintarEncabezado(ws3);
+
+    const ws4 = wb.addWorksheet("Deudas y Metas");
+    ws4.columns = [
+      { header: "Categoría", key: "categoria", width: 20 },
+      { header: "Meta total", key: "meta", width: 14, style: { numFmt: FORMATO_SOLES } },
+      { header: "Ya pagado", key: "pagado", width: 14, style: { numFmt: FORMATO_SOLES } },
+      { header: "Restante", key: "restante", width: 14, style: { numFmt: FORMATO_SOLES } },
+      { header: "% completado", key: "porcentaje", width: 14, style: { numFmt: "0%" } },
+    ];
+    resumenCategorias
+      .filter((c) => c.tipo === "meta")
+      .forEach((c) => {
+        const fila = ws4.addRow({
+          categoria: c.label,
+          meta: c.meta,
+          pagado: c.pagado,
+          restante: c.restante,
+          porcentaje: c.porcentaje,
+        });
+        // Para deudas, más completado = mejor, así que el verde es al revés.
+        const colorMeta = c.porcentaje >= 0.9 ? "FF16A34A" : c.porcentaje >= 0.5 ? "FFD97706" : "FFDC2626";
+        fila.getCell("porcentaje").font = { bold: true, color: { argb: colorMeta } };
+      });
+    pintarEncabezado(ws4);
 
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.setHeader("Content-Disposition", 'attachment; filename="caja-chica.xlsx"');
