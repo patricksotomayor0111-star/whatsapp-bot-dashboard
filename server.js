@@ -289,6 +289,21 @@ app.get("/api/cashbox/today", (req, res) => {
   res.json({ ...cashbox.getToday(), ana: cashbox.getAna() });
 });
 
+// Corregir/reconstruir un día completo a mano (para que el Excel cuadre):
+// reemplaza los movimientos de esa fecha por la lista enviada y fija la caja.
+app.post("/api/cashbox/rebuild-day", (req, res) => {
+  try {
+    const { fecha, caja, movimientos, resetAna } = req.body || {};
+    if (!fecha || !Array.isArray(movimientos)) {
+      return res.status(400).json({ error: "Se requieren 'fecha' y 'movimientos' (array)." });
+    }
+    const resumen = cashbox.rebuildDay(fecha, caja, movimientos, resetAna);
+    res.json({ ok: true, resumen });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // Presupuesto: límites mensuales por categoría y metas de deudas (Junta,
 // Caja Cuzco, Universidad), calculados a partir del registro de gastos.
 app.get("/api/budget/categories", (req, res) => {

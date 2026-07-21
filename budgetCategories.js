@@ -11,7 +11,7 @@ const CATEGORIAS_BASE = [
   { id: "bueno", label: "Comida especial", keywords: ["bueno"], tipo: "limite", limiteDefault: 559 },
   { id: "frutas", label: "Frutas Mia", keywords: ["frutas"], tipo: "limite", limiteDefault: 60 },
   { id: "cuidado", label: "Cuidado Mia", keywords: ["cuidado", "mama"], tipo: "limite", limiteDefault: 600 },
-  { id: "mia", label: "Gustos de Mia", keywords: ["mia"], tipo: "limite", limiteDefault: null },
+  { id: "mia", label: "Mia gastos", keywords: ["mia"], tipo: "limite", limiteDefault: null },
   { id: "familia", label: "Salida familiar", keywords: ["familia", "salida"], tipo: "limite", limiteDefault: 430 },
   { id: "comida_diaria", label: "Comida diaria", keywords: ["almuerzo", "desayuno"], tipo: "limite", limiteDefault: 900 },
   { id: "servicios", label: "Servicios (luz/agua/netflix)", keywords: ["luz", "agua", "netflix"], tipo: "limite", limiteDefault: 120 },

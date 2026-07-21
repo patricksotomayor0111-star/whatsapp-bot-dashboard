@@ -194,6 +194,51 @@ function closeWeek(weekLabel) {
   return resumen;
 }
 
+// Reconstruye por completo un día (para corregir el Excel a mano): borra los
+// movimientos que había de esa fecha y los reemplaza por la lista dada,
+// fija la caja inicial, y si es hoy actualiza los totales del día en curso
+// (si ya estaba cerrado, corrige su cierre). Opcionalmente reinicia Ana.
+function rebuildDay(fecha, caja, movs, resetAna) {
+  data.movimientos = data.movimientos.filter((m) => m.fecha !== fecha);
+  let g = 0;
+  let gs = 0;
+  (movs || []).forEach((m) => {
+    const monto = Number(m.monto) || 0;
+    data.movimientos.push({
+      fecha,
+      hora: m.hora || "",
+      tipo: m.tipo,
+      monto,
+      descripcion: m.descripcion || "",
+    });
+    if (m.tipo === "ganancia") g += monto;
+    else if (m.tipo === "gasto") gs += monto;
+  });
+  const cajaNum = Number(caja) || 0;
+  const esHoy = fecha === fechaLabel(peruAhora());
+  if (esHoy) {
+    data.todayGanancias = g;
+    data.todayGastos = gs;
+    data.cajaInicial = cajaNum;
+  } else {
+    const cierre = data.cierres.find((c) => c.fecha === fecha);
+    if (cierre) {
+      cierre.ganancias = g;
+      cierre.gastos = gs;
+      cierre.total = g - gs;
+      cierre.caja = cajaNum;
+      cierre.esperado = cajaNum + (g - gs);
+    }
+  }
+  if (resetAna) {
+    data.anaGuardado = 0;
+    data.anaGastado = 0;
+    data.anaMovimientos = (data.anaMovimientos || []).filter((m) => m.fecha !== fecha);
+  }
+  save();
+  return { fecha, caja: cajaNum, ganancias: g, gastos: gs, total: g - gs, esperado: cajaNum + (g - gs) };
+}
+
 function getMovimientos() {
   return data.movimientos;
 }
@@ -232,4 +277,5 @@ module.exports = {
   addAnaGasto,
   getAna,
   getAnaMovimientos,
+  rebuildDay,
 };
