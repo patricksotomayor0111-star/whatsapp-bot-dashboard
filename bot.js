@@ -12,6 +12,7 @@ const { excludedNumbers } = require("./excludedNumbers");
 const dynamicKeywords = require("./dynamicKeywords");
 const numberExceptions = require("./numberExceptions");
 const cashbox = require("./cashbox");
+const pendingQuotes = require("./pendingQuotes");
 const pushSubscriptions = require("./pushSubscriptions");
 const reminders = require("./reminders");
 const { dataPath } = require("./dataDir");
@@ -262,6 +263,20 @@ function tiempoEnRango(text) {
 // queda como descripción. "mil" multiplica x1000 (ej: "5 mil" = 5000).
 const CASHBOX_GROUP_NAME = "GANANCIAS";
 
+// ---------- Cotización de delivery ----------
+// La web de Punto Caliente (antes La Bumanguesa) pide acá una cotización
+// cuando el cliente cae fuera de las zonas ya mapeadas: manda el link de
+// ubicación a AMBOS grupos citando el mensaje, y solo cuenta como precio
+// válido una respuesta que CITE ese mensaje.
+//
+// "CARTAS RESTAURANTES" sigue con la lista fija de números autorizados
+// (AUTHORIZED_QUOTE_NUMBERS). "PUNTO CALIENTE - BOX DELIVERY" es el grupo
+// propio del negocio: ahí cualquier persona del grupo puede cotizar, sin
+// lista de números (ver OPEN_QUOTE_GROUP_NAMES).
+const DELIVERY_QUOTE_GROUP_NAMES = new Set(["CARTAS RESTAURANTES", "PUNTO CALIENTE - BOX DELIVERY"]);
+const OPEN_QUOTE_GROUP_NAMES = new Set(["PUNTO CALIENTE - BOX DELIVERY"]);
+const AUTHORIZED_QUOTE_NUMBERS = new Set(["939610396", "918943697"]);
+
 // ---------- Grupos que también responden a fotos (sin texto) ----------
 // En estos grupos, el pedido a veces viene como una foto (nota escrita a
 // mano, boleta/recibo) en vez de texto con palabra clave. El bot responde
@@ -300,6 +315,43 @@ function esMensajeReenviado(msg) {
   const inner = m.extendedTextMessage || m.imageMessage || m.videoMessage || m.documentMessage || {};
   const ctx = inner.contextInfo || {};
   return Boolean(ctx.isForwarded) || (ctx.forwardingScore || 0) > 0;
+}
+
+// Id del mensaje citado/remarcado por este mensaje (si responde a otro
+// citándolo), o null si no cita nada. Se usa para validar cotizaciones de
+// delivery: solo vale si cita justo el mensaje que mandó el bot.
+function extractQuotedStanzaId(msg) {
+  const m =
+    msg.message.ephemeralMessage?.message ||
+    msg.message.viewOnceMessage?.message ||
+    msg.message.viewOnceMessageV2?.message ||
+    msg.message;
+  const inner = m.extendedTextMessage || m.imageMessage || m.videoMessage || m.documentMessage || {};
+  return inner.contextInfo?.stanzaId || null;
+}
+
+// Saca el primer número (con decimales opcionales) de un texto, para leer
+// el precio que responde el equipo de delivery (ej. "8", "8 soles", "S/8.50").
+function parsePrecioCotizacion(text) {
+  const m = String(text || "").match(/\d+(?:[.,]\d+)?/);
+  if (!m) return null;
+  const precio = parseFloat(m[0].replace(",", "."));
+  return Number.isFinite(precio) && precio > 0 ? precio : null;
+}
+
+// Le avisa a bumanguesa-web el precio cotizado para que el cliente lo vea.
+async function reportarCotizacionDelivery(codigo, precio) {
+  const url = process.env.BUMANGUESA_URL;
+  const secret = process.env.INTEGRATION_SECRET;
+  if (!url || !secret) {
+    throw new Error("Falta configurar BUMANGUESA_URL o INTEGRATION_SECRET");
+  }
+  const res = await fetch(`${url.replace(/\/$/, "")}/api/cotizaciones/${codigo}/precio`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Integration-Secret": secret },
+    body: JSON.stringify({ precio }),
+  });
+  if (!res.ok) throw new Error(`bumanguesa-web respondió ${res.status}`);
 }
 
 function parseCashboxLine(rawLine) {
@@ -692,6 +744,38 @@ async function startBot() {
         }
       }
 
+      // Cotización de delivery: corre igual antes del "fromMe continue" de
+      // más abajo, porque uno de los dos números autorizados (en "CARTAS
+      // RESTAURANTES") es justo el que tiene vinculado el bot (los mensajes
+      // que él manda llegan como fromMe). Si no cita un mensaje de
+      // cotización pendiente, no hace nada acá y el mensaje sigue su camino
+      // normal (pedidos del grupo).
+      const nombreGrupoActualCotiz = (grupoActual?.name || "").trim().toUpperCase();
+      if (grupoActual && DELIVERY_QUOTE_GROUP_NAMES.has(nombreGrupoActualCotiz)) {
+        const stanzaId = extractQuotedStanzaId(msg);
+        const pendiente = stanzaId ? pendingQuotes.get(stanzaId) : null;
+        if (pendiente) {
+          const autorizado =
+            msg.key.fromMe || OPEN_QUOTE_GROUP_NAMES.has(nombreGrupoActualCotiz)
+              ? true
+              : AUTHORIZED_QUOTE_NUMBERS.has((await resolverSenderNumber(sock, msg.key)).senderNumber);
+          if (autorizado) {
+            const precio = parsePrecioCotizacion(rawText);
+            if (precio != null) {
+              pendingQuotes.remove(stanzaId);
+              reportarCotizacionDelivery(pendiente.codigo, precio)
+                .then(() =>
+                  sock
+                    .sendMessage(chatId, { text: `✅ Cotización registrada: S/ ${precio}` }, { quoted: msg })
+                    .catch(() => {})
+                )
+                .catch((err) => console.error("Error al reportar cotización de delivery:", err.message));
+              continue;
+            }
+          }
+        }
+      }
+
       // Fuera de la caja chica, los mensajes propios se ignoran como
       // siempre: el bot jamás debe responderse a sí mismo.
       if (msg.key.fromMe) continue;
@@ -877,4 +961,12 @@ function extractText(msg) {
   );
 }
 
-module.exports = { startBot, botState, logoutBot };
+// El servidor (server.js) necesita mandar mensajes desde afuera del
+// listener (ej. para pedir una cotización de delivery), así que se expone
+// una función que siempre devuelve el socket actual (no un valor fijo,
+// porque currentSock cambia cuando el bot reconecta).
+function getSock() {
+  return currentSock;
+}
+
+module.exports = { startBot, botState, logoutBot, getSock, DELIVERY_QUOTE_GROUP_NAMES };

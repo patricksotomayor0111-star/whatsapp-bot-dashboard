@@ -1,10 +1,11 @@
 const express = require("express");
 const path = require("path");
-const { startBot, botState, logoutBot } = require("./bot");
+const { startBot, botState, logoutBot, getSock, DELIVERY_QUOTE_GROUP_NAMES } = require("./bot");
 const sectors = require("./sectors");
 const dynamicKeywords = require("./dynamicKeywords");
 const numberExceptions = require("./numberExceptions");
 const cashbox = require("./cashbox");
+const pendingQuotes = require("./pendingQuotes");
 const pushSubscriptions = require("./pushSubscriptions");
 const budgetCategories = require("./budgetCategories");
 const reminders = require("./reminders");
@@ -579,6 +580,51 @@ app.post("/api/push/subscribe", (req, res) => {
 app.post("/api/push/unsubscribe", (req, res) => {
   pushSubscriptions.removeSubscription(req.body.endpoint);
   res.json({ ok: true });
+});
+
+// La web de La Bumanguesa llama acá (con un secreto compartido, ya que no
+// hay otro tipo de autenticación entre servidores) para pedir que se mande
+// la ubicación al grupo de cotización.
+function checkIntegrationSecret(req, res) {
+  const expected = process.env.INTEGRATION_SECRET;
+  if (!expected || req.headers["x-integration-secret"] !== expected) {
+    res.status(401).json({ error: "No autorizado" });
+    return false;
+  }
+  return true;
+}
+
+app.post("/api/delivery-quote/request", async (req, res) => {
+  if (!checkIntegrationSecret(req, res)) return;
+  const { codigo, lat, lng, referencia } = req.body || {};
+  if (!codigo || typeof lat !== "number" || typeof lng !== "number") {
+    return res.status(400).json({ error: "Faltan datos" });
+  }
+  const sock = getSock();
+  if (!sock || !botState.connected) {
+    return res.status(503).json({ error: "El bot de WhatsApp no está conectado" });
+  }
+  const grupos = botState.groups.filter((g) => DELIVERY_QUOTE_GROUP_NAMES.has(g.name.trim().toUpperCase()));
+  if (grupos.length === 0) {
+    return res.status(503).json({ error: "No se encontró el grupo de cotización" });
+  }
+  const mapaUrl = `https://www.google.com/maps?q=${lat},${lng}`;
+  const refLinea = referencia && referencia.trim() ? `\n\nReferencia: ${referencia.trim()}` : "";
+  const texto = `📍 ${mapaUrl}${refLinea}\n\nCotización urgente 🛵`;
+  try {
+    // Se manda a los dos grupos a la vez; el que responda primero con un
+    // precio válido gana (bumanguesa-web ignora la segunda respuesta).
+    for (const grupo of grupos) {
+      const sent = await sock.sendMessage(grupo.id, { text: texto });
+      if (sent?.key?.id) {
+        pendingQuotes.add(sent.key.id, codigo);
+      }
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("Error al mandar la cotización de delivery:", err.message);
+    res.status(500).json({ error: "No se pudo enviar el mensaje" });
+  }
 });
 
 const PORT = process.env.PORT || 3000;
