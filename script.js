@@ -1494,6 +1494,23 @@ addReminderBtn.addEventListener("click", async () => {
   }
 });
 
+const financeLink = document.getElementById("financeLink");
+const financeOverlay = document.getElementById("financeOverlay");
+const closeFinance = document.getElementById("closeFinance");
+
+financeLink.addEventListener("click", (e) => {
+  e.preventDefault();
+  closeDrawerFn();
+  financeOverlay.classList.remove("hidden");
+  financeOverlay.classList.add("flex");
+  fetchCashboxToday();
+});
+
+closeFinance.addEventListener("click", () => {
+  financeOverlay.classList.add("hidden");
+  financeOverlay.classList.remove("flex");
+});
+
 remindersLink.addEventListener("click", (e) => {
   e.preventDefault();
   closeDrawerFn();
