@@ -1188,6 +1188,88 @@ addContactTriggerBtn.addEventListener("click", async () => {
   await fetchContactTriggerGroups();
 });
 
+// ---------- Delays personalizados por grupo ----------
+const groupDelayList = document.getElementById("groupDelayList");
+const groupDelayGroupSelect = document.getElementById("groupDelayGroupSelect");
+const groupDelayValueSelect = document.getElementById("groupDelayValueSelect");
+const addGroupDelayBtn = document.getElementById("addGroupDelayBtn");
+let groupDelayData = [];
+
+function renderGroupDelayValueOptions() {
+  groupDelayValueSelect.innerHTML = "";
+  for (let ms = 100; ms <= 1000; ms += 100) {
+    const opt = document.createElement("option");
+    opt.value = ms;
+    opt.textContent = `${ms} ms`;
+    groupDelayValueSelect.appendChild(opt);
+  }
+}
+
+function renderGroupDelays() {
+  groupDelayList.innerHTML = "";
+  if (groupDelayData.length === 0) {
+    const p = document.createElement("p");
+    p.className = "text-xs text-slate-400";
+    p.textContent = "Ningún grupo con delay personalizado todavía.";
+    groupDelayList.appendChild(p);
+  } else {
+    groupDelayData.forEach(({ name, delayMs }) => {
+      const chip = document.createElement("div");
+      chip.className = "flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm bg-fuchsia-50 text-fuchsia-700";
+      const label = document.createElement("span");
+      label.className = "truncate";
+      label.textContent = `${name} — ${delayMs} ms`;
+      const removeBtn = document.createElement("button");
+      removeBtn.innerHTML = '<i class="fa-solid fa-xmark text-xs"></i>';
+      removeBtn.className = "shrink-0 opacity-60 hover:opacity-100";
+      removeBtn.addEventListener("click", async () => {
+        await fetch("/api/group-delays/remove", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+        await fetchGroupDelays();
+      });
+      chip.appendChild(label);
+      chip.appendChild(removeBtn);
+      groupDelayList.appendChild(chip);
+    });
+  }
+
+  const seleccionActual = groupDelayGroupSelect.value;
+  groupDelayGroupSelect.innerHTML = '<option value="">— Selecciona un grupo —</option>';
+  groupsData.forEach((g) => {
+    const opt = document.createElement("option");
+    opt.value = g.name;
+    opt.textContent = g.name;
+    groupDelayGroupSelect.appendChild(opt);
+  });
+  if (seleccionActual) groupDelayGroupSelect.value = seleccionActual;
+}
+
+async function fetchGroupDelays() {
+  try {
+    const res = await fetch("/api/group-delays");
+    const data = await res.json();
+    groupDelayData = data.delays || [];
+    renderGroupDelays();
+  } catch (err) {
+    console.error("No se pudo cargar los delays por grupo:", err);
+  }
+}
+
+addGroupDelayBtn.addEventListener("click", async () => {
+  const name = groupDelayGroupSelect.value;
+  if (!name) return;
+  const delayMs = parseInt(groupDelayValueSelect.value, 10);
+  await fetch("/api/group-delays", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, delayMs }),
+  });
+  await fetchGroupDelays();
+});
+
 // ---------- Mover grupo de sector ----------
 function populateMoveSelects() {
   const grupoActual = moveGroupSelect.value;
@@ -1618,6 +1700,8 @@ keywordsLink.addEventListener("click", (e) => {
   updatePushStatus();
   populateBudgetCategories();
   fetchContactTriggerGroups();
+  renderGroupDelayValueOptions();
+  fetchGroupDelays();
 });
 
 closeKeywords.addEventListener("click", () => {

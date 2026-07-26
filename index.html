@@ -328,6 +328,20 @@
           </div>
         </section>
 
+        <!-- Delays personalizados por grupo -->
+        <section>
+          <p class="eyebrow text-fuchsia-600"><i class="fa-solid fa-clock"></i> ⏱️ DELAYS PERSONALIZADOS POR GRUPO</p>
+          <p class="text-xs text-slate-400 mt-1 mb-2">Estos grupos usan su propio delay de respuesta en vez del global. Los demás grupos siguen usando el delay global de arriba.</p>
+          <div id="groupDelayList" class="space-y-1.5 mb-2"></div>
+          <select id="groupDelayGroupSelect" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-fuchsia-400/40 mb-2">
+            <option value="">— Selecciona un grupo —</option>
+          </select>
+          <div class="flex gap-2">
+            <select id="groupDelayValueSelect" class="flex-1 min-w-0 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-fuchsia-400/40"></select>
+            <button id="addGroupDelayBtn" class="shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold bg-fuchsia-600 text-white active:scale-95 transition-all">Guardar</button>
+          </div>
+        </section>
+
         <!-- Notificaciones -->
         <section>
           <p class="eyebrow text-amber-600"><i class="fa-solid fa-bell"></i> NOTIFICACIONES</p>
@@ -401,7 +415,7 @@
 
         <!-- Info adicional -->
         <p class="mt-2 pt-2 border-t border-rose-100 text-xs text-slate-500">
-          Cooldown: <b class="text-slate-700">30s</b> | Respuesta: <b class="text-slate-700">Automática</b> | Se apaga solo al responder
+          Respuesta: <b class="text-slate-700">Automática</b> | Se apaga solo al responder
         </p>
       </section>
 

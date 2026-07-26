@@ -16,6 +16,7 @@ const pendingQuotes = require("./pendingQuotes");
 const pushSubscriptions = require("./pushSubscriptions");
 const reminders = require("./reminders");
 const contactTriggerGroups = require("./contactTriggerGroups");
+const groupDelays = require("./groupDelays");
 const { dataPath } = require("./dataDir");
 const { sectorSeedByName, specialSeedByName, numberExceptionSeed } = require("./groupSeed");
 const {
@@ -901,7 +902,10 @@ async function startBot() {
       botState.lastActivity = entry;
 
       // Pequeña espera antes de responder, para que se sienta más natural.
-      await new Promise((resolve) => setTimeout(resolve, getResponseDelay()));
+      // Si el grupo tiene un delay personalizado (panel > Delays por grupo),
+      // ese gana; si no, se usa el global de siempre.
+      const delayMs = groupDelays.getDelay(grupoActual?.name) ?? getResponseDelay();
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
 
       try {
         await sock.sendMessage(

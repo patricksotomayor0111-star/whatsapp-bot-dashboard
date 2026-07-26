@@ -10,6 +10,7 @@ const pushSubscriptions = require("./pushSubscriptions");
 const budgetCategories = require("./budgetCategories");
 const reminders = require("./reminders");
 const contactTriggerGroups = require("./contactTriggerGroups");
+const groupDelays = require("./groupDelays");
 const ExcelJS = require("exceljs");
 
 const app = express();
@@ -387,6 +388,26 @@ app.post("/api/contact-trigger-groups", (req, res) => {
 
 app.post("/api/contact-trigger-groups/remove", (req, res) => {
   contactTriggerGroups.removeGroup(req.body.name);
+  res.json({ ok: true });
+});
+
+// Delays personalizados por grupo (100-1000ms, prioridad sobre el delay
+// global). Editable desde el panel: agregar/editar/quitar en cualquier momento.
+app.get("/api/group-delays", (req, res) => {
+  res.json({ delays: groupDelays.getList() });
+});
+
+app.post("/api/group-delays", (req, res) => {
+  try {
+    groupDelays.setDelay(req.body.name, req.body.delayMs);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/group-delays/remove", (req, res) => {
+  groupDelays.removeDelay(req.body.name);
   res.json({ ok: true });
 });
 
