@@ -406,20 +406,17 @@ function updateFocusUI() {
   }
   focusCard.classList.remove("hidden");
 
-  // Si lo enfocado coincide exactamente con todos los grupos de un sector,
-  // se muestra el nombre del sector en vez de listar cada grupo (texto corto).
-  const focusedSet = new Set(focusedGroups);
-  const sectorCompleto = sectorDefs.find((s) => {
-    const idsDelSector = groupsData.filter((g) => (g.sectorId || "otros") === s.id).map((g) => g.id);
-    return (
-      idsDelSector.length > 0 &&
-      idsDelSector.length === focusedSet.size &&
-      idsDelSector.every((id) => focusedSet.has(id))
-    );
-  });
+  // Si todo lo enfocado es del mismo sector (completo o parcial, por si se
+  // sacó algún grupo puntual), se muestra el nombre del sector en vez de
+  // listar cada grupo: ya se ve en la lista cuál quedó sin enfocar.
+  const sectorIdsEnfocados = new Set(
+    focusedGroups.map((id) => groupsData.find((g) => g.id === id)?.sectorId || "otros")
+  );
+  const sectorUnico =
+    sectorIdsEnfocados.size === 1 ? sectorDefs.find((s) => s.id === [...sectorIdsEnfocados][0]) : null;
 
-  if (sectorCompleto) {
-    focusGroupName.textContent = `Sector ${sectorCompleto.label}`;
+  if (sectorUnico) {
+    focusGroupName.textContent = `Sector ${sectorUnico.label}`;
   } else {
     const nombres = focusedGroups
       .map((id) => groupsData.find((g) => g.id === id)?.name || id)
