@@ -405,10 +405,27 @@ function updateFocusUI() {
     return;
   }
   focusCard.classList.remove("hidden");
-  const nombres = focusedGroups
-    .map((id) => groupsData.find((g) => g.id === id)?.name || id)
-    .join(", ");
-  focusGroupName.textContent = nombres;
+
+  // Si lo enfocado coincide exactamente con todos los grupos de un sector,
+  // se muestra el nombre del sector en vez de listar cada grupo (texto corto).
+  const focusedSet = new Set(focusedGroups);
+  const sectorCompleto = sectorDefs.find((s) => {
+    const idsDelSector = groupsData.filter((g) => (g.sectorId || "otros") === s.id).map((g) => g.id);
+    return (
+      idsDelSector.length > 0 &&
+      idsDelSector.length === focusedSet.size &&
+      idsDelSector.every((id) => focusedSet.has(id))
+    );
+  });
+
+  if (sectorCompleto) {
+    focusGroupName.textContent = `Sector ${sectorCompleto.label}`;
+  } else {
+    const nombres = focusedGroups
+      .map((id) => groupsData.find((g) => g.id === id)?.name || id)
+      .join(", ");
+    focusGroupName.textContent = nombres;
+  }
 }
 
 // Restaura el modo enfoque: todos los grupos vuelven a depender de su

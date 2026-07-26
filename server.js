@@ -151,9 +151,14 @@ app.post("/api/focus/clear", (req, res) => {
 // Al ser un path con 2 segmentos no choca con "/api/focus/:groupId" de abajo.
 app.post("/api/focus/sector/:sectorId", (req, res) => {
   const sectorId = req.params.sectorId;
-  botState.groups
-    .filter((g) => sectors.getGroupSector(g.id) === sectorId)
-    .forEach((g) => sectors.addFocusGroup(g.id));
+  const groupIds = botState.groups.filter((g) => sectors.getGroupSector(g.id) === sectorId).map((g) => g.id);
+  const focusedAhora = sectors.getFocusedGroups();
+  const todosEnfocados = groupIds.length > 0 && groupIds.every((id) => focusedAhora.includes(id));
+  if (todosEnfocados) {
+    groupIds.forEach((id) => sectors.removeFocusGroup(id));
+  } else {
+    groupIds.forEach((id) => sectors.addFocusGroup(id));
+  }
   res.json({ ok: true, focusedGroups: sectors.getFocusedGroups() });
 });
 
