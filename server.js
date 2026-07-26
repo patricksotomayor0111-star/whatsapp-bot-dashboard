@@ -147,6 +147,16 @@ app.post("/api/focus/clear", (req, res) => {
   res.json({ ok: true });
 });
 
+// Enfoca de una todos los grupos de un sector (según su sectorId efectivo).
+// Al ser un path con 2 segmentos no choca con "/api/focus/:groupId" de abajo.
+app.post("/api/focus/sector/:sectorId", (req, res) => {
+  const sectorId = req.params.sectorId;
+  botState.groups
+    .filter((g) => sectors.getGroupSector(g.id) === sectorId)
+    .forEach((g) => sectors.addFocusGroup(g.id));
+  res.json({ ok: true, focusedGroups: sectors.getFocusedGroups() });
+});
+
 // Modo enfoque: el mismo botón 🎯 agrega o quita el grupo de la lista de
 // enfocados (un toque enfoca, otro toque lo saca; si era el último, el
 // modo enfoque se apaga solo).

@@ -153,6 +153,7 @@ function renderSectors(filtro = "") {
     const header = sectorNode.querySelector(".sector-header");
     const badge = sectorNode.querySelector(".sector-toggle-badge");
     const sinRemarcarBadge = sectorNode.querySelector(".sector-sinremarcar-badge");
+    const sectorFocusBtn = sectorNode.querySelector(".sector-focus-btn");
     const groupsContainer = sectorNode.querySelector(".sector-groups");
 
     nameEl.textContent = sector.label;
@@ -257,6 +258,21 @@ function renderSectors(filtro = "") {
         updateSinRemarcarBadge(sinRemarcarBadge, nuevoEstado);
       } catch (err) {
         console.error("No se pudo cambiar el estado 'sin remarcar' del sector:", err);
+      }
+    });
+
+    // Enfoca de una todos los grupos de este sector. Para sacar uno puntual
+    // después, se usa el mismo 🎯 de ese grupo (toggle individual de siempre).
+    sectorFocusBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      try {
+        const res = await fetch(`/api/focus/sector/${encodeURIComponent(sector.id)}`, { method: "POST" });
+        const data = await res.json();
+        focusedGroups = data.focusedGroups || [];
+        updateFocusUI();
+        renderSectors(searchInput.value);
+      } catch (err) {
+        console.error("No se pudo enfocar el sector:", err);
       }
     });
 
