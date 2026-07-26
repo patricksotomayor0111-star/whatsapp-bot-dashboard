@@ -874,18 +874,15 @@ async function startBot() {
       const enModoEnfoque = focusedGroups.length > 0;
       const sinRemarcar = isGroupSinRemarcarEfectivo(chatId, sectorId);
 
-      if (enModoEnfoque) {
-        // El modo enfoque manda por encima de todo: SOLO responden los
-        // grupos marcados.
-        if (!focusedGroups.includes(chatId)) continue;
-      } else {
-        // Fuera de modo enfoque, todos necesitan que su sector esté activo
-        // Y el grupo esté activo. Cada sector tiene DOS interruptores
-        // independientes: uno para sus grupos que remarcan normal y otro
-        // para los que están sin remarcar — acá se usa el que corresponda.
-        if (!isGroupSectorActiveEfectivo(chatId, sectorId)) continue;
-        if (!isGroupActive(chatId)) continue;
-      }
+      // El modo enfoque es un filtro ADICIONAL, no un reemplazo: si el
+      // grupo no está enfocado, no responde. Pero igual necesita cumplir
+      // lo de siempre (sector activo, grupo activo) tanto con enfoque como
+      // sin él. Cada sector tiene DOS interruptores independientes: uno
+      // para sus grupos que remarcan normal y otro para los que están sin
+      // remarcar — acá se usa el que corresponda.
+      if (enModoEnfoque && !focusedGroups.includes(chatId)) continue;
+      if (!isGroupSectorActiveEfectivo(chatId, sectorId)) continue;
+      if (!isGroupActive(chatId)) continue;
 
       const entry = {
         chatId,
