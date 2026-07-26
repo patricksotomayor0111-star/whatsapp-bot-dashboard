@@ -1710,6 +1710,70 @@ closeKeywords.addEventListener("click", () => {
 });
 
 // ---------- Inicialización ----------
+// ---------- Calidad de conexión ----------
+// Mide 3 pings reales contra el propio servidor (no una simulación): promedio
+// de latencia, variación entre ellos (inestabilidad) y cuántos se cayeron o
+// tardaron demasiado (proxy de "pérdida de paquetes"). Si el navegador expone
+// navigator.connection, se usa el tipo de red como techo adicional.
+const connectionDot = document.getElementById("connectionDot");
+const connectionScore = document.getElementById("connectionScore");
+const CONNECTION_PING_COUNT = 3;
+const CONNECTION_PING_TIMEOUT_MS = 3000;
+
+async function pingUnaVez() {
+  const inicio = performance.now();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CONNECTION_PING_TIMEOUT_MS);
+  try {
+    await fetch("/api/ping", { cache: "no-store", signal: controller.signal });
+    return performance.now() - inicio;
+  } catch (err) {
+    return null; // timeout o error de red: cuenta como caída
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function calcularPuntajeConexion(latencias, fallos, totalPings, effectiveType) {
+  const exitosos = latencias.length;
+  if (exitosos === 0) return 0;
+  const avg = latencias.reduce((a, b) => a + b, 0) / exitosos;
+  const variance = latencias.reduce((a, b) => a + (b - avg) ** 2, 0) / exitosos;
+  const stdev = Math.sqrt(variance);
+  let score = 10 - avg / 60;
+  score -= Math.min(stdev / 100, 3);
+  const lossRatio = fallos / totalPings;
+  score = score * (1 - lossRatio);
+  if (effectiveType === "slow-2g") score = Math.min(score, 2);
+  else if (effectiveType === "2g") score = Math.min(score, 4);
+  else if (effectiveType === "3g") score = Math.min(score, 7);
+  return Math.max(0, Math.min(10, score));
+}
+
+function pintarConexion(score) {
+  connectionScore.textContent = `${score.toFixed(1)} / 10`;
+  let color;
+  if (score >= 7) color = "#22C55E"; // verde: excelente/buena
+  else if (score >= 5) color = "#EAB308"; // amarillo: regular
+  else if (score >= 3) color = "#F97316"; // naranja: mala
+  else color = "#EF4444"; // rojo: muy mala
+  connectionDot.style.backgroundColor = color;
+  connectionScore.style.color = color;
+}
+
+async function medirConexion() {
+  const latencias = [];
+  let fallos = 0;
+  for (let i = 0; i < CONNECTION_PING_COUNT; i++) {
+    const ms = await pingUnaVez();
+    if (ms === null) fallos++;
+    else latencias.push(ms);
+  }
+  const effectiveType = navigator.connection?.effectiveType;
+  const score = calcularPuntajeConexion(latencias, fallos, CONNECTION_PING_COUNT, effectiveType);
+  pintarConexion(score);
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
   updateBotUI();
   await fetchSectors();
@@ -1729,4 +1793,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Globo rojo de pagos pendientes en el menú (revisa cada minuto).
   fetchReminderBadge();
   setInterval(fetchReminderBadge, 60000);
+  // Calidad de conexión (3 pings reales al servidor cada 12s).
+  medirConexion();
+  setInterval(medirConexion, 12000);
 });

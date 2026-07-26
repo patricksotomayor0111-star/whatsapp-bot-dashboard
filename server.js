@@ -40,6 +40,13 @@ app.get("/icon-512.png", (req, res) => {
   res.sendFile(path.join(__dirname, "icon-512.png"));
 });
 
+// Endpoint minimo para medir la calidad de conexion real del celular/PC
+// que tiene el panel abierto (el frontend mide el tiempo de ida y vuelta
+// contra este mismo servidor). No hace nada mas que responder rapido.
+app.get("/api/ping", (req, res) => {
+  res.json({ t: Date.now() });
+});
+
 // El dashboard consulta esto para saber si el bot está conectado
 // y, si no lo está, obtener el QR para vincular.
 app.get("/api/status", (req, res) => {
