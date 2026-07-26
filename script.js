@@ -1115,6 +1115,79 @@ addExceptionKeywordBtn.addEventListener("click", async () => {
   }
 });
 
+// ---------- Responder a contacto compartido (por grupo) ----------
+const contactTriggerList = document.getElementById("contactTriggerList");
+const contactTriggerGroupSelect = document.getElementById("contactTriggerGroupSelect");
+const addContactTriggerBtn = document.getElementById("addContactTriggerBtn");
+let contactTriggerGroupNames = [];
+
+function renderContactTriggerGroups() {
+  contactTriggerList.innerHTML = "";
+  if (contactTriggerGroupNames.length === 0) {
+    const p = document.createElement("p");
+    p.className = "text-xs text-slate-400";
+    p.textContent = "Ningún grupo configurado todavía.";
+    contactTriggerList.appendChild(p);
+  } else {
+    contactTriggerGroupNames.forEach((name) => {
+      const chip = document.createElement("div");
+      chip.className = "flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm bg-indigo-50 text-indigo-700";
+      const label = document.createElement("span");
+      label.className = "truncate";
+      label.textContent = name;
+      const removeBtn = document.createElement("button");
+      removeBtn.innerHTML = '<i class="fa-solid fa-xmark text-xs"></i>';
+      removeBtn.className = "shrink-0 opacity-60 hover:opacity-100";
+      removeBtn.addEventListener("click", async () => {
+        await fetch("/api/contact-trigger-groups/remove", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+        await fetchContactTriggerGroups();
+      });
+      chip.appendChild(label);
+      chip.appendChild(removeBtn);
+      contactTriggerList.appendChild(chip);
+    });
+  }
+
+  const seleccionActual = contactTriggerGroupSelect.value;
+  contactTriggerGroupSelect.innerHTML = '<option value="">— Agregar un grupo —</option>';
+  groupsData
+    .filter((g) => !contactTriggerGroupNames.some((n) => n.trim().toUpperCase() === g.name.trim().toUpperCase()))
+    .forEach((g) => {
+      const opt = document.createElement("option");
+      opt.value = g.name;
+      opt.textContent = g.name;
+      contactTriggerGroupSelect.appendChild(opt);
+    });
+  if (seleccionActual) contactTriggerGroupSelect.value = seleccionActual;
+}
+
+async function fetchContactTriggerGroups() {
+  try {
+    const res = await fetch("/api/contact-trigger-groups");
+    const data = await res.json();
+    contactTriggerGroupNames = data.groupNames || [];
+    renderContactTriggerGroups();
+  } catch (err) {
+    console.error("No se pudo cargar los grupos de contacto:", err);
+  }
+}
+
+addContactTriggerBtn.addEventListener("click", async () => {
+  const name = contactTriggerGroupSelect.value;
+  if (!name) return;
+  await fetch("/api/contact-trigger-groups", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  contactTriggerGroupSelect.value = "";
+  await fetchContactTriggerGroups();
+});
+
 // ---------- Mover grupo de sector ----------
 function populateMoveSelects() {
   const grupoActual = moveGroupSelect.value;
@@ -1544,6 +1617,7 @@ keywordsLink.addEventListener("click", (e) => {
   refreshHistoryCount();
   updatePushStatus();
   populateBudgetCategories();
+  fetchContactTriggerGroups();
 });
 
 closeKeywords.addEventListener("click", () => {

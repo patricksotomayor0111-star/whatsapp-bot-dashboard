@@ -313,6 +313,21 @@
           <button id="saveRemarcarOverrideBtn" disabled class="w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-slate-300 text-slate-500 active:scale-95 transition-all">Guardar</button>
         </section>
 
+        <!-- Responder a contacto compartido -->
+        <section>
+          <p class="eyebrow text-indigo-600"><i class="fa-solid fa-address-card"></i> RESPONDER A CONTACTO COMPARTIDO</p>
+          <p class="text-xs text-slate-400 mt-1 mb-2">En estos grupos, el bot responde también si el restaurante manda una tarjeta de contacto, sin necesidad de escribir una palabra clave.</p>
+          <div id="contactTriggerList" class="space-y-1.5 mb-2"></div>
+          <div class="flex gap-2">
+            <select id="contactTriggerGroupSelect" class="flex-1 min-w-0 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-400/40">
+              <option value="">— Agregar un grupo —</option>
+            </select>
+            <button id="addContactTriggerBtn" class="w-10 h-10 shrink-0 rounded-xl bg-indigo-600 text-white flex items-center justify-center active:scale-90 transition-all">
+              <i class="fa-solid fa-plus text-sm"></i>
+            </button>
+          </div>
+        </section>
+
         <!-- Notificaciones -->
         <section>
           <p class="eyebrow text-amber-600"><i class="fa-solid fa-bell"></i> NOTIFICACIONES</p>

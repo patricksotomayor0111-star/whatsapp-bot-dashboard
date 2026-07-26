@@ -15,6 +15,7 @@ const cashbox = require("./cashbox");
 const pendingQuotes = require("./pendingQuotes");
 const pushSubscriptions = require("./pushSubscriptions");
 const reminders = require("./reminders");
+const contactTriggerGroups = require("./contactTriggerGroups");
 const { dataPath } = require("./dataDir");
 const { sectorSeedByName, specialSeedByName, numberExceptionSeed } = require("./groupSeed");
 const {
@@ -301,6 +302,20 @@ function tieneImagen(msg) {
     msg.message.viewOnceMessageV2?.message ||
     msg.message;
   return Boolean(m.imageMessage);
+}
+
+// True si el mensaje trae una tarjeta de contacto compartida (una o varias),
+// igual de flexible ante mensajes efímeros / "ver una vez" que tieneImagen().
+// Se usa para los grupos configurados en contactTriggerGroups.js (editable
+// desde el panel), donde el restaurante a veces manda el contacto del
+// cliente en vez de escribir el pedido con palabra clave.
+function tieneContacto(msg) {
+  const m =
+    msg.message.ephemeralMessage?.message ||
+    msg.message.viewOnceMessage?.message ||
+    msg.message.viewOnceMessageV2?.message ||
+    msg.message;
+  return Boolean(m.contactMessage || m.contactsArrayMessage);
 }
 
 // True si el mensaje viene marcado como "reenviado" (la flechita de
@@ -794,7 +809,8 @@ async function startBot() {
 
       const text = normalizeText(rawText);
       const esImagenTrigger = esGrupoConTriggerDeImagen(grupoActual?.name) && tieneImagen(msg);
-      if (!text && !esImagenTrigger) continue;
+      const esContactoTrigger = contactTriggerGroups.isEnabled(grupoActual?.name) && tieneContacto(msg);
+      if (!text && !esImagenTrigger && !esContactoTrigger) continue;
 
       // Los mensajes reenviados no cuentan nunca (ni para keywords, ni
       // especiales, ni excepciones): suelen ser direcciones o pedidos
@@ -827,6 +843,9 @@ async function startBot() {
         match = buscarKeywordEspecial(text, chatId);
         if (!match && esImagenTrigger) {
           match = { keyword: "(foto)", index: 0, length: 0 };
+        }
+        if (!match && esContactoTrigger) {
+          match = { keyword: "(contacto)", index: 0, length: 0 };
         }
         if (!match) {
           // Las keywords globales agregadas desde el panel tampoco respetan

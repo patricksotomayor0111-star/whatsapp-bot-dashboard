@@ -9,6 +9,7 @@ const pendingQuotes = require("./pendingQuotes");
 const pushSubscriptions = require("./pushSubscriptions");
 const budgetCategories = require("./budgetCategories");
 const reminders = require("./reminders");
+const contactTriggerGroups = require("./contactTriggerGroups");
 const ExcelJS = require("exceljs");
 
 const app = express();
@@ -366,6 +367,26 @@ app.post("/api/reminders/:id/activo", (req, res) => {
 
 app.delete("/api/reminders/:id", (req, res) => {
   reminders.removeReminder(req.params.id);
+  res.json({ ok: true });
+});
+
+// Grupos donde el bot responde también si mandan una tarjeta de contacto
+// (sin palabra clave). Editable desde el panel: agregar/quitar locales.
+app.get("/api/contact-trigger-groups", (req, res) => {
+  res.json({ groupNames: contactTriggerGroups.getGroupNames() });
+});
+
+app.post("/api/contact-trigger-groups", (req, res) => {
+  try {
+    contactTriggerGroups.addGroup(req.body.name);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/contact-trigger-groups/remove", (req, res) => {
+  contactTriggerGroups.removeGroup(req.body.name);
   res.json({ ok: true });
 });
 
