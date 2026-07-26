@@ -80,13 +80,16 @@
           <i class="fa-solid fa-xmark text-lg text-slate-500"></i>
         </button>
       </div>
-      <nav class="flex-1 px-3 py-4 space-y-1">
-        <a href="#" class="drawer-link"><i class="fa-solid fa-gauge w-5 text-brand-green"></i> Panel principal</a>
+      <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
         <a href="#" id="financeLink" class="drawer-link"><i class="fa-solid fa-sack-dollar w-5 text-brand-green"></i> Resumen Financiero</a>
         <a href="#" id="remindersLink" class="drawer-link"><i class="fa-solid fa-bell w-5 text-brand-green"></i> Pendientes <span id="drawerReminderBadge" class="hidden ml-auto min-w-[20px] h-5 px-1.5 rounded-full bg-brand-red text-white text-[11px] font-bold flex items-center justify-center leading-none">0</span></a>
-        <a href="#" class="drawer-link"><i class="fa-solid fa-users w-5 text-brand-green"></i> Grupos</a>
-        <a href="#" id="keywordsLink" class="drawer-link"><i class="fa-solid fa-gear w-5 text-brand-green"></i> Opciones</a>
-        <a href="#" class="drawer-link"><i class="fa-solid fa-circle-question w-5 text-brand-green"></i> Ayuda</a>
+        <a href="#" id="historyLink" class="drawer-link"><i class="fa-regular fa-clipboard w-5 text-brand-green"></i> Historial <span id="historyCount" class="text-slate-400 ml-auto">(0)</span></a>
+        <a href="#" id="openCategoryKeywords" class="drawer-link"><i class="fa-solid fa-key w-5 text-brand-green"></i> Palabras clave</a>
+        <a href="#" id="openCategoryGroups" class="drawer-link"><i class="fa-solid fa-map-location-dot w-5 text-brand-green"></i> Grupos y sectores</a>
+        <a href="#" id="openCategoryTiming" class="drawer-link"><i class="fa-solid fa-clock w-5 text-brand-green"></i> Tiempos de respuesta</a>
+        <a href="#" id="openCategoryBudget" class="drawer-link"><i class="fa-solid fa-piggy-bank w-5 text-brand-green"></i> Presupuesto</a>
+        <a href="#" id="openCategoryGeneral" class="drawer-link"><i class="fa-solid fa-bell w-5 text-brand-green"></i> Notificaciones</a>
+        <a href="#" id="logoutBtn" class="drawer-link text-brand-red"><i class="fa-solid fa-right-from-bracket w-5 text-brand-red"></i> Cerrar sesión</a>
       </nav>
       <div class="px-5 py-4 border-t border-slate-100 text-xs text-slate-400">v1.0 · Panel del Bot</div>
     </aside>
@@ -179,58 +182,13 @@
       </div>
     </div>
 
-    <div id="keywordsOverlay" class="fixed inset-0 bg-brand-bg z-50 hidden flex-col">
-      <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-white">
-        <span class="font-bold text-slate-900">⚙️ Opciones</span>
-        <button id="closeKeywords" class="w-9 h-9 rounded-xl flex items-center justify-center hover:bg-slate-100 active:scale-90 transition-all">
-          <i class="fa-solid fa-xmark text-lg text-slate-500"></i>
-        </button>
-      </div>
-      <div class="flex-1 overflow-y-auto px-5 py-5 space-y-2">
-
-        <!-- Historial -->
-        <button id="historyLink" class="w-full flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 transition-colors mb-4">
-          <i class="fa-regular fa-clipboard text-slate-500"></i>
-          Historial <span id="historyCount" class="text-slate-400">(0)</span>
-        </button>
-
-        <!-- Categorías -->
-        <button class="category-open-btn w-full flex items-center justify-between gap-2 rounded-xl px-4 py-3.5 text-sm font-semibold text-slate-800 bg-white border border-slate-200 hover:bg-slate-50 transition-colors" data-category="categoryKeywords">
-          <span>🔑 Palabras clave</span>
-          <i class="fa-solid fa-chevron-right text-slate-300 text-xs"></i>
-        </button>
-        <button class="category-open-btn w-full flex items-center justify-between gap-2 rounded-xl px-4 py-3.5 text-sm font-semibold text-slate-800 bg-white border border-slate-200 hover:bg-slate-50 transition-colors" data-category="categoryGroups">
-          <span>📍 Grupos y sectores</span>
-          <i class="fa-solid fa-chevron-right text-slate-300 text-xs"></i>
-        </button>
-        <button class="category-open-btn w-full flex items-center justify-between gap-2 rounded-xl px-4 py-3.5 text-sm font-semibold text-slate-800 bg-white border border-slate-200 hover:bg-slate-50 transition-colors" data-category="categoryTiming">
-          <span>⏱️ Tiempos de respuesta</span>
-          <i class="fa-solid fa-chevron-right text-slate-300 text-xs"></i>
-        </button>
-        <button class="category-open-btn w-full flex items-center justify-between gap-2 rounded-xl px-4 py-3.5 text-sm font-semibold text-slate-800 bg-white border border-slate-200 hover:bg-slate-50 transition-colors" data-category="categoryBudget">
-          <span>💰 Presupuesto</span>
-          <i class="fa-solid fa-chevron-right text-slate-300 text-xs"></i>
-        </button>
-        <button class="category-open-btn w-full flex items-center justify-between gap-2 rounded-xl px-4 py-3.5 text-sm font-semibold text-slate-800 bg-white border border-slate-200 hover:bg-slate-50 transition-colors" data-category="categoryGeneral">
-          <span>🔔 Notificaciones</span>
-          <i class="fa-solid fa-chevron-right text-slate-300 text-xs"></i>
-        </button>
-
-        <!-- Cerrar sesión -->
-        <button id="logoutBtn" class="w-full text-center text-sm text-brand-red font-medium py-2 mt-4">
-          Cerrar sesión
-        </button>
-
-      </div>
-    </div>
-
     <!-- Categoría: 🔑 Palabras clave -->
     <div id="categoryKeywords" class="fixed inset-0 bg-brand-bg z-50 hidden flex-col">
-      <div class="flex items-center gap-3 px-5 py-4 border-b border-slate-100 bg-white">
-        <button class="category-back-btn w-9 h-9 rounded-xl flex items-center justify-center hover:bg-slate-100 active:scale-90 transition-all">
-          <i class="fa-solid fa-arrow-left text-lg text-slate-500"></i>
-        </button>
+      <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-white">
         <span class="font-bold text-slate-900">🔑 Palabras clave</span>
+        <button class="category-close-btn w-9 h-9 rounded-xl flex items-center justify-center hover:bg-slate-100 active:scale-90 transition-all">
+          <i class="fa-solid fa-xmark text-lg text-slate-500"></i>
+        </button>
       </div>
       <div class="flex-1 overflow-y-auto px-5 py-5 space-y-6">
 
@@ -328,11 +286,11 @@
 
     <!-- Categoría: 📍 Grupos y sectores -->
     <div id="categoryGroups" class="fixed inset-0 bg-brand-bg z-50 hidden flex-col">
-      <div class="flex items-center gap-3 px-5 py-4 border-b border-slate-100 bg-white">
-        <button class="category-back-btn w-9 h-9 rounded-xl flex items-center justify-center hover:bg-slate-100 active:scale-90 transition-all">
-          <i class="fa-solid fa-arrow-left text-lg text-slate-500"></i>
-        </button>
+      <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-white">
         <span class="font-bold text-slate-900">📍 Grupos y sectores</span>
+        <button class="category-close-btn w-9 h-9 rounded-xl flex items-center justify-center hover:bg-slate-100 active:scale-90 transition-all">
+          <i class="fa-solid fa-xmark text-lg text-slate-500"></i>
+        </button>
       </div>
       <div class="flex-1 overflow-y-auto px-5 py-5 space-y-6">
 
@@ -367,11 +325,11 @@
 
     <!-- Categoría: ⏱️ Tiempos de respuesta -->
     <div id="categoryTiming" class="fixed inset-0 bg-brand-bg z-50 hidden flex-col">
-      <div class="flex items-center gap-3 px-5 py-4 border-b border-slate-100 bg-white">
-        <button class="category-back-btn w-9 h-9 rounded-xl flex items-center justify-center hover:bg-slate-100 active:scale-90 transition-all">
-          <i class="fa-solid fa-arrow-left text-lg text-slate-500"></i>
-        </button>
+      <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-white">
         <span class="font-bold text-slate-900">⏱️ Tiempos de respuesta</span>
+        <button class="category-close-btn w-9 h-9 rounded-xl flex items-center justify-center hover:bg-slate-100 active:scale-90 transition-all">
+          <i class="fa-solid fa-xmark text-lg text-slate-500"></i>
+        </button>
       </div>
       <div class="flex-1 overflow-y-auto px-5 py-5 space-y-6">
 
@@ -413,11 +371,11 @@
 
     <!-- Categoría: 💰 Presupuesto -->
     <div id="categoryBudget" class="fixed inset-0 bg-brand-bg z-50 hidden flex-col">
-      <div class="flex items-center gap-3 px-5 py-4 border-b border-slate-100 bg-white">
-        <button class="category-back-btn w-9 h-9 rounded-xl flex items-center justify-center hover:bg-slate-100 active:scale-90 transition-all">
-          <i class="fa-solid fa-arrow-left text-lg text-slate-500"></i>
-        </button>
+      <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-white">
         <span class="font-bold text-slate-900">💰 Presupuesto</span>
+        <button class="category-close-btn w-9 h-9 rounded-xl flex items-center justify-center hover:bg-slate-100 active:scale-90 transition-all">
+          <i class="fa-solid fa-xmark text-lg text-slate-500"></i>
+        </button>
       </div>
       <div class="flex-1 overflow-y-auto px-5 py-5 space-y-6">
 
@@ -443,11 +401,11 @@
 
     <!-- Categoría: 🔔 Notificaciones -->
     <div id="categoryGeneral" class="fixed inset-0 bg-brand-bg z-50 hidden flex-col">
-      <div class="flex items-center gap-3 px-5 py-4 border-b border-slate-100 bg-white">
-        <button class="category-back-btn w-9 h-9 rounded-xl flex items-center justify-center hover:bg-slate-100 active:scale-90 transition-all">
-          <i class="fa-solid fa-arrow-left text-lg text-slate-500"></i>
-        </button>
+      <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-white">
         <span class="font-bold text-slate-900">🔔 Notificaciones</span>
+        <button class="category-close-btn w-9 h-9 rounded-xl flex items-center justify-center hover:bg-slate-100 active:scale-90 transition-all">
+          <i class="fa-solid fa-xmark text-lg text-slate-500"></i>
+        </button>
       </div>
       <div class="flex-1 overflow-y-auto px-5 py-5 space-y-6">
 

@@ -63,9 +63,6 @@ const noRemarcarGroupSelect = document.getElementById("noRemarcarGroupSelect");
 const remarcarOverrideSelect = document.getElementById("remarcarOverrideSelect");
 const saveRemarcarOverrideBtn = document.getElementById("saveRemarcarOverrideBtn");
 
-const keywordsLink = document.getElementById("keywordsLink");
-const keywordsOverlay = document.getElementById("keywordsOverlay");
-const closeKeywords = document.getElementById("closeKeywords");
 const positiveKeywordList = document.getElementById("positiveKeywordList");
 const positiveKeywordInput = document.getElementById("positiveKeywordInput");
 const addPositiveKeywordBtn = document.getElementById("addPositiveKeywordBtn");
@@ -457,7 +454,9 @@ botToggleBtn.addEventListener("click", async () => {
 });
 
 // Desvincula WhatsApp por completo (hay que volver a escanear el QR)
-logoutBtn.addEventListener("click", async () => {
+logoutBtn.addEventListener("click", async (e) => {
+  e.preventDefault();
+  closeDrawerFn();
   const confirmado = confirm("¿Desvincular WhatsApp? Tendrás que escanear el QR de nuevo.");
   if (!confirmado) return;
   try {
@@ -601,6 +600,7 @@ async function pollStatus() {
 function openDrawer() {
   drawer.classList.add("drawer-open");
   drawerOverlay.classList.add("drawer-overlay-visible");
+  refreshHistoryCount();
 }
 
 function closeDrawerFn() {
@@ -677,6 +677,7 @@ async function fetchHistory() {
 
 historyLink.addEventListener("click", (e) => {
   e.preventDefault();
+  closeDrawerFn();
   historyOverlay.classList.remove("hidden");
   historyOverlay.classList.add("flex");
   fetchHistory();
@@ -1681,23 +1682,9 @@ closeReminders.addEventListener("click", () => {
   fetchReminderBadge();
 });
 
-keywordsLink.addEventListener("click", (e) => {
-  e.preventDefault();
-  closeDrawerFn();
-  keywordsOverlay.classList.remove("hidden");
-  keywordsOverlay.classList.add("flex");
-  refreshHistoryCount();
-});
-
-closeKeywords.addEventListener("click", () => {
-  keywordsOverlay.classList.add("hidden");
-  keywordsOverlay.classList.remove("flex");
-});
-
-// ---------- Opciones divididas por categoría ----------
-// Cada categoría carga sus propios datos recién cuando se abre (antes se
-// cargaba todo junto al entrar a Opciones). Las funciones ya existen todas;
-// esto solo cambia CUÁNDO se llaman.
+// ---------- Categorías de Opciones (ahora directas desde el menú ☰) ----------
+// Cada categoría carga sus propios datos recién cuando se abre. Las funciones
+// ya existen todas; esto solo cambia desde dónde y cuándo se llaman.
 const categoryLoaders = {
   categoryKeywords: () => {
     exceptionNumberInput.value = "";
@@ -1726,28 +1713,26 @@ const categoryLoaders = {
   },
 };
 
-document.querySelectorAll(".category-open-btn").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    const targetId = btn.dataset.category;
+document.querySelectorAll("[id^='openCategory']").forEach((link) => {
+  const targetId = link.id.replace("openCategory", "category");
+  link.addEventListener("click", (e) => {
+    e.preventDefault();
     const target = document.getElementById(targetId);
     if (!target) return;
-    keywordsOverlay.classList.add("hidden");
-    keywordsOverlay.classList.remove("flex");
+    closeDrawerFn();
     target.classList.remove("hidden");
     target.classList.add("flex");
     if (categoryLoaders[targetId]) categoryLoaders[targetId]();
   });
 });
 
-document.querySelectorAll(".category-back-btn").forEach((btn) => {
+document.querySelectorAll(".category-close-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
     const overlay = btn.closest(".fixed");
     if (overlay) {
       overlay.classList.add("hidden");
       overlay.classList.remove("flex");
     }
-    keywordsOverlay.classList.remove("hidden");
-    keywordsOverlay.classList.add("flex");
   });
 });
 
