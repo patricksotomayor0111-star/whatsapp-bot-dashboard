@@ -1686,27 +1686,69 @@ keywordsLink.addEventListener("click", (e) => {
   closeDrawerFn();
   keywordsOverlay.classList.remove("hidden");
   keywordsOverlay.classList.add("flex");
-  exceptionNumberInput.value = "";
-  exceptionKeywordInput.value = "";
-  renderSpecialKeywords(); // repinta lo que ya tenías guardado (localStorage)
-  fetchKeywords();
-  populateExceptionGroupSelect();
-  fetchExceptionsOverview();
-  populateMoveSelects();
-  populateNoRemarcarSelect();
-  fetchDelay();
-  fetchTimeWindow();
   refreshHistoryCount();
-  updatePushStatus();
-  populateBudgetCategories();
-  fetchContactTriggerGroups();
-  renderGroupDelayValueOptions();
-  fetchGroupDelays();
 });
 
 closeKeywords.addEventListener("click", () => {
   keywordsOverlay.classList.add("hidden");
   keywordsOverlay.classList.remove("flex");
+});
+
+// ---------- Opciones divididas por categoría ----------
+// Cada categoría carga sus propios datos recién cuando se abre (antes se
+// cargaba todo junto al entrar a Opciones). Las funciones ya existen todas;
+// esto solo cambia CUÁNDO se llaman.
+const categoryLoaders = {
+  categoryKeywords: () => {
+    exceptionNumberInput.value = "";
+    exceptionKeywordInput.value = "";
+    renderSpecialKeywords(); // repinta lo que ya tenías guardado (localStorage)
+    fetchKeywords();
+    populateExceptionGroupSelect();
+    fetchExceptionsOverview();
+    fetchContactTriggerGroups();
+  },
+  categoryGroups: () => {
+    populateMoveSelects();
+    populateNoRemarcarSelect();
+  },
+  categoryTiming: () => {
+    fetchDelay();
+    fetchTimeWindow();
+    renderGroupDelayValueOptions();
+    fetchGroupDelays();
+  },
+  categoryBudget: () => {
+    populateBudgetCategories();
+  },
+  categoryGeneral: () => {
+    updatePushStatus();
+  },
+};
+
+document.querySelectorAll(".category-open-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const targetId = btn.dataset.category;
+    const target = document.getElementById(targetId);
+    if (!target) return;
+    keywordsOverlay.classList.add("hidden");
+    keywordsOverlay.classList.remove("flex");
+    target.classList.remove("hidden");
+    target.classList.add("flex");
+    if (categoryLoaders[targetId]) categoryLoaders[targetId]();
+  });
+});
+
+document.querySelectorAll(".category-back-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const overlay = btn.closest(".fixed");
+    if (overlay) {
+      overlay.classList.add("hidden");
+      overlay.classList.remove("flex");
+    }
+    keywordsOverlay.classList.remove("hidden");
+    keywordsOverlay.classList.add("flex");
+  });
 });
 
 // ---------- Inicialización ----------

@@ -186,32 +186,53 @@
           <i class="fa-solid fa-xmark text-lg text-slate-500"></i>
         </button>
       </div>
-      <div class="flex-1 overflow-y-auto px-5 py-5 space-y-6">
+      <div class="flex-1 overflow-y-auto px-5 py-5 space-y-2">
 
         <!-- Historial -->
-        <button id="historyLink" class="w-full flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 transition-colors">
+        <button id="historyLink" class="w-full flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 transition-colors mb-4">
           <i class="fa-regular fa-clipboard text-slate-500"></i>
           Historial <span id="historyCount" class="text-slate-400">(0)</span>
         </button>
 
-        <!-- Delay de respuesta -->
-        <section>
-          <p class="eyebrow text-slate-600"><i class="fa-solid fa-stopwatch"></i> DELAY DE RESPUESTA</p>
-          <div class="flex gap-2 mt-2">
-            <select id="delaySelect" class="flex-1 min-w-0 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-green/40"></select>
-            <button id="saveDelayBtn" class="shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold bg-blue-500 text-white active:scale-95 transition-all">Guardar</button>
-          </div>
-        </section>
+        <!-- Categorías -->
+        <button class="category-open-btn w-full flex items-center justify-between gap-2 rounded-xl px-4 py-3.5 text-sm font-semibold text-slate-800 bg-white border border-slate-200 hover:bg-slate-50 transition-colors" data-category="categoryKeywords">
+          <span>🔑 Palabras clave</span>
+          <i class="fa-solid fa-chevron-right text-slate-300 text-xs"></i>
+        </button>
+        <button class="category-open-btn w-full flex items-center justify-between gap-2 rounded-xl px-4 py-3.5 text-sm font-semibold text-slate-800 bg-white border border-slate-200 hover:bg-slate-50 transition-colors" data-category="categoryGroups">
+          <span>📍 Grupos y sectores</span>
+          <i class="fa-solid fa-chevron-right text-slate-300 text-xs"></i>
+        </button>
+        <button class="category-open-btn w-full flex items-center justify-between gap-2 rounded-xl px-4 py-3.5 text-sm font-semibold text-slate-800 bg-white border border-slate-200 hover:bg-slate-50 transition-colors" data-category="categoryTiming">
+          <span>⏱️ Tiempos de respuesta</span>
+          <i class="fa-solid fa-chevron-right text-slate-300 text-xs"></i>
+        </button>
+        <button class="category-open-btn w-full flex items-center justify-between gap-2 rounded-xl px-4 py-3.5 text-sm font-semibold text-slate-800 bg-white border border-slate-200 hover:bg-slate-50 transition-colors" data-category="categoryBudget">
+          <span>💰 Presupuesto</span>
+          <i class="fa-solid fa-chevron-right text-slate-300 text-xs"></i>
+        </button>
+        <button class="category-open-btn w-full flex items-center justify-between gap-2 rounded-xl px-4 py-3.5 text-sm font-semibold text-slate-800 bg-white border border-slate-200 hover:bg-slate-50 transition-colors" data-category="categoryGeneral">
+          <span>🔔 Notificaciones</span>
+          <i class="fa-solid fa-chevron-right text-slate-300 text-xs"></i>
+        </button>
 
-        <!-- Ventana de tiempo -->
-        <section>
-          <p class="eyebrow text-slate-600"><i class="fa-solid fa-hourglass-half"></i> VENTANA DE TIEMPO</p>
-          <p class="text-xs text-slate-400 mt-1 mb-2">Si el mensaje menciona una hora o minutos, el bot solo responde si cae entre 0 y este máximo de minutos desde ahora.</p>
-          <div class="flex gap-2">
-            <select id="timeWindowSelect" class="flex-1 min-w-0 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-green/40"></select>
-            <button id="saveTimeWindowBtn" class="shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold bg-blue-500 text-white active:scale-95 transition-all">Guardar</button>
-          </div>
-        </section>
+        <!-- Cerrar sesión -->
+        <button id="logoutBtn" class="w-full text-center text-sm text-brand-red font-medium py-2 mt-4">
+          Cerrar sesión
+        </button>
+
+      </div>
+    </div>
+
+    <!-- Categoría: 🔑 Palabras clave -->
+    <div id="categoryKeywords" class="fixed inset-0 bg-brand-bg z-50 hidden flex-col">
+      <div class="flex items-center gap-3 px-5 py-4 border-b border-slate-100 bg-white">
+        <button class="category-back-btn w-9 h-9 rounded-xl flex items-center justify-center hover:bg-slate-100 active:scale-90 transition-all">
+          <i class="fa-solid fa-arrow-left text-lg text-slate-500"></i>
+        </button>
+        <span class="font-bold text-slate-900">🔑 Palabras clave</span>
+      </div>
+      <div class="flex-1 overflow-y-auto px-5 py-5 space-y-6">
 
         <!-- Keywords globales -->
         <section>
@@ -287,6 +308,34 @@
           </details>
         </section>
 
+        <!-- Responder a contacto compartido -->
+        <section>
+          <p class="eyebrow text-indigo-600"><i class="fa-solid fa-address-card"></i> RESPONDER A CONTACTO COMPARTIDO</p>
+          <p class="text-xs text-slate-400 mt-1 mb-2">En estos grupos, el bot responde también si el restaurante manda una tarjeta de contacto, sin necesidad de escribir una palabra clave.</p>
+          <div id="contactTriggerList" class="space-y-1.5 mb-2"></div>
+          <div class="flex gap-2">
+            <select id="contactTriggerGroupSelect" class="flex-1 min-w-0 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-400/40">
+              <option value="">— Agregar un grupo —</option>
+            </select>
+            <button id="addContactTriggerBtn" class="w-10 h-10 shrink-0 rounded-xl bg-indigo-600 text-white flex items-center justify-center active:scale-90 transition-all">
+              <i class="fa-solid fa-plus text-sm"></i>
+            </button>
+          </div>
+        </section>
+
+      </div>
+    </div>
+
+    <!-- Categoría: 📍 Grupos y sectores -->
+    <div id="categoryGroups" class="fixed inset-0 bg-brand-bg z-50 hidden flex-col">
+      <div class="flex items-center gap-3 px-5 py-4 border-b border-slate-100 bg-white">
+        <button class="category-back-btn w-9 h-9 rounded-xl flex items-center justify-center hover:bg-slate-100 active:scale-90 transition-all">
+          <i class="fa-solid fa-arrow-left text-lg text-slate-500"></i>
+        </button>
+        <span class="font-bold text-slate-900">📍 Grupos y sectores</span>
+      </div>
+      <div class="flex-1 overflow-y-auto px-5 py-5 space-y-6">
+
         <!-- Mover grupo de sector -->
         <section>
           <p class="eyebrow text-purple-600"><i class="fa-solid fa-box"></i> MOVER GRUPO DE SECTOR</p>
@@ -313,18 +362,35 @@
           <button id="saveRemarcarOverrideBtn" disabled class="w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-slate-300 text-slate-500 active:scale-95 transition-all">Guardar</button>
         </section>
 
-        <!-- Responder a contacto compartido -->
+      </div>
+    </div>
+
+    <!-- Categoría: ⏱️ Tiempos de respuesta -->
+    <div id="categoryTiming" class="fixed inset-0 bg-brand-bg z-50 hidden flex-col">
+      <div class="flex items-center gap-3 px-5 py-4 border-b border-slate-100 bg-white">
+        <button class="category-back-btn w-9 h-9 rounded-xl flex items-center justify-center hover:bg-slate-100 active:scale-90 transition-all">
+          <i class="fa-solid fa-arrow-left text-lg text-slate-500"></i>
+        </button>
+        <span class="font-bold text-slate-900">⏱️ Tiempos de respuesta</span>
+      </div>
+      <div class="flex-1 overflow-y-auto px-5 py-5 space-y-6">
+
+        <!-- Delay de respuesta -->
         <section>
-          <p class="eyebrow text-indigo-600"><i class="fa-solid fa-address-card"></i> RESPONDER A CONTACTO COMPARTIDO</p>
-          <p class="text-xs text-slate-400 mt-1 mb-2">En estos grupos, el bot responde también si el restaurante manda una tarjeta de contacto, sin necesidad de escribir una palabra clave.</p>
-          <div id="contactTriggerList" class="space-y-1.5 mb-2"></div>
+          <p class="eyebrow text-slate-600"><i class="fa-solid fa-stopwatch"></i> DELAY DE RESPUESTA</p>
+          <div class="flex gap-2 mt-2">
+            <select id="delaySelect" class="flex-1 min-w-0 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-green/40"></select>
+            <button id="saveDelayBtn" class="shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold bg-blue-500 text-white active:scale-95 transition-all">Guardar</button>
+          </div>
+        </section>
+
+        <!-- Ventana de tiempo -->
+        <section>
+          <p class="eyebrow text-slate-600"><i class="fa-solid fa-hourglass-half"></i> VENTANA DE TIEMPO</p>
+          <p class="text-xs text-slate-400 mt-1 mb-2">Si el mensaje menciona una hora o minutos, el bot solo responde si cae entre 0 y este máximo de minutos desde ahora.</p>
           <div class="flex gap-2">
-            <select id="contactTriggerGroupSelect" class="flex-1 min-w-0 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-400/40">
-              <option value="">— Agregar un grupo —</option>
-            </select>
-            <button id="addContactTriggerBtn" class="w-10 h-10 shrink-0 rounded-xl bg-indigo-600 text-white flex items-center justify-center active:scale-90 transition-all">
-              <i class="fa-solid fa-plus text-sm"></i>
-            </button>
+            <select id="timeWindowSelect" class="flex-1 min-w-0 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-green/40"></select>
+            <button id="saveTimeWindowBtn" class="shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold bg-blue-500 text-white active:scale-95 transition-all">Guardar</button>
           </div>
         </section>
 
@@ -342,13 +408,18 @@
           </div>
         </section>
 
-        <!-- Notificaciones -->
-        <section>
-          <p class="eyebrow text-amber-600"><i class="fa-solid fa-bell"></i> NOTIFICACIONES</p>
-          <p class="text-xs text-slate-400 mt-1 mb-2">Te avisa con una notificación en tu celular cada vez que el bot responde un mensaje, aunque tengas la pantalla bloqueada.</p>
-          <button id="togglePushBtn" class="w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-amber-500 text-white active:scale-95 transition-all">🔔 Activar notificaciones</button>
-          <p id="pushStatus" class="text-xs text-slate-400 mt-2"></p>
-        </section>
+      </div>
+    </div>
+
+    <!-- Categoría: 💰 Presupuesto -->
+    <div id="categoryBudget" class="fixed inset-0 bg-brand-bg z-50 hidden flex-col">
+      <div class="flex items-center gap-3 px-5 py-4 border-b border-slate-100 bg-white">
+        <button class="category-back-btn w-9 h-9 rounded-xl flex items-center justify-center hover:bg-slate-100 active:scale-90 transition-all">
+          <i class="fa-solid fa-arrow-left text-lg text-slate-500"></i>
+        </button>
+        <span class="font-bold text-slate-900">💰 Presupuesto</span>
+      </div>
+      <div class="flex-1 overflow-y-auto px-5 py-5 space-y-6">
 
         <!-- Presupuesto: límites y metas -->
         <section>
@@ -367,10 +438,26 @@
           <button id="saveBudgetBtn" disabled class="w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-slate-300 text-slate-500 active:scale-95 transition-all">Elige una categoría primero</button>
         </section>
 
-        <!-- Cerrar sesión -->
-        <button id="logoutBtn" class="w-full text-center text-sm text-brand-red font-medium py-2">
-          Cerrar sesión
+      </div>
+    </div>
+
+    <!-- Categoría: 🔔 Notificaciones -->
+    <div id="categoryGeneral" class="fixed inset-0 bg-brand-bg z-50 hidden flex-col">
+      <div class="flex items-center gap-3 px-5 py-4 border-b border-slate-100 bg-white">
+        <button class="category-back-btn w-9 h-9 rounded-xl flex items-center justify-center hover:bg-slate-100 active:scale-90 transition-all">
+          <i class="fa-solid fa-arrow-left text-lg text-slate-500"></i>
         </button>
+        <span class="font-bold text-slate-900">🔔 Notificaciones</span>
+      </div>
+      <div class="flex-1 overflow-y-auto px-5 py-5 space-y-6">
+
+        <!-- Notificaciones -->
+        <section>
+          <p class="eyebrow text-amber-600"><i class="fa-solid fa-bell"></i> NOTIFICACIONES</p>
+          <p class="text-xs text-slate-400 mt-1 mb-2">Te avisa con una notificación en tu celular cada vez que el bot responde un mensaje, aunque tengas la pantalla bloqueada.</p>
+          <button id="togglePushBtn" class="w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-amber-500 text-white active:scale-95 transition-all">🔔 Activar notificaciones</button>
+          <p id="pushStatus" class="text-xs text-slate-400 mt-2"></p>
+        </section>
 
       </div>
     </div>
