@@ -838,6 +838,20 @@ function yaFueProcesado(id) {
   return false;
 }
 
+// Descarta mensajes viejos que Baileys reentrega al reconectar (historial),
+// sin depender del "type" del evento: los mensajes que escribe el propio
+// dueño desde su teléfono NO siempre llegan como "notify", así que
+// filtrar por type dejaba fuera justo los de la caja chica.
+const ANTIGUEDAD_MAXIMA_MS = 5 * 60 * 1000; // 5 minutos
+function esMensajeViejo(msg) {
+  const raw = msg?.messageTimestamp;
+  if (raw === undefined || raw === null) return false; // sin fecha: se procesa igual
+  // messageTimestamp puede venir como número o como Long ({low, high}).
+  const segundos = typeof raw === "number" ? raw : typeof raw.toNumber === "function" ? raw.toNumber() : Number(raw.low ?? raw);
+  if (!Number.isFinite(segundos) || segundos <= 0) return false;
+  return Date.now() - segundos * 1000 > ANTIGUEDAD_MAXIMA_MS;
+}
+
 // Espera creciente para reintentar si falla la carga de grupos (ej. un
 // "rate-overlimit" temporal de WhatsApp por reconectar varias veces
 // seguidas): 30s, 1min, 2min. Si para entonces sigue fallando, se deja
@@ -978,16 +992,16 @@ async function startBot() {
   // WhatsApp a veces entrega varios mensajes juntos en un mismo evento
   // (por ejemplo si se mandan seguidos), así que hay que revisarlos todos,
   // no solo el primero.
-  sock.ev.on("messages.upsert", async ({ messages, type }) => {
-    // Solo mensajes nuevos de verdad ("notify"). "append"/"replace" son
-    // reenvíos de historial que Baileys manda al reconectar; si no se
-    // filtran, se procesan de nuevo como si fueran mensajes frescos
-    // (causaba respuestas duplicadas después de cada reinicio del bot).
-    if (type !== "notify") return;
-
+  sock.ev.on("messages.upsert", async ({ messages }) => {
     for (const msg of messages) {
       if (!msg?.message) continue;
+      // Dos protecciones contra responder dos veces lo mismo tras una
+      // reconexión: no procesar un ID ya visto, y descartar lo que sea
+      // historial viejo. NO se filtra por "type" porque los mensajes que
+      // escribe el propio dueño (los de la caja chica) no siempre llegan
+      // como "notify".
       if (yaFueProcesado(msg.key.id)) continue;
+      if (esMensajeViejo(msg)) continue;
 
       const chatId = msg.key.remoteJid;
       const grupoActual = botState.groups.find((g) => g.id === chatId);
