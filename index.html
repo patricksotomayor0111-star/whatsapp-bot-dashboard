@@ -23,6 +23,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <!-- Generador de QR (solo cliente, para mostrar el QR de vinculación de WhatsApp) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<!-- Gráficos del panel de Finanzas -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.min.js"></script>
 
 <link rel="stylesheet" href="styles.css" />
 
@@ -123,6 +125,7 @@
         <button data-finance-tab="financeTabDeudas" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Deudas</button>
         <button data-finance-tab="financeTabFaltantes" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Faltantes</button>
         <button data-finance-tab="financeTabCuentas" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Cuentas</button>
+        <button data-finance-tab="financeTabGraficos" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Gráficos</button>
       </div>
       <div class="flex-1 overflow-y-auto px-5 py-5">
 
@@ -238,6 +241,29 @@
             <p class="eyebrow text-brand-orange"><i class="fa-solid fa-list"></i> NOTAS REGISTRADAS</p>
             <div id="accountEntriesList" class="space-y-1.5 mt-2"></div>
             <p id="accountEntriesEmpty" class="hidden text-center text-xs text-slate-400 py-6">No hay notas registradas.</p>
+          </section>
+        </div>
+
+        <!-- Tab: Gráficos -->
+        <div id="financeTabGraficos" class="finance-tab-panel hidden space-y-6">
+          <section>
+            <p class="eyebrow text-brand-green"><i class="fa-solid fa-chart-pie"></i> GASTO POR CATEGORÍA (ESTE MES)</p>
+            <div class="card bg-white mt-2" style="height: 260px;">
+              <canvas id="chartCategorias"></canvas>
+            </div>
+            <p id="chartCategoriasEmpty" class="hidden text-center text-xs text-slate-400 py-6">Todavía no hay gastos categorizados este mes.</p>
+          </section>
+          <section>
+            <p class="eyebrow text-brand-green"><i class="fa-solid fa-chart-column"></i> GANANCIAS VS GASTOS (ÚLTIMOS 14 DÍAS)</p>
+            <div class="card bg-white mt-2" style="height: 260px;">
+              <canvas id="chartGananciasGastos"></canvas>
+            </div>
+          </section>
+          <section>
+            <p class="eyebrow text-brand-green"><i class="fa-solid fa-chart-line"></i> EVOLUCIÓN DEL EFECTIVO ESPERADO</p>
+            <div class="card bg-white mt-2" style="height: 260px;">
+              <canvas id="chartEfectivo"></canvas>
+            </div>
           </section>
         </div>
 

@@ -486,6 +486,12 @@ app.delete("/api/finance/accounts/entries/:index", (req, res) => {
   res.json({ ok: true });
 });
 
+// Historial de cierres diarios (ganancias/gastos/efectivo esperado por
+// día) más el día en curso, para los gráficos de Finanzas.
+app.get("/api/finance/history", (req, res) => {
+  res.json({ cierres: cashbox.getCierres(), hoy: { fecha: cashbox.getHoyLabel(), ...cashbox.getToday() } });
+});
+
 // Presupuesto: límites mensuales por categoría y metas de deudas (Junta,
 // Caja Cuzco, Universidad), calculados a partir del registro de gastos.
 app.get("/api/budget/categories", (req, res) => {

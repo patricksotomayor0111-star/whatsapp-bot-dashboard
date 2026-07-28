@@ -337,6 +337,12 @@ function getMesActualLabel() {
   return fechaLabel(peruAhora()).slice(0, 7);
 }
 
+// "YYYY-MM-DD" de hoy (hora Perú), para que los gráficos puedan ubicar el
+// día en curso junto al historial de días ya cerrados.
+function getHoyLabel() {
+  return fechaLabel(peruAhora());
+}
+
 module.exports = {
   addGanancia,
   addGasto,
@@ -349,6 +355,7 @@ module.exports = {
   getLastClosedDay,
   getLastClosedWeek,
   getMesActualLabel,
+  getHoyLabel,
   addAnaGuardo,
   addAnaGasto,
   getAna,

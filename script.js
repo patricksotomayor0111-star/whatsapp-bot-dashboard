@@ -1708,6 +1708,8 @@ function showFinanceTab(tabId) {
   } else if (tabId === "financeTabCuentas") {
     fetchAccountNames();
     fetchAccountEntries();
+  } else if (tabId === "financeTabGraficos") {
+    fetchGraficos();
   }
 }
 
@@ -2199,6 +2201,127 @@ async function fetchAccountEntries() {
   } catch (err) {
     console.error("No se pudo obtener las notas de cuentas:", err);
   }
+}
+
+// ---------- Finanzas: Gráficos ----------
+let chartCategoriasInstance = null;
+let chartGananciasGastosInstance = null;
+let chartEfectivoInstance = null;
+
+const CHART_PALETTE = ["#22C55E", "#3B82F6", "#F59E0B", "#EF4444", "#8B5CF6", "#14B8A6", "#EC4899", "#84CC16", "#6366F1", "#F97316"];
+
+async function fetchGraficos() {
+  try {
+    const [historyRes, categoriesRes] = await Promise.all([
+      fetch("/api/finance/history"),
+      fetch("/api/budget/categories"),
+    ]);
+    const historyData = await historyRes.json();
+    const categoriesData = await categoriesRes.json();
+    renderChartCategorias(categoriesData.categorias || []);
+    renderChartHistoria(historyData.cierres || [], historyData.hoy);
+  } catch (err) {
+    console.error("No se pudo obtener los datos para los gráficos:", err);
+  }
+}
+
+function renderChartCategorias(categorias) {
+  // Solo categorías de límite mensual (gasto real de este mes); las de
+  // tipo "meta" (Junta, Cuzco, Universidad) son ahorro de largo plazo, no
+  // gasto del mes, así que no van en este gráfico.
+  const gastos = categorias
+    .filter((c) => c.tipo === "limite" && c.gastado > 0)
+    .sort((a, b) => b.gastado - a.gastado);
+
+  const canvas = document.getElementById("chartCategorias");
+  const empty = document.getElementById("chartCategoriasEmpty");
+
+  if (gastos.length === 0) {
+    canvas.classList.add("hidden");
+    empty.classList.remove("hidden");
+    return;
+  }
+  canvas.classList.remove("hidden");
+  empty.classList.add("hidden");
+
+  if (chartCategoriasInstance) chartCategoriasInstance.destroy();
+  chartCategoriasInstance = new Chart(canvas, {
+    type: "doughnut",
+    data: {
+      labels: gastos.map((c) => c.label),
+      datasets: [
+        {
+          data: gastos.map((c) => c.gastado),
+          backgroundColor: gastos.map((_, i) => CHART_PALETTE[i % CHART_PALETTE.length]),
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { position: "bottom", labels: { boxWidth: 12, font: { size: 10 } } } },
+    },
+  });
+}
+
+function renderChartHistoria(cierres, hoy) {
+  // Últimos 13 días ya cerrados + el día de hoy en curso, para que el
+  // gráfico llegue hasta el momento actual.
+  const dias = cierres.slice(-13).map((c) => ({
+    fecha: c.fecha,
+    ganancias: c.ganancias,
+    gastos: c.gastos,
+    esperado: c.esperado,
+  }));
+  if (hoy && hoy.fecha) {
+    dias.push({ fecha: hoy.fecha, ganancias: hoy.ganancias, gastos: hoy.gastos, esperado: hoy.esperado });
+  }
+
+  const labels = dias.map((d) => d.fecha.slice(5)); // "MM-DD"
+
+  const canvasBar = document.getElementById("chartGananciasGastos");
+  if (chartGananciasGastosInstance) chartGananciasGastosInstance.destroy();
+  chartGananciasGastosInstance = new Chart(canvasBar, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        { label: "Ganancias", data: dias.map((d) => d.ganancias), backgroundColor: "#22C55E" },
+        { label: "Gastos", data: dias.map((d) => d.gastos), backgroundColor: "#EF4444" },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: { x: { ticks: { font: { size: 9 } } }, y: { beginAtZero: true } },
+      plugins: { legend: { position: "bottom", labels: { boxWidth: 12, font: { size: 10 } } } },
+    },
+  });
+
+  const canvasLine = document.getElementById("chartEfectivo");
+  if (chartEfectivoInstance) chartEfectivoInstance.destroy();
+  chartEfectivoInstance = new Chart(canvasLine, {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "Efectivo esperado",
+          data: dias.map((d) => d.esperado),
+          borderColor: "#3B82F6",
+          backgroundColor: "rgba(59, 130, 246, 0.15)",
+          fill: true,
+          tension: 0.3,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: { x: { ticks: { font: { size: 9 } } } },
+      plugins: { legend: { display: false } },
+    },
+  });
 }
 
 remindersLink.addEventListener("click", (e) => {
