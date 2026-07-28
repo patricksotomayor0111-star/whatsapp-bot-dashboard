@@ -14,6 +14,7 @@ const groupDelays = require("./groupDelays");
 const debts = require("./debts");
 const shortfalls = require("./shortfalls");
 const referenceAccounts = require("./referenceAccounts");
+const financeGoals = require("./financeGoals");
 const ExcelJS = require("exceljs");
 
 const app = express();
@@ -490,6 +491,55 @@ app.delete("/api/finance/accounts/entries/:index", (req, res) => {
 // día) más el día en curso, para los gráficos de Finanzas.
 app.get("/api/finance/history", (req, res) => {
   res.json({ cierres: cashbox.getCierres(), hoy: { fecha: cashbox.getHoyLabel(), ...cashbox.getToday() } });
+});
+
+// Metas de ganancia (diaria/semanal/mensual) y de ahorro mensual.
+app.get("/api/finance/goals", (req, res) => {
+  res.json({ goals: financeGoals.getGoals() });
+});
+
+app.post("/api/finance/goals", (req, res) => {
+  try {
+    financeGoals.setGoal(req.body.tipo, req.body.monto);
+    res.json({ ok: true, goals: financeGoals.getGoals() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Progreso de cada meta contra lo ya ganado, cuánto falta, cuánto ahorrar
+// por día para llegar a la meta de ahorro, proyección de cierre de mes y
+// comparación contra el mes anterior.
+app.get("/api/finance/goals/progress", (req, res) => {
+  const goals = financeGoals.getGoals();
+  const hoy = cashbox.getToday();
+  const semana = cashbox.getWeekSoFar();
+  const mes = cashbox.getMonthSoFar();
+  const mesAnterior = cashbox.getPreviousMonthTotals();
+  const { diaActual, diasEnMes, diasRestantes } = cashbox.getDiasDelMes();
+
+  const ahorroActual = mes.ganancias - mes.gastos;
+  const ahorroFaltante = Math.max(goals.ahorroMensual - ahorroActual, 0);
+  const recomendadoDiario = diasRestantes > 0 ? ahorroFaltante / diasRestantes : ahorroFaltante;
+
+  const promedioDiario = diaActual > 0 ? ahorroActual / diaActual : 0;
+  const proyeccionFinDeMes = ahorroActual + promedioDiario * (diasEnMes - diaActual);
+
+  res.json({
+    goals,
+    diaria: { meta: goals.diaria, actual: hoy.ganancias, falta: Math.max(goals.diaria - hoy.ganancias, 0) },
+    semanal: { meta: goals.semanal, actual: semana.ganancias, falta: Math.max(goals.semanal - semana.ganancias, 0) },
+    mensual: { meta: goals.mensual, actual: mes.ganancias, falta: Math.max(goals.mensual - mes.ganancias, 0) },
+    ahorro: {
+      meta: goals.ahorroMensual,
+      actual: ahorroActual,
+      falta: ahorroFaltante,
+      diasRestantes,
+      recomendadoDiario,
+    },
+    proyeccion: { finDeMes: proyeccionFinDeMes },
+    mesAnterior,
+  });
 });
 
 // Presupuesto: límites mensuales por categoría y metas de deudas (Junta,

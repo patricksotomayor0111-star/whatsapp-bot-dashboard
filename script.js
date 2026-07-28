@@ -2324,6 +2324,140 @@ function renderChartHistoria(cierres, hoy) {
   });
 }
 
+// ---------- Finanzas: Metas ----------
+const goalDiariaInput = document.getElementById("goalDiariaInput");
+const goalSemanalInput = document.getElementById("goalSemanalInput");
+const goalMensualInput = document.getElementById("goalMensualInput");
+const goalAhorroInput = document.getElementById("goalAhorroInput");
+const goalSavedMsg = document.getElementById("goalSavedMsg");
+const goalProgressList = document.getElementById("goalProgressList");
+const ahorroMetaTxt = document.getElementById("ahorroMetaTxt");
+const ahorroActualTxt = document.getElementById("ahorroActualTxt");
+const ahorroFaltaTxt = document.getElementById("ahorroFaltaTxt");
+const ahorroRecomendadoTxt = document.getElementById("ahorroRecomendadoTxt");
+const proyeccionTxt = document.getElementById("proyeccionTxt");
+const comparativaTxt = document.getElementById("comparativaTxt");
+
+async function fetchGoalsAndProgress() {
+  try {
+    const [goalsRes, progressRes] = await Promise.all([
+      fetch("/api/finance/goals"),
+      fetch("/api/finance/goals/progress"),
+    ]);
+    const goalsData = await goalsRes.json();
+    const progressData = await progressRes.json();
+    renderGoalInputs(goalsData.goals || {});
+    renderGoalProgress(progressData);
+  } catch (err) {
+    console.error("No se pudo obtener las metas:", err);
+  }
+}
+
+function renderGoalInputs(goals) {
+  goalDiariaInput.value = goals.diaria || "";
+  goalSemanalInput.value = goals.semanal || "";
+  goalMensualInput.value = goals.mensual || "";
+  goalAhorroInput.value = goals.ahorroMensual || "";
+}
+
+function renderGoalProgress(data) {
+  goalProgressList.innerHTML = "";
+  const filas = [
+    { label: "Diaria", info: data.diaria },
+    { label: "Semanal", info: data.semanal },
+    { label: "Mensual", info: data.mensual },
+  ];
+  filas.forEach(({ label, info }) => {
+    if (!info || info.meta <= 0) return;
+    const pct = Math.min(info.actual / info.meta, 1);
+
+    const row = document.createElement("div");
+    row.className = "text-xs";
+
+    const header = document.createElement("div");
+    header.className = "flex items-center justify-between mb-1";
+    const nombre = document.createElement("span");
+    nombre.className = "font-semibold text-slate-700";
+    nombre.textContent = label;
+    const valores = document.createElement("span");
+    valores.className = "text-slate-500";
+    valores.textContent = `${formatSoles(info.actual)} / ${formatSoles(info.meta)}`;
+    header.appendChild(nombre);
+    header.appendChild(valores);
+
+    const barBg = document.createElement("div");
+    barBg.className = "w-full h-2 rounded-full bg-slate-100 overflow-hidden";
+    const bar = document.createElement("div");
+    bar.className = "h-full bg-brand-green";
+    bar.style.width = `${Math.round(pct * 100)}%`;
+    barBg.appendChild(bar);
+
+    row.appendChild(header);
+    row.appendChild(barBg);
+
+    if (info.falta > 0) {
+      const falta = document.createElement("p");
+      falta.className = "text-slate-400 mt-1";
+      falta.textContent = `Te faltan ${formatSoles(info.falta)}`;
+      row.appendChild(falta);
+    }
+
+    goalProgressList.appendChild(row);
+  });
+
+  if (goalProgressList.children.length === 0) {
+    const p = document.createElement("p");
+    p.className = "text-xs text-slate-400 text-center py-4";
+    p.textContent = "Configura al menos una meta arriba para ver el progreso.";
+    goalProgressList.appendChild(p);
+  }
+
+  if (data.ahorro) {
+    ahorroMetaTxt.textContent = formatSoles(data.ahorro.meta);
+    ahorroActualTxt.textContent = formatSoles(data.ahorro.actual);
+    ahorroFaltaTxt.textContent = formatSoles(data.ahorro.falta);
+    ahorroRecomendadoTxt.textContent = formatSoles(data.ahorro.recomendadoDiario) + " / día";
+  }
+
+  if (data.proyeccion) {
+    proyeccionTxt.textContent = formatSoles(data.proyeccion.finDeMes);
+  }
+
+  if (data.mesAnterior) {
+    const actual = (data.mensual && data.mensual.actual) || 0;
+    const anterior = data.mesAnterior.ganancias || 0;
+    if (anterior > 0) {
+      const diffPct = Math.round(((actual - anterior) / anterior) * 100);
+      const signo = diffPct >= 0 ? "más" : "menos";
+      comparativaTxt.textContent = `Este mes vas ${Math.abs(diffPct)}% ${signo} en ganancias que el mes pasado (${formatSoles(anterior)}).`;
+    } else {
+      comparativaTxt.textContent = "";
+    }
+  }
+}
+
+document.querySelectorAll(".goal-save-btn").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    const tipo = btn.dataset.goalSave;
+    const inputMap = {
+      diaria: goalDiariaInput,
+      semanal: goalSemanalInput,
+      mensual: goalMensualInput,
+      ahorroMensual: goalAhorroInput,
+    };
+    const input = inputMap[tipo];
+    const monto = parseFloat(input.value) || 0;
+    await fetch("/api/finance/goals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tipo, monto }),
+    });
+    goalSavedMsg.classList.remove("hidden");
+    setTimeout(() => goalSavedMsg.classList.add("hidden"), 2000);
+    await fetchGoalsAndProgress();
+  });
+});
+
 remindersLink.addEventListener("click", (e) => {
   e.preventDefault();
   closeDrawerFn();

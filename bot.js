@@ -20,6 +20,7 @@ const groupDelays = require("./groupDelays");
 const debts = require("./debts");
 const shortfalls = require("./shortfalls");
 const referenceAccounts = require("./referenceAccounts");
+const financeGoals = require("./financeGoals");
 const { dataPath } = require("./dataDir");
 const { sectorSeedByName, specialSeedByName, numberExceptionSeed } = require("./groupSeed");
 const {
@@ -525,6 +526,18 @@ async function checkCashboxSchedule() {
     await currentSock.sendMessage(grupo.id, { text: textoDia });
   } catch (err) {
     console.error("Error al mandar el cierre diario de caja chica:", err.message);
+  }
+
+  // Si hay meta diaria configurada y no se cumplió, avisa por notificación
+  // push (aparte del mensaje de WhatsApp de arriba).
+  const metaDiaria = financeGoals.getGoals().diaria;
+  if (metaDiaria > 0 && resumenDia.ganancias < metaDiaria) {
+    pushSubscriptions
+      .notifyAll({
+        title: "📉 No llegaste a la meta de hoy",
+        body: `Ganaste ${formatSoles(resumenDia.ganancias)} de tu meta de ${formatSoles(metaDiaria)}.`,
+      })
+      .catch((err) => console.error("Error al notificar meta diaria no cumplida:", err.message));
   }
 
   // Domingo = 0 en getDay(). Además del cierre diario, manda el resumen semanal.

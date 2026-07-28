@@ -343,6 +343,58 @@ function getHoyLabel() {
   return fechaLabel(peruAhora());
 }
 
+// Lo acumulado de la semana (weekGanancias/weekGastos, que solo se suman
+// recién al cerrar el día) más lo que va del día de hoy, para poder medir
+// el progreso de la meta semanal sin esperar al cierre.
+function getWeekSoFar() {
+  return {
+    ganancias: data.weekGanancias + data.todayGanancias,
+    gastos: data.weekGastos + data.todayGastos,
+  };
+}
+
+// Lo acumulado del mes en curso (sumando los cierres diarios de este mes)
+// más lo que va del día de hoy, para medir el progreso de la meta mensual.
+function getMonthSoFar() {
+  const mesActual = getMesActualLabel();
+  let ganancias = data.todayGanancias;
+  let gastos = data.todayGastos;
+  data.cierres.forEach((c) => {
+    if (c.fecha.slice(0, 7) === mesActual) {
+      ganancias += c.ganancias;
+      gastos += c.gastos;
+    }
+  });
+  return { ganancias, gastos };
+}
+
+// Totales del mes anterior (a partir de los cierres guardados), para
+// comparar el mes en curso contra el que ya pasó.
+function getPreviousMonthTotals() {
+  const ahora = peruAhora();
+  const mesAnteriorDate = new Date(ahora.getFullYear(), ahora.getMonth() - 1, 1);
+  const mesAnteriorLabel = `${mesAnteriorDate.getFullYear()}-${String(mesAnteriorDate.getMonth() + 1).padStart(2, "0")}`;
+  let ganancias = 0;
+  let gastos = 0;
+  data.cierres.forEach((c) => {
+    if (c.fecha.slice(0, 7) === mesAnteriorLabel) {
+      ganancias += c.ganancias;
+      gastos += c.gastos;
+    }
+  });
+  return { ganancias, gastos };
+}
+
+// Día del mes en curso, cuántos días tiene el mes, y cuántos quedan
+// (incluyendo hoy), para calcular cuánto ahorrar por día y proyectar el
+// cierre de mes.
+function getDiasDelMes() {
+  const ahora = peruAhora();
+  const diaActual = ahora.getDate();
+  const diasEnMes = new Date(ahora.getFullYear(), ahora.getMonth() + 1, 0).getDate();
+  return { diaActual, diasEnMes, diasRestantes: diasEnMes - diaActual + 1 };
+}
+
 module.exports = {
   addGanancia,
   addGasto,
@@ -356,6 +408,10 @@ module.exports = {
   getLastClosedWeek,
   getMesActualLabel,
   getHoyLabel,
+  getWeekSoFar,
+  getMonthSoFar,
+  getPreviousMonthTotals,
+  getDiasDelMes,
   addAnaGuardo,
   addAnaGasto,
   getAna,

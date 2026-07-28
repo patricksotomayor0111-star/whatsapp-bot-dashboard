@@ -126,6 +126,7 @@
         <button data-finance-tab="financeTabFaltantes" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Faltantes</button>
         <button data-finance-tab="financeTabCuentas" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Cuentas</button>
         <button data-finance-tab="financeTabGraficos" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Gráficos</button>
+        <button data-finance-tab="financeTabMetas" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Metas</button>
       </div>
       <div class="flex-1 overflow-y-auto px-5 py-5">
 
@@ -263,6 +264,67 @@
             <p class="eyebrow text-brand-green"><i class="fa-solid fa-chart-line"></i> EVOLUCIÓN DEL EFECTIVO ESPERADO</p>
             <div class="card bg-white mt-2" style="height: 260px;">
               <canvas id="chartEfectivo"></canvas>
+            </div>
+          </section>
+        </div>
+
+        <!-- Tab: Metas -->
+        <div id="financeTabMetas" class="finance-tab-panel hidden space-y-4">
+          <section>
+            <p class="eyebrow text-brand-green"><i class="fa-solid fa-bullseye"></i> METAS DE GANANCIA</p>
+            <div class="space-y-2 mt-2">
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-slate-500 w-20 shrink-0">Diaria</span>
+                <input id="goalDiariaInput" type="number" placeholder="S/" class="flex-1 min-w-0 bg-white rounded-xl px-3 py-2 text-sm border border-slate-200" />
+                <button data-goal-save="diaria" class="goal-save-btn shrink-0 w-9 h-9 rounded-xl bg-brand-green text-white flex items-center justify-center active:scale-90 transition-all">
+                  <i class="fa-solid fa-check"></i>
+                </button>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-slate-500 w-20 shrink-0">Semanal</span>
+                <input id="goalSemanalInput" type="number" placeholder="S/" class="flex-1 min-w-0 bg-white rounded-xl px-3 py-2 text-sm border border-slate-200" />
+                <button data-goal-save="semanal" class="goal-save-btn shrink-0 w-9 h-9 rounded-xl bg-brand-green text-white flex items-center justify-center active:scale-90 transition-all">
+                  <i class="fa-solid fa-check"></i>
+                </button>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-slate-500 w-20 shrink-0">Mensual</span>
+                <input id="goalMensualInput" type="number" placeholder="S/" class="flex-1 min-w-0 bg-white rounded-xl px-3 py-2 text-sm border border-slate-200" />
+                <button data-goal-save="mensual" class="goal-save-btn shrink-0 w-9 h-9 rounded-xl bg-brand-green text-white flex items-center justify-center active:scale-90 transition-all">
+                  <i class="fa-solid fa-check"></i>
+                </button>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-slate-500 w-20 shrink-0">Ahorro/mes</span>
+                <input id="goalAhorroInput" type="number" placeholder="S/" class="flex-1 min-w-0 bg-white rounded-xl px-3 py-2 text-sm border border-slate-200" />
+                <button data-goal-save="ahorroMensual" class="goal-save-btn shrink-0 w-9 h-9 rounded-xl bg-brand-green text-white flex items-center justify-center active:scale-90 transition-all">
+                  <i class="fa-solid fa-check"></i>
+                </button>
+              </div>
+            </div>
+            <p id="goalSavedMsg" class="hidden text-xs text-brand-green mt-2">Guardado ✓</p>
+          </section>
+
+          <section>
+            <p class="eyebrow text-brand-green"><i class="fa-solid fa-gauge-high"></i> PROGRESO</p>
+            <div id="goalProgressList" class="space-y-2 mt-2"></div>
+          </section>
+
+          <section class="card bg-emerald-50 border border-emerald-100 py-3">
+            <p class="eyebrow text-emerald-700"><i class="fa-solid fa-piggy-bank"></i> AHORRO</p>
+            <div class="text-sm space-y-1 mt-1">
+              <p>Meta del mes: <span id="ahorroMetaTxt" class="font-semibold">S/ 0</span></p>
+              <p>Llevas ahorrado: <span id="ahorroActualTxt" class="font-semibold">S/ 0</span></p>
+              <p>Te falta: <span id="ahorroFaltaTxt" class="font-semibold text-emerald-700">S/ 0</span></p>
+              <p>Ahorro diario recomendado: <span id="ahorroRecomendadoTxt" class="font-semibold text-emerald-700">S/ 0</span></p>
+            </div>
+          </section>
+
+          <section class="card bg-blue-50 border border-blue-100 py-3">
+            <p class="eyebrow text-blue-700"><i class="fa-solid fa-chart-line"></i> PROYECCIÓN Y COMPARATIVA</p>
+            <div class="text-sm space-y-1 mt-1">
+              <p>Si sigues a este ritmo, terminas el mes con <span id="proyeccionTxt" class="font-semibold text-blue-700">S/ 0</span> de ganancia neta.</p>
+              <p id="comparativaTxt" class="text-slate-600"></p>
             </div>
           </section>
         </div>
