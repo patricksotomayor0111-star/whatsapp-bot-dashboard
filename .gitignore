@@ -11,5 +11,8 @@ group-delays.json
 push-data.json
 lid-map.json
 pending-quotes-data.json
+debts-data.json
+shortfalls-data.json
+reference-accounts-data.json
 .env
 *.log

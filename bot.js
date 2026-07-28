@@ -17,6 +17,9 @@ const pushSubscriptions = require("./pushSubscriptions");
 const reminders = require("./reminders");
 const contactTriggerGroups = require("./contactTriggerGroups");
 const groupDelays = require("./groupDelays");
+const debts = require("./debts");
+const shortfalls = require("./shortfalls");
+const referenceAccounts = require("./referenceAccounts");
 const { dataPath } = require("./dataDir");
 const { sectorSeedByName, specialSeedByName, numberExceptionSeed } = require("./groupSeed");
 const {
@@ -374,12 +377,13 @@ function parseCashboxLine(rawLine) {
   const text = rawLine.trim();
   if (!text) return null;
 
-  // Plata de Ana (aparte de la caja): si el mensaje tiene la palabra "ana".
-  // "Ana 100" / "100 ana guardar" -> Ana me deja plata para guardar.
-  // "menos 50 ana" -> le devuelvo / gasta de lo suyo. Se toma el primer
-  // número del mensaje sin importar el orden.
+  // Plata de Ana en custodia (aparte de la caja): solo si el mensaje dice
+  // explícitamente "guardo" además de "ana" (para no chocar con "Ana debe" /
+  // "Ana pago", que son deudas, no custodia).
+  // "5 Ana guardo" -> Ana me deja plata para guardar.
+  // "menos 5 Ana guardo" -> le devuelvo / gasta de lo suyo.
   const norm = normalizeText(text);
-  if (/\bana\b/.test(norm)) {
+  if (/\bana\b/.test(norm) && /\bguardo\b/.test(norm)) {
     const num = text.match(/(\d+(?:\.\d+)?)\s*(mil)?/i);
     if (num) {
       const monto = parseFloat(num[1]) * (num[2] ? 1000 : 1);
@@ -391,19 +395,49 @@ function parseCashboxLine(rawLine) {
   let m = text.match(/^menos\s+(\d+(?:\.\d+)?)\s*(mil)?\s*(.*)$/i);
   if (m) {
     const monto = parseFloat(m[1]) * (m[2] ? 1000 : 1);
-    return { type: "gasto", monto, descripcion: m[3].trim() };
+    const resto = m[3].trim();
+    const restoNorm = normalizeText(resto);
+
+    // "Menos X Nombre debe": Nombre te debe X (no resta de la caja).
+    if (/\bdebe\b/.test(restoNorm)) {
+      const persona = resto.replace(/\bdebe\b/i, "").trim();
+      if (persona) return { type: "deuda_debe", monto, persona, descripcion: resto };
+    }
+
+    // "Menos X falto": diferencia de caja que no cuadró. Sí resta de la
+    // caja (como un gasto normal) y además queda en un total aparte.
+    if (/\bfalto\b/.test(restoNorm)) {
+      return { type: "faltante", monto, descripcion: resto };
+    }
+
+    return { type: "gasto", monto, descripcion: resto };
   }
 
   m = text.match(/^(\d+(?:\.\d+)?)\s*(mil)?\s*(.*)$/i);
   if (m) {
     const monto = parseFloat(m[1]) * (m[2] ? 1000 : 1);
     const descripcion = m[3].trim();
+    const descNorm = normalizeText(descripcion);
+
+    // "X Nombre pago": salda la deuda de Nombre (no suma a la caja).
+    if (/\bpago\b/.test(descNorm)) {
+      const persona = descripcion.replace(/\bpago\b/i, "").trim();
+      if (persona) return { type: "deuda_pago", monto, persona, descripcion };
+    }
+
     // "1050 caja" o "1050 caja chica" no es una ganancia: es el conteo
     // físico de la caja (borrón y cuenta nueva, ver cashbox.setCaja).
-    const descNorm = descripcion.toLowerCase();
     if (descNorm === "caja" || descNorm === "caja chica") {
       return { type: "caja", monto, descripcion: descNorm };
     }
+
+    // Cuentas de referencia (Yape/Plin/Sip/Efectivo, configurables desde el
+    // panel): solo una nota, no afecta caja ni ganancia.
+    const cuenta = referenceAccounts.matchNombre(descNorm);
+    if (cuenta) {
+      return { type: "referencia", monto, cuenta, descripcion };
+    }
+
     return { type: "ganancia", monto, descripcion };
   }
 
@@ -438,6 +472,15 @@ function handleCashboxEntries(entradas) {
       cashbox.addAnaGuardo(entrada.monto, entrada.descripcion);
     } else if (entrada.type === "ana_gasto") {
       cashbox.addAnaGasto(entrada.monto, entrada.descripcion);
+    } else if (entrada.type === "deuda_debe") {
+      debts.addDebt(entrada.persona, entrada.monto, entrada.descripcion);
+    } else if (entrada.type === "deuda_pago") {
+      debts.payDebt(entrada.persona, entrada.monto, entrada.descripcion);
+    } else if (entrada.type === "faltante") {
+      cashbox.addGasto(entrada.monto, entrada.descripcion);
+      shortfalls.addFaltante(entrada.monto, entrada.descripcion);
+    } else if (entrada.type === "referencia") {
+      referenceAccounts.addEntrada(entrada.cuenta, entrada.monto, entrada.descripcion);
     } else {
       cashbox.addGanancia(entrada.monto, entrada.descripcion);
     }

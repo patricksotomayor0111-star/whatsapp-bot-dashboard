@@ -167,7 +167,10 @@ function getAnaMovimientos() {
 }
 
 // Cierra el día: guarda el resumen en el historial de cierres (para el
-// Excel), suma lo del día a la semana, y deja día y caja en cero.
+// Excel), suma lo del día a la semana, y deja el día en cero. La caja NO se
+// resetea a 0: es un saldo corrido, así que mañana arranca con el efectivo
+// esperado de hoy (el conteo manual "N caja" sigue sirviendo para corregirla
+// contra la plata física real cuando el usuario quiera).
 function closeDay(dayLabel) {
   const resumen = getToday();
   data.cierres.push({ fecha: dayLabel, ...resumen });
@@ -178,7 +181,7 @@ function closeDay(dayLabel) {
   data.weekGastos += data.todayGastos;
   data.todayGanancias = 0;
   data.todayGastos = 0;
-  data.cajaInicial = 0;
+  data.cajaInicial = resumen.esperado;
   data.lastClosedDay = dayLabel;
   save();
   return resumen;
