@@ -21,6 +21,7 @@ const debts = require("./debts");
 const shortfalls = require("./shortfalls");
 const referenceAccounts = require("./referenceAccounts");
 const financeGoals = require("./financeGoals");
+const budgetCategories = require("./budgetCategories");
 const { dataPath } = require("./dataDir");
 const { sectorSeedByName, specialSeedByName, numberExceptionSeed } = require("./groupSeed");
 const {
@@ -459,6 +460,127 @@ function formatSoles(n) {
   return "S/ " + n.toLocaleString("es-PE", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
 
+function capitalizar(str) {
+  return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+// ---------- Consultas por WhatsApp (grupo GANANCIAS) ----------
+// Si el mensaje es una pregunta en lenguaje natural (no un movimiento a
+// registrar), el bot responde con datos reales en vez de tratarlo como
+// ganancia/gasto. Devuelve null si el texto no matchea ninguna consulta
+// conocida (y entonces sigue el camino normal de parseCashboxMessage).
+function responderConsultaFinanciera(rawText) {
+  const text = rawText.trim();
+  if (!text) return null;
+  const norm = normalizeText(text);
+  if (!/[a-z]/.test(norm)) return null; // sin letras no puede ser una pregunta
+
+  let m;
+
+  // "¿cuánto me debe Ana?" / "¿cuánto debe Luis?"
+  m = norm.match(/cuanto\s+(?:me\s+)?deb[ea]\s+(.+?)\??$/);
+  if (m) {
+    const persona = m[1].trim();
+    const deuda = debts.getDeuda(persona);
+    if (!deuda || deuda.saldo === 0) return `${capitalizar(persona)} no te debe nada. ✅`;
+    return `${deuda.label} te debe ${formatSoles(deuda.saldo)}.`;
+  }
+
+  // "¿quién me debe?" / "quién me debe dinero"
+  if (/quien.*deb/.test(norm)) {
+    const deudas = debts.getDeudas().filter((d) => d.saldo > 0);
+    if (deudas.length === 0) return "Nadie te debe nada ahora mismo. ✅";
+    const lista = deudas.map((d) => `${d.label}: ${formatSoles(d.saldo)}`).join("\n");
+    return `👥 Te deben:\n${lista}`;
+  }
+
+  // "¿cuánto puedo gastar en Mia?" (según el límite de esa categoría)
+  m = norm.match(/cuanto\s+puedo\s+gastar\s+en\s+(.+?)\??$/);
+  if (m) {
+    const texto = m[1].trim();
+    const cat = budgetCategories
+      .getAllCategorias()
+      .find((c) => c.tipo === "limite" && (normalizeText(c.label).includes(texto) || c.keywords.some((k) => texto.includes(k))));
+    if (!cat) return `No tengo una categoría configurada como "${m[1].trim()}".`;
+    const resumen = budgetCategories.getResumen(cashbox.getMovimientos(), cashbox.getMesActualLabel());
+    const info = resumen.find((r) => r.id === cat.id);
+    if (info.limite === null) return `${cat.label} no tiene límite mensual configurado.`;
+    return `En ${cat.label} ya gastaste ${formatSoles(info.gastado)} de ${formatSoles(info.limite)}. Puedes gastar ${formatSoles(info.disponible)} más.`;
+  }
+
+  // "¿cuánto puedo gastar hoy?" (general, según la meta diaria de ganancia)
+  if (/cuanto\s+puedo\s+gastar/.test(norm)) {
+    const metaDiaria = financeGoals.getGoals().diaria;
+    if (metaDiaria <= 0) {
+      return "Todavía no configuraste una meta de ganancia diaria (Finanzas → Metas en el panel), así que no puedo calcular esto.";
+    }
+    const hoy = cashbox.getToday();
+    const disponible = Math.max(metaDiaria - hoy.gastos, 0);
+    return `Tu meta de hoy es ${formatSoles(metaDiaria)} y ya gastaste ${formatSoles(hoy.gastos)}. Puedes gastar hasta ${formatSoles(disponible)} más sin pasarte.`;
+  }
+
+  // "¿cuánto vendí/gané hoy?"
+  if (/cuanto\s+(vendi|gane|ingres)/.test(norm) && /hoy/.test(norm)) {
+    return `Hoy llevas ${formatSoles(cashbox.getToday().ganancias)} en ganancias.`;
+  }
+
+  // "¿cuánto gasté hoy?"
+  if (/cuanto\s+gast/.test(norm) && /hoy/.test(norm)) {
+    return `Hoy gastaste ${formatSoles(cashbox.getToday().gastos)}.`;
+  }
+
+  // "¿cuánto tengo/hay en caja?"
+  if (/cuanto\s+(tengo|hay)\s+en\s+caja/.test(norm)) {
+    return `Efectivo esperado en caja: ${formatSoles(cashbox.getToday().esperado)}.`;
+  }
+
+  // "meta de hoy"
+  if (/meta\s+de\s+hoy/.test(norm)) {
+    const metaDiaria = financeGoals.getGoals().diaria;
+    if (metaDiaria <= 0) return "No tienes una meta diaria configurada. Puedes ponerla en el panel (Finanzas → Metas).";
+    const hoy = cashbox.getToday();
+    const falta = Math.max(metaDiaria - hoy.ganancias, 0);
+    return falta === 0
+      ? `¡Ya cumpliste tu meta de hoy! Llevas ${formatSoles(hoy.ganancias)} de ${formatSoles(metaDiaria)}. 🎉`
+      : `Meta de hoy: ${formatSoles(metaDiaria)}. Llevas ${formatSoles(hoy.ganancias)}, te faltan ${formatSoles(falta)}.`;
+  }
+
+  // "resumen del día"
+  if (/resumen\s+del?\s+dia/.test(norm)) {
+    const hoy = cashbox.getToday();
+    return (
+      `📦 Resumen del día\n` +
+      `✅ Ganancias: ${formatSoles(hoy.ganancias)}\n` +
+      `📉 Gastos: ${formatSoles(hoy.gastos)}\n` +
+      `💰 Total: ${formatSoles(hoy.total)}\n` +
+      `💵 Efectivo esperado: ${formatSoles(hoy.esperado)}`
+    );
+  }
+
+  // "resumen del mes" / "¿cómo voy este mes?"
+  if (/resumen\s+del\s+mes/.test(norm) || /como\s+voy/.test(norm)) {
+    const mes = cashbox.getMonthSoFar();
+    const metaMensual = financeGoals.getGoals().mensual;
+    let texto =
+      `🗓️ Resumen del mes\n` +
+      `✅ Ganancias: ${formatSoles(mes.ganancias)}\n` +
+      `📉 Gastos: ${formatSoles(mes.gastos)}\n` +
+      `💰 Neto: ${formatSoles(mes.ganancias - mes.gastos)}`;
+    if (metaMensual > 0) {
+      const falta = Math.max(metaMensual - mes.ganancias, 0);
+      texto += `\n🎯 Meta: ${formatSoles(metaMensual)} (te faltan ${formatSoles(falta)})`;
+    }
+    return texto;
+  }
+
+  // "cuánto he perdido en faltantes"
+  if (/faltante/.test(norm)) {
+    return `Faltante acumulado en total: ${formatSoles(shortfalls.getTotal())}.`;
+  }
+
+  return null;
+}
+
 // Registra los movimientos EN SILENCIO (sin responder en el grupo): los
 // totales se ven en vivo en el panel ("RESUMEN DEL DÍA"). Los únicos
 // mensajes que la caja chica manda al grupo son el cierre diario de las
@@ -809,6 +931,16 @@ async function startBot() {
       // bucle: los mensajes que manda el bot (cierres) empiezan con
       // emoji, no con número, así que nunca se auto-registran.
       if (grupoActual && grupoActual.name.trim().toUpperCase() === CASHBOX_GROUP_NAME) {
+        const respuestaConsulta = responderConsultaFinanciera(rawText);
+        if (respuestaConsulta) {
+          try {
+            await sock.sendMessage(chatId, { text: respuestaConsulta });
+          } catch (err) {
+            console.error("Error al responder consulta financiera:", err.message);
+          }
+          continue;
+        }
+
         const entradas = parseCashboxMessage(rawText);
         if (entradas.length > 0) {
           handleCashboxEntries(entradas);
