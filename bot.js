@@ -677,7 +677,7 @@ async function checkCashboxSchedule() {
     `💵 Efectivo esperado: ${formatSoles(resumenDia.esperado)}`;
 
   try {
-    await currentSock.sendMessage(grupo.id, { text: textoDia });
+    await enviarMensaje(currentSock, grupo.id, { text: textoDia });
   } catch (err) {
     console.error("Error al mandar el cierre diario de caja chica:", err.message);
   }
@@ -702,7 +702,7 @@ async function checkCashboxSchedule() {
       `✅ Total ganancias de la semana: ${formatSoles(resumenSemana.ganancias)}\n` +
       `📉 Total gastos de la semana: ${formatSoles(resumenSemana.gastos)}`;
     try {
-      await currentSock.sendMessage(grupo.id, { text: textoSemana });
+      await enviarMensaje(currentSock, grupo.id, { text: textoSemana });
     } catch (err) {
       console.error("Error al mandar el resumen semanal de caja chica:", err.message);
     }
@@ -850,6 +850,43 @@ function esMensajeViejo(msg) {
   const segundos = typeof raw === "number" ? raw : typeof raw.toNumber === "function" ? raw.toNumber() : Number(raw.low ?? raw);
   if (!Number.isFinite(segundos) || segundos <= 0) return false;
   return Date.now() - segundos * 1000 > ANTIGUEDAD_MAXIMA_MS;
+}
+
+// Manda un mensaje y deja anotado su ID como "ya procesado", para que
+// cuando WhatsApp lo devuelva por messages.upsert el bot no lo lea como
+// si fuera un mensaje entrante.
+//
+// Esto es CRÍTICO en el grupo GANANCIAS: ahí el bot escucha también los
+// mensajes propios (fromMe) porque el dueño registra la caja desde su
+// teléfono con la misma cuenta. Sin esta marca, una respuesta del bot que
+// contenga una frase de consulta (ej. "Meta de hoy: ...") se dispara a sí
+// misma una y otra vez, inundando el grupo hasta que WhatsApp corta por
+// rate-overlimit.
+async function enviarMensaje(sock, chatId, contenido, opciones) {
+  if (contenido?.text) recordarTextoEnviado(contenido.text);
+  const enviado = await sock.sendMessage(chatId, contenido, opciones);
+  const idEnviado = enviado?.key?.id;
+  if (idEnviado) yaFueProcesado(idEnviado);
+  return enviado;
+}
+
+// Segunda barrera contra el bucle, por si algún envío no devolviera su ID:
+// se recuerda el TEXTO de las últimas respuestas mandadas, y si llega un
+// mensaje idéntico a alguna de ellas, se ignora (es el eco del propio bot,
+// no algo que haya escrito el dueño).
+const textosEnviados = new Set();
+const MAX_TEXTOS_ENVIADOS = 50;
+function recordarTextoEnviado(texto) {
+  const clave = normalizeText(String(texto || "")).trim();
+  if (!clave) return;
+  textosEnviados.add(clave);
+  if (textosEnviados.size > MAX_TEXTOS_ENVIADOS) {
+    textosEnviados.delete(textosEnviados.values().next().value);
+  }
+}
+function esEcoDelBot(texto) {
+  const clave = normalizeText(String(texto || "")).trim();
+  return Boolean(clave) && textosEnviados.has(clave);
 }
 
 // Espera creciente para reintentar si falla la carga de grupos (ej. un
@@ -1013,10 +1050,11 @@ async function startBot() {
       // bucle: los mensajes que manda el bot (cierres) empiezan con
       // emoji, no con número, así que nunca se auto-registran.
       if (grupoActual && grupoActual.name.trim().toUpperCase() === CASHBOX_GROUP_NAME) {
+        if (esEcoDelBot(rawText)) continue; // es una respuesta que mandó el propio bot
         const respuestaConsulta = responderConsultaFinanciera(rawText);
         if (respuestaConsulta) {
           try {
-            await sock.sendMessage(chatId, { text: respuestaConsulta });
+            await enviarMensaje(sock, chatId, { text: respuestaConsulta });
           } catch (err) {
             console.error("Error al responder consulta financiera:", err.message);
           }
@@ -1175,7 +1213,8 @@ async function startBot() {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
 
       try {
-        await sock.sendMessage(
+        await enviarMensaje(
+          sock,
           chatId,
           { text: defaultResponse },
           sinRemarcar ? {} : { quoted: msg } // el sector Comodín o un grupo marcado como "sin remarcar" no citan el mensaje original
