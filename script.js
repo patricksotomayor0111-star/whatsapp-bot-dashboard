@@ -1700,6 +1700,7 @@ function showFinanceTab(tabId) {
     fetchCashboxToday();
     fetchFinanceSummaryExtras();
   } else if (tabId === "financeTabMovimientos") {
+    fetchDailyHistory();
     fetchMovimientos();
   } else if (tabId === "financeTabDeudas") {
     fetchDebts();
@@ -1743,6 +1744,71 @@ async function fetchFinanceSummaryExtras() {
     statFaltanteTotal.textContent = formatSoles(shortfallsData.total || 0);
   } catch (err) {
     console.error("No se pudo obtener el resumen de deudas/faltantes:", err);
+  }
+}
+
+// ---------- Finanzas: Historial diario (un resumen por día, editable) ----------
+const dailyHistoryList = document.getElementById("dailyHistoryList");
+
+function renderDailyHistory(cierres, hoy) {
+  dailyHistoryList.innerHTML = "";
+
+  const dias = cierres.slice().reverse().map((c) => ({ ...c, cerrado: true }));
+  if (hoy && hoy.fecha) dias.unshift({ ...hoy, cerrado: false });
+
+  dias.forEach((d) => {
+    const row = document.createElement("div");
+    row.className = "flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs bg-white border border-slate-100";
+
+    const info = document.createElement("div");
+    info.className = "min-w-0";
+    const linea1 = document.createElement("p");
+    linea1.className = "font-semibold text-slate-800";
+    linea1.textContent = d.cerrado ? d.fecha : `${d.fecha} (hoy, en curso)`;
+    const linea2 = document.createElement("p");
+    linea2.className = "text-slate-500";
+    linea2.textContent = `✅ ${formatSoles(d.ganancias)}  📉 ${formatSoles(d.gastos)}  🧮 ${formatSoles(d.caja)}  💵 ${formatSoles(d.esperado)}`;
+    info.appendChild(linea1);
+    info.appendChild(linea2);
+    row.appendChild(info);
+
+    if (d.cerrado) {
+      const editBtn = document.createElement("button");
+      editBtn.innerHTML = '<i class="fa-solid fa-pen text-slate-400"></i>';
+      editBtn.className = "w-7 h-7 shrink-0 flex items-center justify-center";
+      editBtn.addEventListener("click", async () => {
+        const nuevaGananciaStr = prompt(`Ganancias del ${d.fecha}:`, d.ganancias);
+        if (nuevaGananciaStr === null) return;
+        const nuevoGastoStr = prompt(`Gastos del ${d.fecha}:`, d.gastos);
+        if (nuevoGastoStr === null) return;
+        const nuevaCajaStr = prompt(`Caja inicial del ${d.fecha}:`, d.caja);
+        if (nuevaCajaStr === null) return;
+        await fetch(`/api/finance/cierres/${d.fecha}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ganancias: parseFloat(nuevaGananciaStr) || 0,
+            gastos: parseFloat(nuevoGastoStr) || 0,
+            caja: parseFloat(nuevaCajaStr) || 0,
+          }),
+        });
+        await fetchDailyHistory();
+        fetchCashboxToday();
+      });
+      row.appendChild(editBtn);
+    }
+
+    dailyHistoryList.appendChild(row);
+  });
+}
+
+async function fetchDailyHistory() {
+  try {
+    const res = await fetch("/api/finance/history");
+    const data = await res.json();
+    renderDailyHistory(data.cierres || [], data.hoy);
+  } catch (err) {
+    console.error("No se pudo obtener el historial diario:", err);
   }
 }
 

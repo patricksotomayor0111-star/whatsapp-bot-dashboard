@@ -493,6 +493,14 @@ app.get("/api/finance/history", (req, res) => {
   res.json({ cierres: cashbox.getCierres(), hoy: { fecha: cashbox.getHoyLabel(), ...cashbox.getToday() } });
 });
 
+// Corrige un día ya cerrado (ganancias/gastos/caja inicial); recalcula su
+// total/esperado y, si corresponde, la caja inicial del día siguiente.
+app.put("/api/finance/cierres/:fecha", (req, res) => {
+  const cierre = cashbox.editCierre(req.params.fecha, req.body || {});
+  if (!cierre) return res.status(404).json({ error: "Día no encontrado." });
+  res.json({ ok: true, cierre });
+});
+
 // Metas de ganancia (diaria/semanal/mensual) y de ahorro mensual.
 app.get("/api/finance/goals", (req, res) => {
   res.json({ goals: financeGoals.getGoals() });

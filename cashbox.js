@@ -323,6 +323,42 @@ function getCierres() {
   return data.cierres;
 }
 
+// "YYYY-MM-DD" del día siguiente a uno dado (sin conversión de huso
+// horario: es aritmética simple sobre una fecha ya en hora Perú).
+function fechaSiguiente(fecha) {
+  const [y, m, d] = fecha.split("-").map(Number);
+  return fechaLabel(new Date(y, m - 1, d + 1));
+}
+
+// Edita un día ya cerrado (ganancias/gastos/caja inicial) y recalcula su
+// total y efectivo esperado. Si el día siguiente ya tiene su propio
+// cierre, le actualiza la caja inicial para que la cadena siga cuadrando
+// (un solo salto, no en cadena); si el día siguiente es hoy (todavía sin
+// cerrar), le actualiza directo la caja inicial del día en curso.
+function editCierre(fecha, cambios) {
+  const cierre = data.cierres.find((c) => c.fecha === fecha);
+  if (!cierre) return null;
+
+  if (cambios.ganancias !== undefined) cierre.ganancias = Number(cambios.ganancias) || 0;
+  if (cambios.gastos !== undefined) cierre.gastos = Number(cambios.gastos) || 0;
+  if (cambios.caja !== undefined) cierre.caja = Number(cambios.caja) || 0;
+  cierre.total = cierre.ganancias - cierre.gastos;
+  cierre.esperado = cierre.caja + cierre.total;
+
+  const siguiente = fechaSiguiente(fecha);
+  const cierreSiguiente = data.cierres.find((c) => c.fecha === siguiente);
+  if (cierreSiguiente) {
+    cierreSiguiente.caja = cierre.esperado;
+    cierreSiguiente.total = cierreSiguiente.ganancias - cierreSiguiente.gastos;
+    cierreSiguiente.esperado = cierreSiguiente.caja + cierreSiguiente.total;
+  } else if (siguiente === fechaLabel(peruAhora())) {
+    data.cajaInicial = cierre.esperado;
+  }
+
+  save();
+  return cierre;
+}
+
 function getLastClosedDay() {
   return data.lastClosedDay;
 }
@@ -404,6 +440,7 @@ module.exports = {
   closeWeek,
   getMovimientos,
   getCierres,
+  editCierre,
   getLastClosedDay,
   getLastClosedWeek,
   getMesActualLabel,
