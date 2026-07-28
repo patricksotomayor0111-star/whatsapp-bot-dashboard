@@ -312,25 +312,40 @@ function getComprisosDelMes() {
   return { total, detalle };
 }
 
-// Lista genérica de ocurrencias dentro de un rango [hoy, hoy+dias], solo
-// de recordatorios activos y sin contar las que ya se marcaron pagadas
-// (lastPaidCycle). Recorre día por día el rango (acotado, barato) para
-// que funcione igual para semanales, mensuales y únicos.
+// Lista genérica de pagos pendientes hasta [hoy+dias], solo de
+// recordatorios activos y sin contar las que ya se marcaron pagadas
+// (lastPaidCycle). Incluye DOS cosas: lo que ya está vencido y sin pagar
+// (aunque su fecha sea de antes de hoy — ej. la Junta de la semana
+// pasada que no se marcó pagada), más las próximas ocurrencias dentro
+// del rango. Antes solo miraba hacia adelante desde hoy, así que un pago
+// vencido y sin pagar "desaparecía" de la lista en vez de seguir
+// apareciendo como pendiente.
 function getPagosEnRango(dias) {
   const hoy = fechaLabelPeru();
   const hasta = addDays(hoy, dias);
   const lista = [];
+  const vistos = new Set(); // evita duplicar la misma ocurrencia (id+fecha)
+
+  function agregar(r, fecha) {
+    const clave = r.id + "|" + fecha;
+    if (vistos.has(clave)) return;
+    vistos.add(clave);
+    lista.push({ id: r.id, label: r.label, monto: r.monto, fecha });
+  }
 
   data.reminders.forEach((r) => {
     if (r.activo === false) return;
 
+    // Lo que ya está vencido y sigue sin pagar, sea de hoy o de antes.
+    const vencidoSinPagar = estaPendiente(r, hoy);
+    if (vencidoSinPagar && vencidoSinPagar <= hasta) agregar(r, vencidoSinPagar);
+
     if (r.tipo === "unica") {
-      if (r.fecha && r.fecha >= hoy && r.fecha <= hasta) {
-        lista.push({ id: r.id, label: r.label, monto: r.monto, fecha: r.fecha });
-      }
+      if (r.fecha && r.fecha >= hoy && r.fecha <= hasta) agregar(r, r.fecha);
       return;
     }
 
+    // Próximas ocurrencias dentro del rango (sin repetir la ya agregada).
     let cursor = hoy;
     while (cursor <= hasta) {
       let esOcurrencia = false;
@@ -344,9 +359,7 @@ function getPagosEnRango(dias) {
         esOcurrencia = Number(cursor.split("-")[2]) === diasEnMes(y, mo);
       }
       const yaPagado = esOcurrencia && r.lastPaidCycle && cursor <= r.lastPaidCycle;
-      if (esOcurrencia && !yaPagado) {
-        lista.push({ id: r.id, label: r.label, monto: r.monto, fecha: cursor });
-      }
+      if (esOcurrencia && !yaPagado) agregar(r, cursor);
       cursor = addDays(cursor, 1);
     }
   });
