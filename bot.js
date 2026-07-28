@@ -791,7 +791,13 @@ function logSender(chatId, groupName, senderJid, senderNumber, blocked, text) {
 
 let currentSock = null;
 
-async function refreshGroups(sock) {
+// Espera creciente para reintentar si falla la carga de grupos (ej. un
+// "rate-overlimit" temporal de WhatsApp por reconectar varias veces
+// seguidas): 30s, 1min, 2min. Si para entonces sigue fallando, se deja
+// así hasta la próxima reconexión real.
+const REINTENTO_GRUPOS_MS = [30000, 60000, 120000];
+
+async function refreshGroups(sock, intento = 0) {
   try {
     const groupsMap = await sock.groupFetchAllParticipating();
     botState.groups = Object.values(groupsMap)
@@ -817,6 +823,14 @@ async function refreshGroups(sock) {
     applyGroupSeed();
   } catch (err) {
     console.error("No se pudo obtener la lista de grupos:", err.message);
+    if (intento < REINTENTO_GRUPOS_MS.length) {
+      const esperaMs = REINTENTO_GRUPOS_MS[intento];
+      setTimeout(() => {
+        // Si mientras tanto hubo una reconexión real, ese "sock" ya quedó
+        // viejo: el reintento de la reconexión nueva se encarga solo.
+        if (sock === currentSock) refreshGroups(sock, intento + 1);
+      }, esperaMs);
+    }
   }
 }
 
