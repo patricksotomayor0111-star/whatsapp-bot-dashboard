@@ -63,8 +63,35 @@ function getMovimientos() {
   return data.movimientos;
 }
 
+// Nota: esto solo corrige el total de faltantes acumulado. El gasto que
+// ese faltante generó en la caja (cashbox.js) es un movimiento aparte y se
+// edita/elimina desde ahí si también hace falta corregirlo.
+function editMovimiento(indice, cambios) {
+  const mov = data.movimientos[indice];
+  if (!mov) return null;
+  data.total -= mov.monto;
+  if (cambios.monto !== undefined) mov.monto = Number(cambios.monto) || 0;
+  if (cambios.descripcion !== undefined) mov.descripcion = cambios.descripcion;
+  if (cambios.fecha !== undefined) mov.fecha = cambios.fecha;
+  if (cambios.hora !== undefined) mov.hora = cambios.hora;
+  data.total += mov.monto;
+  save();
+  return mov;
+}
+
+function removeMovimiento(indice) {
+  const mov = data.movimientos[indice];
+  if (!mov) return false;
+  data.total -= mov.monto;
+  data.movimientos.splice(indice, 1);
+  save();
+  return true;
+}
+
 module.exports = {
   addFaltante,
   getTotal,
   getMovimientos,
+  editMovimiento,
+  removeMovimiento,
 };

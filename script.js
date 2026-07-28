@@ -1683,19 +1683,523 @@ addReminderBtn.addEventListener("click", async () => {
 const financeLink = document.getElementById("financeLink");
 const financeOverlay = document.getElementById("financeOverlay");
 const closeFinance = document.getElementById("closeFinance");
+const statDeudasTotal = document.getElementById("statDeudasTotal");
+const statFaltanteTotal = document.getElementById("statFaltanteTotal");
+
+const financeTabButtons = document.querySelectorAll(".finance-tab-btn");
+const financeTabPanels = document.querySelectorAll(".finance-tab-panel");
+
+function showFinanceTab(tabId) {
+  financeTabButtons.forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.financeTab === tabId);
+  });
+  financeTabPanels.forEach((panel) => {
+    panel.classList.toggle("hidden", panel.id !== tabId);
+  });
+  if (tabId === "financeTabResumen") {
+    fetchCashboxToday();
+    fetchFinanceSummaryExtras();
+  } else if (tabId === "financeTabMovimientos") {
+    fetchMovimientos();
+  } else if (tabId === "financeTabDeudas") {
+    fetchDebts();
+  } else if (tabId === "financeTabFaltantes") {
+    fetchShortfalls();
+  } else if (tabId === "financeTabCuentas") {
+    fetchAccountNames();
+    fetchAccountEntries();
+  }
+}
+
+financeTabButtons.forEach((btn) => {
+  btn.addEventListener("click", () => showFinanceTab(btn.dataset.financeTab));
+});
 
 financeLink.addEventListener("click", (e) => {
   e.preventDefault();
   closeDrawerFn();
   financeOverlay.classList.remove("hidden");
   financeOverlay.classList.add("flex");
-  fetchCashboxToday();
+  showFinanceTab("financeTabResumen");
 });
 
 closeFinance.addEventListener("click", () => {
   financeOverlay.classList.add("hidden");
   financeOverlay.classList.remove("flex");
 });
+
+async function fetchFinanceSummaryExtras() {
+  try {
+    const [debtsRes, shortfallsRes] = await Promise.all([
+      fetch("/api/finance/debts"),
+      fetch("/api/finance/shortfalls"),
+    ]);
+    const debtsData = await debtsRes.json();
+    const shortfallsData = await shortfallsRes.json();
+    const totalDeudas = (debtsData.deudas || []).reduce((sum, d) => sum + Math.max(d.saldo, 0), 0);
+    statDeudasTotal.textContent = formatSoles(totalDeudas);
+    statFaltanteTotal.textContent = formatSoles(shortfallsData.total || 0);
+  } catch (err) {
+    console.error("No se pudo obtener el resumen de deudas/faltantes:", err);
+  }
+}
+
+// ---------- Finanzas: Movimientos (editar/eliminar/agregar, con filtros) ----------
+const movFiltroDesde = document.getElementById("movFiltroDesde");
+const movFiltroHasta = document.getElementById("movFiltroHasta");
+const movFiltroTipo = document.getElementById("movFiltroTipo");
+const movFiltroTexto = document.getElementById("movFiltroTexto");
+const movimientosList = document.getElementById("movimientosList");
+const movimientosEmpty = document.getElementById("movimientosEmpty");
+const movNuevoTipo = document.getElementById("movNuevoTipo");
+const movNuevoMonto = document.getElementById("movNuevoMonto");
+const movNuevoDescripcion = document.getElementById("movNuevoDescripcion");
+const movNuevoFecha = document.getElementById("movNuevoFecha");
+const addMovimientoBtn = document.getElementById("addMovimientoBtn");
+
+let movimientosData = [];
+
+function tipoLabel(tipo) {
+  if (tipo === "ganancia") return "Ganancia";
+  if (tipo === "gasto") return "Gasto";
+  if (tipo === "caja") return "Conteo de caja";
+  return tipo;
+}
+
+function renderMovimientos() {
+  const desde = movFiltroDesde.value;
+  const hasta = movFiltroHasta.value;
+  const tipo = movFiltroTipo.value;
+  const texto = movFiltroTexto.value.trim().toLowerCase();
+
+  const filtrados = movimientosData.filter((m) => {
+    if (desde && m.fecha < desde) return false;
+    if (hasta && m.fecha > hasta) return false;
+    if (tipo && m.tipo !== tipo) return false;
+    if (texto && !(m.descripcion || "").toLowerCase().includes(texto)) return false;
+    return true;
+  });
+
+  movimientosList.innerHTML = "";
+  if (filtrados.length === 0) {
+    movimientosEmpty.classList.remove("hidden");
+    return;
+  }
+  movimientosEmpty.classList.add("hidden");
+
+  filtrados
+    .slice()
+    .reverse()
+    .forEach((m) => {
+      const row = document.createElement("div");
+      row.className = "flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs bg-white border border-slate-100";
+
+      const info = document.createElement("div");
+      info.className = "min-w-0";
+      const linea1 = document.createElement("p");
+      linea1.className = "font-semibold text-slate-800 truncate";
+      const signo = m.tipo === "gasto" ? "-" : m.tipo === "ganancia" ? "+" : "";
+      linea1.textContent = `${signo}${formatSoles(m.monto)} · ${m.descripcion || tipoLabel(m.tipo)}`;
+      const linea2 = document.createElement("p");
+      linea2.className = "text-slate-400";
+      linea2.textContent = `${m.fecha} ${m.hora} · ${tipoLabel(m.tipo)}`;
+      info.appendChild(linea1);
+      info.appendChild(linea2);
+
+      const acciones = document.createElement("div");
+      acciones.className = "flex items-center gap-1 shrink-0";
+
+      const editBtn = document.createElement("button");
+      editBtn.innerHTML = '<i class="fa-solid fa-pen text-slate-400"></i>';
+      editBtn.className = "w-7 h-7 flex items-center justify-center";
+      editBtn.addEventListener("click", async () => {
+        const nuevoMontoStr = prompt("Nuevo monto:", m.monto);
+        if (nuevoMontoStr === null) return;
+        const nuevoMonto = parseFloat(nuevoMontoStr);
+        if (!Number.isFinite(nuevoMonto) || nuevoMonto <= 0) return;
+        const nuevaDescripcion = prompt("Nueva descripción:", m.descripcion || "");
+        if (nuevaDescripcion === null) return;
+        await fetch(`/api/finance/movements/${m.index}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ monto: nuevoMonto, descripcion: nuevaDescripcion }),
+        });
+        await fetchMovimientos();
+        fetchCashboxToday();
+      });
+
+      const delBtn = document.createElement("button");
+      delBtn.innerHTML = '<i class="fa-solid fa-trash text-rose-400"></i>';
+      delBtn.className = "w-7 h-7 flex items-center justify-center";
+      delBtn.addEventListener("click", async () => {
+        if (!confirm("¿Eliminar este movimiento?")) return;
+        await fetch(`/api/finance/movements/${m.index}`, { method: "DELETE" });
+        await fetchMovimientos();
+        fetchCashboxToday();
+      });
+
+      acciones.appendChild(editBtn);
+      acciones.appendChild(delBtn);
+      row.appendChild(info);
+      row.appendChild(acciones);
+      movimientosList.appendChild(row);
+    });
+}
+
+async function fetchMovimientos() {
+  try {
+    const res = await fetch("/api/finance/movements");
+    const data = await res.json();
+    movimientosData = data.movimientos || [];
+    renderMovimientos();
+  } catch (err) {
+    console.error("No se pudo obtener los movimientos:", err);
+  }
+}
+
+[movFiltroDesde, movFiltroHasta, movFiltroTipo, movFiltroTexto].forEach((el) => {
+  el.addEventListener("input", renderMovimientos);
+});
+
+addMovimientoBtn.addEventListener("click", async () => {
+  const tipo = movNuevoTipo.value;
+  const monto = parseFloat(movNuevoMonto.value);
+  if (!Number.isFinite(monto) || monto <= 0) return;
+  await fetch("/api/finance/movements", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      tipo,
+      monto,
+      descripcion: movNuevoDescripcion.value.trim(),
+      fecha: movNuevoFecha.value || undefined,
+    }),
+  });
+  movNuevoMonto.value = "";
+  movNuevoDescripcion.value = "";
+  movNuevoFecha.value = "";
+  await fetchMovimientos();
+  fetchCashboxToday();
+});
+
+// ---------- Finanzas: Deudas (por persona, no tocan caja) ----------
+const debtsList = document.getElementById("debtsList");
+const debtsEmpty = document.getElementById("debtsEmpty");
+const debtNuevaPersona = document.getElementById("debtNuevaPersona");
+const debtNuevoMonto = document.getElementById("debtNuevoMonto");
+const debtNuevaDescripcion = document.getElementById("debtNuevaDescripcion");
+const addDebtBtn = document.getElementById("addDebtBtn");
+
+function renderDebts(deudas) {
+  debtsList.innerHTML = "";
+  const conSaldo = deudas.filter((d) => d.saldo !== 0);
+  if (conSaldo.length === 0) {
+    debtsEmpty.classList.remove("hidden");
+    return;
+  }
+  debtsEmpty.classList.add("hidden");
+
+  conSaldo.forEach((d) => {
+    const card = document.createElement("div");
+    card.className = "card bg-white py-3";
+
+    const header = document.createElement("div");
+    header.className = "flex items-center justify-between gap-2";
+    const nombre = document.createElement("span");
+    nombre.className = "font-semibold text-slate-800 text-sm";
+    nombre.textContent = d.label;
+    const saldo = document.createElement("span");
+    saldo.className = d.saldo > 0 ? "font-bold text-blue-700" : "font-bold text-emerald-700";
+    saldo.textContent = formatSoles(d.saldo);
+    header.appendChild(nombre);
+    header.appendChild(saldo);
+
+    const acciones = document.createElement("div");
+    acciones.className = "flex items-center gap-2 mt-2 flex-wrap";
+
+    const payBtn = document.createElement("button");
+    payBtn.className = "btn-capsule bg-emerald-100 text-emerald-700 text-xs py-1.5 px-3";
+    payBtn.textContent = "Registrar pago";
+    payBtn.addEventListener("click", async () => {
+      const montoStr = prompt(`¿Cuánto pagó ${d.label}?`, "");
+      if (montoStr === null) return;
+      const monto = parseFloat(montoStr);
+      if (!Number.isFinite(monto) || monto <= 0) return;
+      await fetch("/api/finance/debts/pay", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ persona: d.label, monto }),
+      });
+      await fetchDebts();
+    });
+
+    const clearBtn = document.createElement("button");
+    clearBtn.className = "btn-capsule bg-slate-100 text-slate-600 text-xs py-1.5 px-3";
+    clearBtn.textContent = "Marcar saldada";
+    clearBtn.addEventListener("click", async () => {
+      if (!confirm(`¿Marcar como saldada la deuda de ${d.label}?`)) return;
+      await fetch(`/api/finance/debts/${encodeURIComponent(d.label)}/clear`, { method: "POST" });
+      await fetchDebts();
+    });
+
+    const delBtn = document.createElement("button");
+    delBtn.className = "btn-capsule bg-rose-100 text-rose-700 text-xs py-1.5 px-3";
+    delBtn.textContent = "Eliminar";
+    delBtn.addEventListener("click", async () => {
+      if (!confirm(`¿Eliminar por completo el registro de ${d.label}?`)) return;
+      await fetch(`/api/finance/debts/${encodeURIComponent(d.label)}`, { method: "DELETE" });
+      await fetchDebts();
+    });
+
+    acciones.appendChild(payBtn);
+    acciones.appendChild(clearBtn);
+    acciones.appendChild(delBtn);
+
+    card.appendChild(header);
+    card.appendChild(acciones);
+    debtsList.appendChild(card);
+  });
+}
+
+async function fetchDebts() {
+  try {
+    const res = await fetch("/api/finance/debts");
+    const data = await res.json();
+    renderDebts(data.deudas || []);
+  } catch (err) {
+    console.error("No se pudo obtener las deudas:", err);
+  }
+}
+
+addDebtBtn.addEventListener("click", async () => {
+  const persona = debtNuevaPersona.value.trim();
+  const monto = parseFloat(debtNuevoMonto.value);
+  if (!persona || !Number.isFinite(monto) || monto <= 0) return;
+  await fetch("/api/finance/debts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ persona, monto, descripcion: debtNuevaDescripcion.value.trim() }),
+  });
+  debtNuevaPersona.value = "";
+  debtNuevoMonto.value = "";
+  debtNuevaDescripcion.value = "";
+  await fetchDebts();
+});
+
+// ---------- Finanzas: Faltantes (sí tocan caja, y llevan total aparte) ----------
+const shortfallsTotal = document.getElementById("shortfallsTotal");
+const shortfallsList = document.getElementById("shortfallsList");
+const shortfallsEmpty = document.getElementById("shortfallsEmpty");
+const shortfallNuevoMonto = document.getElementById("shortfallNuevoMonto");
+const shortfallNuevaDescripcion = document.getElementById("shortfallNuevaDescripcion");
+const addShortfallBtn = document.getElementById("addShortfallBtn");
+
+function renderShortfalls(total, movimientos) {
+  shortfallsTotal.textContent = formatSoles(total);
+  shortfallsList.innerHTML = "";
+  if (movimientos.length === 0) {
+    shortfallsEmpty.classList.remove("hidden");
+    return;
+  }
+  shortfallsEmpty.classList.add("hidden");
+
+  movimientos
+    .slice()
+    .reverse()
+    .forEach((m) => {
+      const row = document.createElement("div");
+      row.className = "flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs bg-white border border-slate-100";
+
+      const info = document.createElement("div");
+      info.className = "min-w-0";
+      const linea1 = document.createElement("p");
+      linea1.className = "font-semibold text-slate-800 truncate";
+      linea1.textContent = `${formatSoles(m.monto)} · ${m.descripcion || "falto"}`;
+      const linea2 = document.createElement("p");
+      linea2.className = "text-slate-400";
+      linea2.textContent = `${m.fecha} ${m.hora}`;
+      info.appendChild(linea1);
+      info.appendChild(linea2);
+
+      const acciones = document.createElement("div");
+      acciones.className = "flex items-center gap-1 shrink-0";
+
+      const editBtn = document.createElement("button");
+      editBtn.innerHTML = '<i class="fa-solid fa-pen text-slate-400"></i>';
+      editBtn.className = "w-7 h-7 flex items-center justify-center";
+      editBtn.addEventListener("click", async () => {
+        const nuevoMontoStr = prompt("Nuevo monto:", m.monto);
+        if (nuevoMontoStr === null) return;
+        const nuevoMonto = parseFloat(nuevoMontoStr);
+        if (!Number.isFinite(nuevoMonto) || nuevoMonto <= 0) return;
+        await fetch(`/api/finance/shortfalls/${m.index}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ monto: nuevoMonto }),
+        });
+        await fetchShortfalls();
+      });
+
+      const delBtn = document.createElement("button");
+      delBtn.innerHTML = '<i class="fa-solid fa-trash text-rose-400"></i>';
+      delBtn.className = "w-7 h-7 flex items-center justify-center";
+      delBtn.addEventListener("click", async () => {
+        if (!confirm("¿Eliminar este faltante?")) return;
+        await fetch(`/api/finance/shortfalls/${m.index}`, { method: "DELETE" });
+        await fetchShortfalls();
+      });
+
+      acciones.appendChild(editBtn);
+      acciones.appendChild(delBtn);
+      row.appendChild(info);
+      row.appendChild(acciones);
+      shortfallsList.appendChild(row);
+    });
+}
+
+async function fetchShortfalls() {
+  try {
+    const res = await fetch("/api/finance/shortfalls");
+    const data = await res.json();
+    renderShortfalls(data.total || 0, data.movimientos || []);
+  } catch (err) {
+    console.error("No se pudo obtener los faltantes:", err);
+  }
+}
+
+addShortfallBtn.addEventListener("click", async () => {
+  const monto = parseFloat(shortfallNuevoMonto.value);
+  if (!Number.isFinite(monto) || monto <= 0) return;
+  await fetch("/api/finance/shortfalls", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ monto, descripcion: shortfallNuevaDescripcion.value.trim() }),
+  });
+  shortfallNuevoMonto.value = "";
+  shortfallNuevaDescripcion.value = "";
+  await fetchShortfalls();
+});
+
+// ---------- Finanzas: Cuentas de referencia (Yape/Plin/Sip/Efectivo) ----------
+const accountNamesList = document.getElementById("accountNamesList");
+const accountNameInput = document.getElementById("accountNameInput");
+const addAccountNameBtn = document.getElementById("addAccountNameBtn");
+const accountEntriesList = document.getElementById("accountEntriesList");
+const accountEntriesEmpty = document.getElementById("accountEntriesEmpty");
+
+function renderAccountNames(nombres) {
+  accountNamesList.innerHTML = "";
+  nombres.forEach((nombre) => {
+    const chip = document.createElement("div");
+    chip.className = "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs bg-orange-50 text-orange-700";
+    const label = document.createElement("span");
+    label.textContent = nombre;
+    const removeBtn = document.createElement("button");
+    removeBtn.innerHTML = '<i class="fa-solid fa-xmark text-[10px]"></i>';
+    removeBtn.className = "opacity-60 hover:opacity-100";
+    removeBtn.addEventListener("click", async () => {
+      await fetch(`/api/finance/accounts/${encodeURIComponent(nombre)}`, { method: "DELETE" });
+      await fetchAccountNames();
+    });
+    chip.appendChild(label);
+    chip.appendChild(removeBtn);
+    accountNamesList.appendChild(chip);
+  });
+}
+
+async function fetchAccountNames() {
+  try {
+    const res = await fetch("/api/finance/accounts");
+    const data = await res.json();
+    renderAccountNames(data.nombres || []);
+  } catch (err) {
+    console.error("No se pudo obtener las cuentas de referencia:", err);
+  }
+}
+
+addAccountNameBtn.addEventListener("click", async () => {
+  const nombre = accountNameInput.value.trim();
+  if (!nombre) return;
+  await fetch("/api/finance/accounts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ nombre }),
+  });
+  accountNameInput.value = "";
+  await fetchAccountNames();
+});
+
+function renderAccountEntries(entradas) {
+  accountEntriesList.innerHTML = "";
+  if (entradas.length === 0) {
+    accountEntriesEmpty.classList.remove("hidden");
+    return;
+  }
+  accountEntriesEmpty.classList.add("hidden");
+
+  entradas
+    .slice()
+    .reverse()
+    .forEach((e) => {
+      const row = document.createElement("div");
+      row.className = "flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs bg-white border border-slate-100";
+
+      const info = document.createElement("div");
+      info.className = "min-w-0";
+      const linea1 = document.createElement("p");
+      linea1.className = "font-semibold text-slate-800 truncate";
+      linea1.textContent = `${formatSoles(e.monto)} · ${e.cuenta}`;
+      const linea2 = document.createElement("p");
+      linea2.className = "text-slate-400";
+      linea2.textContent = `${e.fecha} ${e.hora}`;
+      info.appendChild(linea1);
+      info.appendChild(linea2);
+
+      const acciones = document.createElement("div");
+      acciones.className = "flex items-center gap-1 shrink-0";
+
+      const editBtn = document.createElement("button");
+      editBtn.innerHTML = '<i class="fa-solid fa-pen text-slate-400"></i>';
+      editBtn.className = "w-7 h-7 flex items-center justify-center";
+      editBtn.addEventListener("click", async () => {
+        const nuevoMontoStr = prompt("Nuevo monto:", e.monto);
+        if (nuevoMontoStr === null) return;
+        const nuevoMonto = parseFloat(nuevoMontoStr);
+        if (!Number.isFinite(nuevoMonto) || nuevoMonto <= 0) return;
+        await fetch(`/api/finance/accounts/entries/${e.index}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ monto: nuevoMonto }),
+        });
+        await fetchAccountEntries();
+      });
+
+      const delBtn = document.createElement("button");
+      delBtn.innerHTML = '<i class="fa-solid fa-trash text-rose-400"></i>';
+      delBtn.className = "w-7 h-7 flex items-center justify-center";
+      delBtn.addEventListener("click", async () => {
+        if (!confirm("¿Eliminar esta nota?")) return;
+        await fetch(`/api/finance/accounts/entries/${e.index}`, { method: "DELETE" });
+        await fetchAccountEntries();
+      });
+
+      acciones.appendChild(editBtn);
+      acciones.appendChild(delBtn);
+      row.appendChild(info);
+      row.appendChild(acciones);
+      accountEntriesList.appendChild(row);
+    });
+}
+
+async function fetchAccountEntries() {
+  try {
+    const res = await fetch("/api/finance/accounts/entries");
+    const data = await res.json();
+    renderAccountEntries(data.entradas || []);
+  } catch (err) {
+    console.error("No se pudo obtener las notas de cuentas:", err);
+  }
+}
 
 remindersLink.addEventListener("click", (e) => {
   e.preventDefault();

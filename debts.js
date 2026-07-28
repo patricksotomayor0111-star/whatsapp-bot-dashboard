@@ -125,6 +125,43 @@ function removePersona(personaRaw) {
   save();
 }
 
+function efectoDelta(tipo, monto, signo) {
+  // "debe" sube el saldo (te deben más), "pago" lo baja.
+  return tipo === "debe" ? signo * monto : -signo * monto;
+}
+
+// Edita un movimiento puntual (por índice dentro del historial de esa
+// persona): revierte su efecto viejo sobre el saldo y aplica el nuevo.
+function editMovimiento(personaRaw, indice, cambios) {
+  const p = data.personas[normKey(personaRaw)];
+  if (!p || !p.movimientos[indice]) return null;
+  const mov = p.movimientos[indice];
+
+  p.saldo += efectoDelta(mov.tipo, mov.monto, -1);
+
+  if (cambios.tipo !== undefined) mov.tipo = cambios.tipo;
+  if (cambios.monto !== undefined) mov.monto = Number(cambios.monto) || 0;
+  if (cambios.descripcion !== undefined) mov.descripcion = cambios.descripcion;
+  if (cambios.fecha !== undefined) mov.fecha = cambios.fecha;
+  if (cambios.hora !== undefined) mov.hora = cambios.hora;
+
+  p.saldo += efectoDelta(mov.tipo, mov.monto, 1);
+
+  save();
+  return { saldo: p.saldo, movimiento: mov };
+}
+
+// Elimina un movimiento puntual y revierte su efecto sobre el saldo.
+function removeMovimiento(personaRaw, indice) {
+  const p = data.personas[normKey(personaRaw)];
+  if (!p || !p.movimientos[indice]) return false;
+  const mov = p.movimientos[indice];
+  p.saldo += efectoDelta(mov.tipo, mov.monto, -1);
+  p.movimientos.splice(indice, 1);
+  save();
+  return true;
+}
+
 module.exports = {
   addDebt,
   payDebt,
@@ -133,4 +170,6 @@ module.exports = {
   getMovimientos,
   clearDebt,
   removePersona,
+  editMovimiento,
+  removeMovimiento,
 };

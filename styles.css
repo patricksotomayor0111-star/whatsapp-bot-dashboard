@@ -90,6 +90,18 @@ body {
   margin-top: 2px;
 }
 
+/* ===== Pestañas del panel de Finanzas ===== */
+.finance-tab-btn {
+  background-color: #f1f5f9;
+  color: #64748b;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.finance-tab-btn.active {
+  background-color: #16a34a;
+  color: #ffffff;
+}
+
 /* ===== Drawer (menú lateral) ===== */
 .drawer-link {
   display: flex;

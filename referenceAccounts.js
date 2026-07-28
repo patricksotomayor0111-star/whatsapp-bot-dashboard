@@ -96,6 +96,18 @@ function removeEntrada(index) {
   }
 }
 
+function editEntrada(index, cambios) {
+  const entrada = data.entradas[index];
+  if (!entrada) return null;
+  if (cambios.cuenta !== undefined) entrada.cuenta = cambios.cuenta;
+  if (cambios.monto !== undefined) entrada.monto = Number(cambios.monto) || 0;
+  if (cambios.descripcion !== undefined) entrada.descripcion = cambios.descripcion;
+  if (cambios.fecha !== undefined) entrada.fecha = cambios.fecha;
+  if (cambios.hora !== undefined) entrada.hora = cambios.hora;
+  save();
+  return entrada;
+}
+
 module.exports = {
   getNombres,
   addNombre,
@@ -104,4 +116,5 @@ module.exports = {
   addEntrada,
   getEntradas,
   removeEntrada,
+  editEntrada,
 };

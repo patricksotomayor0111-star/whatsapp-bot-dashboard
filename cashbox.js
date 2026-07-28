@@ -246,6 +246,79 @@ function getMovimientos() {
   return data.movimientos;
 }
 
+// Suma (o resta) el efecto de un movimiento de ganancia/gasto sobre los
+// totales de su fecha: si es hoy, ajusta el día en curso; si ya cerró,
+// corrige su cierre guardado. Usado por editMovimiento/removeMovimiento/
+// addMovimientoManual para que el panel pueda corregir cualquier
+// movimiento sin romper el efectivo esperado.
+function ajustarTotalesPorFecha(fecha, deltaGanancia, deltaGasto) {
+  const esHoy = fecha === fechaLabel(peruAhora());
+  if (esHoy) {
+    data.todayGanancias += deltaGanancia;
+    data.todayGastos += deltaGasto;
+  } else {
+    const cierre = data.cierres.find((c) => c.fecha === fecha);
+    if (cierre) {
+      cierre.ganancias += deltaGanancia;
+      cierre.gastos += deltaGasto;
+      cierre.total = cierre.ganancias - cierre.gastos;
+      cierre.esperado = cierre.caja + cierre.total;
+    }
+  }
+}
+
+function efectoDelta(tipo, monto, signo) {
+  if (tipo === "ganancia") return { g: signo * monto, gs: 0 };
+  if (tipo === "gasto") return { g: 0, gs: signo * monto };
+  return { g: 0, gs: 0 }; // "caja" (conteo) no participa de este ajuste
+}
+
+// Agrega un movimiento manual desde el panel (fecha/hora editable, por si
+// se quiere registrar algo de un día pasado).
+function addMovimientoManual(tipo, monto, descripcion, fecha, hora) {
+  const ahora = peruAhora();
+  const f = fecha || fechaLabel(ahora);
+  const h = hora || horaLabel(ahora);
+  data.movimientos.push({ fecha: f, hora: h, tipo, monto, descripcion: descripcion || "" });
+  const efecto = efectoDelta(tipo, monto, 1);
+  ajustarTotalesPorFecha(f, efecto.g, efecto.gs);
+  save();
+}
+
+// Edita un movimiento existente (por índice en el arreglo que devuelve
+// getMovimientos): revierte su efecto viejo sobre los totales, aplica los
+// cambios, y vuelve a sumar el efecto nuevo (incluso si cambió de fecha).
+function editMovimiento(indice, cambios) {
+  const mov = data.movimientos[indice];
+  if (!mov) return null;
+
+  const viejo = efectoDelta(mov.tipo, mov.monto, -1);
+  ajustarTotalesPorFecha(mov.fecha, viejo.g, viejo.gs);
+
+  if (cambios.tipo !== undefined) mov.tipo = cambios.tipo;
+  if (cambios.monto !== undefined) mov.monto = Number(cambios.monto) || 0;
+  if (cambios.descripcion !== undefined) mov.descripcion = cambios.descripcion;
+  if (cambios.fecha !== undefined) mov.fecha = cambios.fecha;
+  if (cambios.hora !== undefined) mov.hora = cambios.hora;
+
+  const nuevo = efectoDelta(mov.tipo, mov.monto, 1);
+  ajustarTotalesPorFecha(mov.fecha, nuevo.g, nuevo.gs);
+
+  save();
+  return mov;
+}
+
+// Elimina un movimiento (por índice) y revierte su efecto de los totales.
+function removeMovimiento(indice) {
+  const mov = data.movimientos[indice];
+  if (!mov) return false;
+  const efecto = efectoDelta(mov.tipo, mov.monto, -1);
+  ajustarTotalesPorFecha(mov.fecha, efecto.g, efecto.gs);
+  data.movimientos.splice(indice, 1);
+  save();
+  return true;
+}
+
 function getCierres() {
   return data.cierres;
 }
@@ -281,4 +354,7 @@ module.exports = {
   getAna,
   getAnaMovimientos,
   rebuildDay,
+  addMovimientoManual,
+  editMovimiento,
+  removeMovimiento,
 };

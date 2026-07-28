@@ -11,6 +11,9 @@ const budgetCategories = require("./budgetCategories");
 const reminders = require("./reminders");
 const contactTriggerGroups = require("./contactTriggerGroups");
 const groupDelays = require("./groupDelays");
+const debts = require("./debts");
+const shortfalls = require("./shortfalls");
+const referenceAccounts = require("./referenceAccounts");
 const ExcelJS = require("exceljs");
 
 const app = express();
@@ -327,6 +330,160 @@ app.post("/api/cashbox/rebuild-day", (req, res) => {
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+});
+
+// ---------- Asistente financiero: movimientos, deudas, faltantes, cuentas ----------
+// Todo lo que ya se registra solo (por WhatsApp, en el grupo GANANCIAS)
+// también se puede agregar, editar o eliminar a mano desde el panel.
+
+app.get("/api/finance/movements", (req, res) => {
+  const movimientos = cashbox.getMovimientos().map((m, index) => ({ ...m, index }));
+  res.json({ movimientos });
+});
+
+app.post("/api/finance/movements", (req, res) => {
+  try {
+    const { tipo, monto, descripcion, fecha, hora } = req.body || {};
+    const montoNum = Number(monto);
+    if (!["ganancia", "gasto"].includes(tipo) || !Number.isFinite(montoNum) || montoNum <= 0) {
+      return res.status(400).json({ error: "Se requiere 'tipo' (ganancia/gasto) y 'monto' válido." });
+    }
+    cashbox.addMovimientoManual(tipo, montoNum, descripcion, fecha, hora);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.put("/api/finance/movements/:index", (req, res) => {
+  const mov = cashbox.editMovimiento(Number(req.params.index), req.body || {});
+  if (!mov) return res.status(404).json({ error: "Movimiento no encontrado." });
+  res.json({ ok: true, movimiento: mov });
+});
+
+app.delete("/api/finance/movements/:index", (req, res) => {
+  const ok = cashbox.removeMovimiento(Number(req.params.index));
+  if (!ok) return res.status(404).json({ error: "Movimiento no encontrado." });
+  res.json({ ok: true });
+});
+
+// Deudas por persona
+app.get("/api/finance/debts", (req, res) => {
+  res.json({ deudas: debts.getDeudas() });
+});
+
+app.post("/api/finance/debts", (req, res) => {
+  const { persona, monto, descripcion } = req.body || {};
+  const montoNum = Number(monto);
+  if (!persona || !Number.isFinite(montoNum) || montoNum <= 0) {
+    return res.status(400).json({ error: "Se requiere 'persona' y 'monto' válido." });
+  }
+  const resultado = debts.addDebt(persona, montoNum, descripcion);
+  res.json({ ok: true, deuda: resultado });
+});
+
+app.post("/api/finance/debts/pay", (req, res) => {
+  const { persona, monto, descripcion } = req.body || {};
+  const montoNum = Number(monto);
+  if (!persona || !Number.isFinite(montoNum) || montoNum <= 0) {
+    return res.status(400).json({ error: "Se requiere 'persona' y 'monto' válido." });
+  }
+  const resultado = debts.payDebt(persona, montoNum, descripcion);
+  res.json({ ok: true, deuda: resultado });
+});
+
+app.post("/api/finance/debts/:persona/clear", (req, res) => {
+  debts.clearDebt(req.params.persona);
+  res.json({ ok: true });
+});
+
+app.delete("/api/finance/debts/:persona", (req, res) => {
+  debts.removePersona(req.params.persona);
+  res.json({ ok: true });
+});
+
+app.get("/api/finance/debts/:persona/movements", (req, res) => {
+  const movimientos = debts.getMovimientos(req.params.persona).map((m, index) => ({ ...m, index }));
+  res.json({ movimientos });
+});
+
+app.put("/api/finance/debts/:persona/movements/:index", (req, res) => {
+  const resultado = debts.editMovimiento(req.params.persona, Number(req.params.index), req.body || {});
+  if (!resultado) return res.status(404).json({ error: "Movimiento no encontrado." });
+  res.json({ ok: true, ...resultado });
+});
+
+app.delete("/api/finance/debts/:persona/movements/:index", (req, res) => {
+  const ok = debts.removeMovimiento(req.params.persona, Number(req.params.index));
+  if (!ok) return res.status(404).json({ error: "Movimiento no encontrado." });
+  res.json({ ok: true });
+});
+
+// Faltantes de caja
+app.get("/api/finance/shortfalls", (req, res) => {
+  res.json({ total: shortfalls.getTotal(), movimientos: shortfalls.getMovimientos().map((m, index) => ({ ...m, index })) });
+});
+
+app.post("/api/finance/shortfalls", (req, res) => {
+  const montoNum = Number(req.body?.monto);
+  if (!Number.isFinite(montoNum) || montoNum <= 0) {
+    return res.status(400).json({ error: "Se requiere 'monto' válido." });
+  }
+  shortfalls.addFaltante(montoNum, req.body?.descripcion);
+  res.json({ ok: true });
+});
+
+app.put("/api/finance/shortfalls/:index", (req, res) => {
+  const mov = shortfalls.editMovimiento(Number(req.params.index), req.body || {});
+  if (!mov) return res.status(404).json({ error: "Movimiento no encontrado." });
+  res.json({ ok: true, movimiento: mov });
+});
+
+app.delete("/api/finance/shortfalls/:index", (req, res) => {
+  const ok = shortfalls.removeMovimiento(Number(req.params.index));
+  if (!ok) return res.status(404).json({ error: "Movimiento no encontrado." });
+  res.json({ ok: true });
+});
+
+// Cuentas de referencia (Yape/Plin/Sip/Efectivo, editable)
+app.get("/api/finance/accounts", (req, res) => {
+  res.json({ nombres: referenceAccounts.getNombres() });
+});
+
+app.post("/api/finance/accounts", (req, res) => {
+  referenceAccounts.addNombre(req.body?.nombre);
+  res.json({ ok: true, nombres: referenceAccounts.getNombres() });
+});
+
+app.delete("/api/finance/accounts/:nombre", (req, res) => {
+  referenceAccounts.removeNombre(req.params.nombre);
+  res.json({ ok: true, nombres: referenceAccounts.getNombres() });
+});
+
+app.get("/api/finance/accounts/entries", (req, res) => {
+  const entradas = referenceAccounts.getEntradas().map((e, index) => ({ ...e, index }));
+  res.json({ entradas });
+});
+
+app.post("/api/finance/accounts/entries", (req, res) => {
+  const { cuenta, monto, descripcion } = req.body || {};
+  const montoNum = Number(monto);
+  if (!cuenta || !Number.isFinite(montoNum) || montoNum <= 0) {
+    return res.status(400).json({ error: "Se requiere 'cuenta' y 'monto' válido." });
+  }
+  referenceAccounts.addEntrada(cuenta, montoNum, descripcion);
+  res.json({ ok: true });
+});
+
+app.put("/api/finance/accounts/entries/:index", (req, res) => {
+  const entrada = referenceAccounts.editEntrada(Number(req.params.index), req.body || {});
+  if (!entrada) return res.status(404).json({ error: "Entrada no encontrada." });
+  res.json({ ok: true, entrada });
+});
+
+app.delete("/api/finance/accounts/entries/:index", (req, res) => {
+  referenceAccounts.removeEntrada(Number(req.params.index));
+  res.json({ ok: true });
 });
 
 // Presupuesto: límites mensuales por categoría y metas de deudas (Junta,
