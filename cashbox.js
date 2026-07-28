@@ -166,6 +166,47 @@ function getAnaMovimientos() {
   return data.anaMovimientos;
 }
 
+function efectoAna(tipo, monto, signo) {
+  // "guardo" sube lo guardado, "gasto" sube lo gastado/retirado.
+  return tipo === "guardo" ? { g: signo * monto, gs: 0 } : { g: 0, gs: signo * monto };
+}
+
+// Edita un movimiento puntual de Ana (por índice): revierte su efecto
+// viejo sobre guardado/gastado y aplica el nuevo.
+function editAnaMovimiento(indice, cambios) {
+  const mov = data.anaMovimientos[indice];
+  if (!mov) return null;
+
+  const viejo = efectoAna(mov.tipo, mov.monto, -1);
+  data.anaGuardado += viejo.g;
+  data.anaGastado += viejo.gs;
+
+  if (cambios.tipo !== undefined) mov.tipo = cambios.tipo;
+  if (cambios.monto !== undefined) mov.monto = Number(cambios.monto) || 0;
+  if (cambios.descripcion !== undefined) mov.descripcion = cambios.descripcion;
+  if (cambios.fecha !== undefined) mov.fecha = cambios.fecha;
+  if (cambios.hora !== undefined) mov.hora = cambios.hora;
+
+  const nuevo = efectoAna(mov.tipo, mov.monto, 1);
+  data.anaGuardado += nuevo.g;
+  data.anaGastado += nuevo.gs;
+
+  save();
+  return mov;
+}
+
+// Elimina un movimiento puntual de Ana y revierte su efecto.
+function removeAnaMovimiento(indice) {
+  const mov = data.anaMovimientos[indice];
+  if (!mov) return false;
+  const efecto = efectoAna(mov.tipo, mov.monto, -1);
+  data.anaGuardado += efecto.g;
+  data.anaGastado += efecto.gs;
+  data.anaMovimientos.splice(indice, 1);
+  save();
+  return true;
+}
+
 // Cierra el día: guarda el resumen en el historial de cierres (para el
 // Excel), suma lo del día a la semana, y deja el día en cero. La caja NO se
 // resetea a 0: es un saldo corrido, así que mañana arranca con el efectivo
@@ -453,6 +494,8 @@ module.exports = {
   addAnaGasto,
   getAna,
   getAnaMovimientos,
+  editAnaMovimiento,
+  removeAnaMovimiento,
   rebuildDay,
   addMovimientoManual,
   editMovimiento,

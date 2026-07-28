@@ -368,6 +368,24 @@ app.delete("/api/finance/movements/:index", (req, res) => {
   res.json({ ok: true });
 });
 
+// Plata de Ana en custodia (aparte de la caja): ver y editar sus movimientos.
+app.get("/api/finance/ana/movements", (req, res) => {
+  const movimientos = cashbox.getAnaMovimientos().map((m, index) => ({ ...m, index }));
+  res.json({ movimientos });
+});
+
+app.put("/api/finance/ana/movements/:index", (req, res) => {
+  const mov = cashbox.editAnaMovimiento(Number(req.params.index), req.body || {});
+  if (!mov) return res.status(404).json({ error: "Movimiento no encontrado." });
+  res.json({ ok: true, movimiento: mov });
+});
+
+app.delete("/api/finance/ana/movements/:index", (req, res) => {
+  const ok = cashbox.removeAnaMovimiento(Number(req.params.index));
+  if (!ok) return res.status(404).json({ error: "Movimiento no encontrado." });
+  res.json({ ok: true });
+});
+
 // Deudas por persona
 app.get("/api/finance/debts", (req, res) => {
   res.json({ deudas: debts.getDeudas() });
@@ -573,6 +591,28 @@ app.post("/api/budget/categories/:id/meta", (req, res) => {
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+});
+
+// Agregar, editar (nombre/palabras clave) o eliminar una categoría entera.
+app.post("/api/budget/categories", (req, res) => {
+  try {
+    const categoria = budgetCategories.addCategoria(req.body || {});
+    res.json({ ok: true, categoria });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.put("/api/budget/categories/:id", (req, res) => {
+  const categoria = budgetCategories.editCategoria(req.params.id, req.body || {});
+  if (!categoria) return res.status(404).json({ error: "Categoría no encontrada." });
+  res.json({ ok: true, categoria });
+});
+
+app.delete("/api/budget/categories/:id", (req, res) => {
+  const ok = budgetCategories.removeCategoria(req.params.id);
+  if (!ok) return res.status(404).json({ error: "Categoría no encontrada o no se puede eliminar." });
+  res.json({ ok: true });
 });
 
 // Recordatorios de pagos (Junta, ARCE, Movistar, Cuzco, Luz, Terreno,

@@ -1408,89 +1408,6 @@ saveRemarcarOverrideBtn.addEventListener("click", async () => {
   }
 });
 
-const budgetCategorySelect = document.getElementById("budgetCategorySelect");
-const budgetLimiteFields = document.getElementById("budgetLimiteFields");
-const budgetMetaFields = document.getElementById("budgetMetaFields");
-const budgetLimiteInput = document.getElementById("budgetLimiteInput");
-const budgetMetaInput = document.getElementById("budgetMetaInput");
-const budgetSaldoInicialInput = document.getElementById("budgetSaldoInicialInput");
-const saveBudgetBtn = document.getElementById("saveBudgetBtn");
-
-let budgetCategoriasData = [];
-
-async function populateBudgetCategories() {
-  try {
-    const res = await fetch("/api/budget/categories");
-    const data = await res.json();
-    budgetCategoriasData = data.categorias || [];
-  } catch (err) {
-    console.error("No se pudo obtener las categorías de presupuesto:", err);
-    budgetCategoriasData = [];
-  }
-  const seleccionActual = budgetCategorySelect.value;
-  budgetCategorySelect.innerHTML = '<option value="">— Selecciona una categoría —</option>';
-  budgetCategoriasData.forEach((c) => {
-    const opt = document.createElement("option");
-    opt.value = c.id;
-    opt.textContent = c.label;
-    budgetCategorySelect.appendChild(opt);
-  });
-  if (seleccionActual) budgetCategorySelect.value = seleccionActual;
-  updateBudgetFields();
-}
-
-function updateBudgetFields() {
-  const catId = budgetCategorySelect.value;
-  const cat = budgetCategoriasData.find((c) => c.id === catId);
-  if (!cat) {
-    budgetLimiteFields.classList.add("hidden");
-    budgetMetaFields.classList.add("hidden");
-    saveBudgetBtn.disabled = true;
-    saveBudgetBtn.textContent = "Elige una categoría primero";
-    saveBudgetBtn.className = "w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-slate-300 text-slate-500 active:scale-95 transition-all";
-    return;
-  }
-  saveBudgetBtn.disabled = false;
-  saveBudgetBtn.textContent = "Guardar";
-  saveBudgetBtn.className = "w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-emerald-600 text-white active:scale-95 transition-all";
-  if (cat.tipo === "meta") {
-    budgetMetaFields.classList.remove("hidden");
-    budgetLimiteFields.classList.add("hidden");
-    budgetMetaInput.value = cat.meta;
-    budgetSaldoInicialInput.value = cat.saldoInicial;
-  } else {
-    budgetLimiteFields.classList.remove("hidden");
-    budgetMetaFields.classList.add("hidden");
-    budgetLimiteInput.value = cat.limite ?? "";
-  }
-}
-
-budgetCategorySelect.addEventListener("change", updateBudgetFields);
-
-saveBudgetBtn.addEventListener("click", async () => {
-  const catId = budgetCategorySelect.value;
-  const cat = budgetCategoriasData.find((c) => c.id === catId);
-  if (!cat) return;
-  try {
-    if (cat.tipo === "meta") {
-      await fetch(`/api/budget/categories/${encodeURIComponent(catId)}/meta`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ meta: budgetMetaInput.value, saldoInicial: budgetSaldoInicialInput.value }),
-      });
-    } else {
-      await fetch(`/api/budget/categories/${encodeURIComponent(catId)}/limit`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ limite: budgetLimiteInput.value === "" ? null : budgetLimiteInput.value }),
-      });
-    }
-    await populateBudgetCategories();
-  } catch (err) {
-    console.error("No se pudo guardar el presupuesto:", err);
-  }
-});
-
 // ---------- Pendientes (recordatorios de pago) ----------
 const remindersLink = document.getElementById("remindersLink");
 const remindersOverlay = document.getElementById("remindersOverlay");
@@ -1711,6 +1628,12 @@ function showFinanceTab(tabId) {
     fetchAccountEntries();
   } else if (tabId === "financeTabGraficos") {
     fetchGraficos();
+  } else if (tabId === "financeTabMetas") {
+    fetchGoalsAndProgress();
+  } else if (tabId === "financeTabPresupuesto") {
+    fetchBudgetCategories();
+  } else if (tabId === "financeTabAna") {
+    fetchAna();
   }
 }
 
@@ -1749,64 +1672,80 @@ async function fetchFinanceSummaryExtras() {
 
 // ---------- Finanzas: Historial diario (un resumen por día, editable) ----------
 const dailyHistoryList = document.getElementById("dailyHistoryList");
+const dailyHistoryMoreBtn = document.getElementById("dailyHistoryMoreBtn");
+const DAILY_HISTORY_PAGE = 5;
 
-function renderDailyHistory(cierres, hoy) {
-  dailyHistoryList.innerHTML = "";
+let dailyHistoryDias = [];
+let dailyHistoryMostrarTodos = false;
 
-  const dias = cierres.slice().reverse().map((c) => ({ ...c, cerrado: true }));
-  if (hoy && hoy.fecha) dias.unshift({ ...hoy, cerrado: false });
+function buildDailyHistoryRow(d) {
+  const row = document.createElement("div");
+  row.className = "flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs bg-white border border-slate-100";
 
-  dias.forEach((d) => {
-    const row = document.createElement("div");
-    row.className = "flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs bg-white border border-slate-100";
+  const info = document.createElement("div");
+  info.className = "min-w-0";
+  const linea1 = document.createElement("p");
+  linea1.className = "font-semibold text-slate-800";
+  linea1.textContent = d.cerrado ? d.fecha : `${d.fecha} (hoy, en curso)`;
+  const linea2 = document.createElement("p");
+  linea2.className = "text-slate-500";
+  linea2.textContent = `✅ ${formatSoles(d.ganancias)}  📉 ${formatSoles(d.gastos)}  🧮 ${formatSoles(d.caja)}  💵 ${formatSoles(d.esperado)}`;
+  info.appendChild(linea1);
+  info.appendChild(linea2);
+  row.appendChild(info);
 
-    const info = document.createElement("div");
-    info.className = "min-w-0";
-    const linea1 = document.createElement("p");
-    linea1.className = "font-semibold text-slate-800";
-    linea1.textContent = d.cerrado ? d.fecha : `${d.fecha} (hoy, en curso)`;
-    const linea2 = document.createElement("p");
-    linea2.className = "text-slate-500";
-    linea2.textContent = `✅ ${formatSoles(d.ganancias)}  📉 ${formatSoles(d.gastos)}  🧮 ${formatSoles(d.caja)}  💵 ${formatSoles(d.esperado)}`;
-    info.appendChild(linea1);
-    info.appendChild(linea2);
-    row.appendChild(info);
-
-    if (d.cerrado) {
-      const editBtn = document.createElement("button");
-      editBtn.innerHTML = '<i class="fa-solid fa-pen text-slate-400"></i>';
-      editBtn.className = "w-7 h-7 shrink-0 flex items-center justify-center";
-      editBtn.addEventListener("click", async () => {
-        const nuevaGananciaStr = prompt(`Ganancias del ${d.fecha}:`, d.ganancias);
-        if (nuevaGananciaStr === null) return;
-        const nuevoGastoStr = prompt(`Gastos del ${d.fecha}:`, d.gastos);
-        if (nuevoGastoStr === null) return;
-        const nuevaCajaStr = prompt(`Caja inicial del ${d.fecha}:`, d.caja);
-        if (nuevaCajaStr === null) return;
-        await fetch(`/api/finance/cierres/${d.fecha}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ganancias: parseFloat(nuevaGananciaStr) || 0,
-            gastos: parseFloat(nuevoGastoStr) || 0,
-            caja: parseFloat(nuevaCajaStr) || 0,
-          }),
-        });
-        await fetchDailyHistory();
-        fetchCashboxToday();
+  if (d.cerrado) {
+    const editBtn = document.createElement("button");
+    editBtn.innerHTML = '<i class="fa-solid fa-pen text-slate-400"></i>';
+    editBtn.className = "w-7 h-7 shrink-0 flex items-center justify-center";
+    editBtn.addEventListener("click", async () => {
+      const nuevaGananciaStr = prompt(`Ganancias del ${d.fecha}:`, d.ganancias);
+      if (nuevaGananciaStr === null) return;
+      const nuevoGastoStr = prompt(`Gastos del ${d.fecha}:`, d.gastos);
+      if (nuevoGastoStr === null) return;
+      const nuevaCajaStr = prompt(`Caja inicial del ${d.fecha}:`, d.caja);
+      if (nuevaCajaStr === null) return;
+      await fetch(`/api/finance/cierres/${d.fecha}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ganancias: parseFloat(nuevaGananciaStr) || 0,
+          gastos: parseFloat(nuevoGastoStr) || 0,
+          caja: parseFloat(nuevaCajaStr) || 0,
+        }),
       });
-      row.appendChild(editBtn);
-    }
+      await fetchDailyHistory();
+      fetchCashboxToday();
+    });
+    row.appendChild(editBtn);
+  }
 
-    dailyHistoryList.appendChild(row);
-  });
+  return row;
 }
+
+function renderDiasList() {
+  dailyHistoryList.innerHTML = "";
+  const visibles = dailyHistoryMostrarTodos ? dailyHistoryDias : dailyHistoryDias.slice(0, DAILY_HISTORY_PAGE);
+  visibles.forEach((d) => dailyHistoryList.appendChild(buildDailyHistoryRow(d)));
+
+  const hayMas = dailyHistoryDias.length > DAILY_HISTORY_PAGE;
+  dailyHistoryMoreBtn.classList.toggle("hidden", !hayMas || dailyHistoryMostrarTodos);
+}
+
+dailyHistoryMoreBtn.addEventListener("click", () => {
+  dailyHistoryMostrarTodos = true;
+  renderDiasList();
+});
 
 async function fetchDailyHistory() {
   try {
     const res = await fetch("/api/finance/history");
     const data = await res.json();
-    renderDailyHistory(data.cierres || [], data.hoy);
+    const dias = (data.cierres || []).slice().reverse().map((c) => ({ ...c, cerrado: true }));
+    if (data.hoy && data.hoy.fecha) dias.unshift({ ...data.hoy, cerrado: false });
+    dailyHistoryDias = dias;
+    dailyHistoryMostrarTodos = false;
+    renderDiasList();
   } catch (err) {
     console.error("No se pudo obtener el historial diario:", err);
   }
@@ -2524,6 +2463,240 @@ document.querySelectorAll(".goal-save-btn").forEach((btn) => {
   });
 });
 
+// ---------- Finanzas: Presupuesto (categorías, límites y metas) ----------
+const budgetList = document.getElementById("budgetList");
+const budgetNuevoLabel = document.getElementById("budgetNuevoLabel");
+const budgetNuevoKeywords = document.getElementById("budgetNuevoKeywords");
+const budgetNuevoTipo = document.getElementById("budgetNuevoTipo");
+const budgetNuevoLimite = document.getElementById("budgetNuevoLimite");
+const budgetNuevoMeta = document.getElementById("budgetNuevoMeta");
+const budgetNuevoSaldoInicial = document.getElementById("budgetNuevoSaldoInicial");
+const addBudgetCategoryBtn = document.getElementById("addBudgetCategoryBtn");
+
+function toggleBudgetNuevoFields() {
+  const esMeta = budgetNuevoTipo.value === "meta";
+  budgetNuevoLimite.classList.toggle("hidden", esMeta);
+  budgetNuevoMeta.classList.toggle("hidden", !esMeta);
+  budgetNuevoSaldoInicial.classList.toggle("hidden", !esMeta);
+}
+budgetNuevoTipo.addEventListener("change", toggleBudgetNuevoFields);
+toggleBudgetNuevoFields();
+
+function renderBudgetCategories(categorias) {
+  budgetList.innerHTML = "";
+  categorias
+    .filter((cat) => cat.id !== "otros")
+    .forEach((cat) => {
+      const card = document.createElement("div");
+      card.className = "card bg-white py-3";
+
+      const nombre = document.createElement("p");
+      nombre.className = "font-semibold text-slate-800 text-sm";
+      nombre.textContent = cat.label;
+      card.appendChild(nombre);
+
+      const info = document.createElement("p");
+      info.className = "text-xs text-slate-500 mt-1";
+      if (cat.tipo === "meta") {
+        info.textContent = `${formatSoles(cat.pagado)} de ${formatSoles(cat.meta)} · falta ${formatSoles(cat.restante)}`;
+      } else if (cat.limite === null) {
+        info.textContent = `Gastado este mes: ${formatSoles(cat.gastado)} (sin límite)`;
+      } else {
+        info.textContent = `${formatSoles(cat.gastado)} de ${formatSoles(cat.limite)} · disponible ${formatSoles(cat.disponible)}`;
+      }
+      card.appendChild(info);
+
+      if (cat.porcentaje !== null && cat.porcentaje !== undefined) {
+        const barBg = document.createElement("div");
+        barBg.className = "w-full h-1.5 rounded-full bg-slate-100 overflow-hidden mt-1.5";
+        const bar = document.createElement("div");
+        bar.className = `h-full ${cat.porcentaje >= 1 ? "bg-rose-500" : "bg-emerald-500"}`;
+        bar.style.width = `${Math.round(Math.min(cat.porcentaje, 1) * 100)}%`;
+        barBg.appendChild(bar);
+        card.appendChild(barBg);
+      }
+
+      const acciones = document.createElement("div");
+      acciones.className = "flex items-center gap-2 mt-2";
+
+      const editBtn = document.createElement("button");
+      editBtn.className = "btn-capsule bg-slate-100 text-slate-600 text-xs py-1.5 px-3";
+      editBtn.textContent = "Editar";
+      editBtn.addEventListener("click", async () => {
+        const nuevoLabel = prompt("Nombre:", cat.label);
+        if (nuevoLabel === null) return;
+        const nuevasKeywords = prompt("Palabras clave (separadas por coma):", (cat.keywords || []).join(", "));
+        if (nuevasKeywords === null) return;
+        await fetch(`/api/budget/categories/${encodeURIComponent(cat.id)}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            label: nuevoLabel,
+            keywords: nuevasKeywords.split(",").map((k) => k.trim()).filter(Boolean),
+          }),
+        });
+        if (cat.tipo === "meta") {
+          const nuevaMeta = prompt("Meta total (S/):", cat.meta);
+          if (nuevaMeta === null) return fetchBudgetCategories();
+          const nuevoSaldoInicial = prompt("Ya pagado antes de hoy (S/):", cat.saldoInicial);
+          if (nuevoSaldoInicial === null) return fetchBudgetCategories();
+          await fetch(`/api/budget/categories/${encodeURIComponent(cat.id)}/meta`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ meta: nuevaMeta, saldoInicial: nuevoSaldoInicial }),
+          });
+        } else {
+          const nuevoLimite = prompt("Límite mensual (S/), vacío = sin límite:", cat.limite ?? "");
+          if (nuevoLimite === null) return fetchBudgetCategories();
+          await fetch(`/api/budget/categories/${encodeURIComponent(cat.id)}/limit`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ limite: nuevoLimite === "" ? null : nuevoLimite }),
+          });
+        }
+        await fetchBudgetCategories();
+      });
+
+      const delBtn = document.createElement("button");
+      delBtn.className = "btn-capsule bg-rose-100 text-rose-700 text-xs py-1.5 px-3";
+      delBtn.textContent = "Eliminar";
+      delBtn.addEventListener("click", async () => {
+        if (!confirm(`¿Eliminar la categoría "${cat.label}"?`)) return;
+        await fetch(`/api/budget/categories/${encodeURIComponent(cat.id)}`, { method: "DELETE" });
+        await fetchBudgetCategories();
+      });
+
+      acciones.appendChild(editBtn);
+      acciones.appendChild(delBtn);
+      card.appendChild(acciones);
+
+      budgetList.appendChild(card);
+    });
+}
+
+async function fetchBudgetCategories() {
+  try {
+    const res = await fetch("/api/budget/categories");
+    const data = await res.json();
+    renderBudgetCategories(data.categorias || []);
+  } catch (err) {
+    console.error("No se pudo obtener el presupuesto:", err);
+  }
+}
+
+addBudgetCategoryBtn.addEventListener("click", async () => {
+  const label = budgetNuevoLabel.value.trim();
+  if (!label) return;
+  const keywords = budgetNuevoKeywords.value.split(",").map((k) => k.trim()).filter(Boolean);
+  const tipo = budgetNuevoTipo.value;
+  const body = { label, keywords, tipo };
+  if (tipo === "meta") {
+    body.metaDefault = budgetNuevoMeta.value;
+    body.saldoInicialDefault = budgetNuevoSaldoInicial.value;
+  } else {
+    body.limiteDefault = budgetNuevoLimite.value === "" ? null : budgetNuevoLimite.value;
+  }
+  await fetch("/api/budget/categories", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  budgetNuevoLabel.value = "";
+  budgetNuevoKeywords.value = "";
+  budgetNuevoLimite.value = "";
+  budgetNuevoMeta.value = "";
+  budgetNuevoSaldoInicial.value = "";
+  await fetchBudgetCategories();
+});
+
+// ---------- Finanzas: Ana (custodia, editable) ----------
+const anaGuardadoTxt = document.getElementById("anaGuardadoTxt");
+const anaGastadoTxt = document.getElementById("anaGastadoTxt");
+const anaSaldoTxt = document.getElementById("anaSaldoTxt");
+const anaMovimientosList = document.getElementById("anaMovimientosList");
+const anaMovimientosEmpty = document.getElementById("anaMovimientosEmpty");
+
+function renderAna(ana, movimientos) {
+  anaGuardadoTxt.textContent = formatSoles(ana.guardado);
+  anaGastadoTxt.textContent = formatSoles(ana.gastado);
+  anaSaldoTxt.textContent = formatSoles(ana.saldo);
+
+  anaMovimientosList.innerHTML = "";
+  if (movimientos.length === 0) {
+    anaMovimientosEmpty.classList.remove("hidden");
+    return;
+  }
+  anaMovimientosEmpty.classList.add("hidden");
+
+  movimientos
+    .slice()
+    .reverse()
+    .forEach((m) => {
+      const row = document.createElement("div");
+      row.className = "flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs bg-white border border-slate-100";
+
+      const info = document.createElement("div");
+      info.className = "min-w-0";
+      const linea1 = document.createElement("p");
+      linea1.className = "font-semibold text-slate-800 truncate";
+      const signo = m.tipo === "gasto" ? "-" : "+";
+      linea1.textContent = `${signo}${formatSoles(m.monto)} · ${m.tipo === "guardo" ? "guardó" : "gastó/retiró"}`;
+      const linea2 = document.createElement("p");
+      linea2.className = "text-slate-400";
+      linea2.textContent = `${m.fecha} ${m.hora}${m.descripcion ? " · " + m.descripcion : ""}`;
+      info.appendChild(linea1);
+      info.appendChild(linea2);
+
+      const acciones = document.createElement("div");
+      acciones.className = "flex items-center gap-1 shrink-0";
+
+      const editBtn = document.createElement("button");
+      editBtn.innerHTML = '<i class="fa-solid fa-pen text-slate-400"></i>';
+      editBtn.className = "w-7 h-7 flex items-center justify-center";
+      editBtn.addEventListener("click", async () => {
+        const nuevoMontoStr = prompt("Nuevo monto:", m.monto);
+        if (nuevoMontoStr === null) return;
+        const nuevoMonto = parseFloat(nuevoMontoStr);
+        if (!Number.isFinite(nuevoMonto) || nuevoMonto <= 0) return;
+        await fetch(`/api/finance/ana/movements/${m.index}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ monto: nuevoMonto }),
+        });
+        await fetchAna();
+      });
+
+      const delBtn = document.createElement("button");
+      delBtn.innerHTML = '<i class="fa-solid fa-trash text-rose-400"></i>';
+      delBtn.className = "w-7 h-7 flex items-center justify-center";
+      delBtn.addEventListener("click", async () => {
+        if (!confirm("¿Eliminar este movimiento de Ana?")) return;
+        await fetch(`/api/finance/ana/movements/${m.index}`, { method: "DELETE" });
+        await fetchAna();
+      });
+
+      acciones.appendChild(editBtn);
+      acciones.appendChild(delBtn);
+      row.appendChild(info);
+      row.appendChild(acciones);
+      anaMovimientosList.appendChild(row);
+    });
+}
+
+async function fetchAna() {
+  try {
+    const [todayRes, movRes] = await Promise.all([
+      fetch("/api/cashbox/today"),
+      fetch("/api/finance/ana/movements"),
+    ]);
+    const todayData = await todayRes.json();
+    const movData = await movRes.json();
+    renderAna(todayData.ana || { guardado: 0, gastado: 0, saldo: 0 }, movData.movimientos || []);
+  } catch (err) {
+    console.error("No se pudo obtener la info de Ana:", err);
+  }
+}
+
 remindersLink.addEventListener("click", (e) => {
   e.preventDefault();
   closeDrawerFn();
@@ -2561,9 +2734,6 @@ const categoryLoaders = {
     fetchTimeWindow();
     renderGroupDelayValueOptions();
     fetchGroupDelays();
-  },
-  categoryBudget: () => {
-    populateBudgetCategories();
   },
   categoryGeneral: () => {
     updatePushStatus();
