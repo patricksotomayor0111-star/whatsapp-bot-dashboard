@@ -823,6 +823,21 @@ function logSender(chatId, groupName, senderJid, senderNumber, blocked, text) {
 
 let currentSock = null;
 
+// Evita procesar el mismo mensaje dos veces (ej. si Baileys lo reentrega
+// al reconectar). Se guarda un set acotado de los últimos IDs vistos;
+// sobrevive a reconexiones porque es una variable del módulo, no del socket.
+const mensajesProcesados = new Set();
+const MAX_MENSAJES_PROCESADOS = 500;
+function yaFueProcesado(id) {
+  if (!id) return false;
+  if (mensajesProcesados.has(id)) return true;
+  mensajesProcesados.add(id);
+  if (mensajesProcesados.size > MAX_MENSAJES_PROCESADOS) {
+    mensajesProcesados.delete(mensajesProcesados.values().next().value);
+  }
+  return false;
+}
+
 // Espera creciente para reintentar si falla la carga de grupos (ej. un
 // "rate-overlimit" temporal de WhatsApp por reconectar varias veces
 // seguidas): 30s, 1min, 2min. Si para entonces sigue fallando, se deja
@@ -963,9 +978,16 @@ async function startBot() {
   // WhatsApp a veces entrega varios mensajes juntos en un mismo evento
   // (por ejemplo si se mandan seguidos), así que hay que revisarlos todos,
   // no solo el primero.
-  sock.ev.on("messages.upsert", async ({ messages }) => {
+  sock.ev.on("messages.upsert", async ({ messages, type }) => {
+    // Solo mensajes nuevos de verdad ("notify"). "append"/"replace" son
+    // reenvíos de historial que Baileys manda al reconectar; si no se
+    // filtran, se procesan de nuevo como si fueran mensajes frescos
+    // (causaba respuestas duplicadas después de cada reinicio del bot).
+    if (type !== "notify") return;
+
     for (const msg of messages) {
       if (!msg?.message) continue;
+      if (yaFueProcesado(msg.key.id)) continue;
 
       const chatId = msg.key.remoteJid;
       const grupoActual = botState.groups.find((g) => g.id === chatId);
