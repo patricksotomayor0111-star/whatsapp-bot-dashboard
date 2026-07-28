@@ -8,6 +8,7 @@ const cashbox = require("./cashbox");
 const pendingQuotes = require("./pendingQuotes");
 const pushSubscriptions = require("./pushSubscriptions");
 const budgetCategories = require("./budgetCategories");
+const queryIntents = require("./queryIntents");
 const reminders = require("./reminders");
 const contactTriggerGroups = require("./contactTriggerGroups");
 const groupDelays = require("./groupDelays");
@@ -384,6 +385,36 @@ app.delete("/api/finance/ana/movements/:index", (req, res) => {
   const ok = cashbox.removeAnaMovimiento(Number(req.params.index));
   if (!ok) return res.status(404).json({ error: "Movimiento no encontrado." });
   res.json({ ok: true });
+});
+
+// Consultas por WhatsApp del grupo GANANCIAS: frases que disparan cada
+// respuesta y el texto de la respuesta misma, ambos editables.
+app.get("/api/finance/query-intents", (req, res) => {
+  res.json({ intents: queryIntents.getIntents() });
+});
+
+app.post("/api/finance/query-intents/:id/phrases", (req, res) => {
+  try {
+    const intent = queryIntents.addFrase(req.params.id, req.body?.frase);
+    res.json({ ok: true, intent });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete("/api/finance/query-intents/:id/phrases", (req, res) => {
+  const intent = queryIntents.removeFrase(req.params.id, req.body?.frase);
+  if (!intent) return res.status(404).json({ error: "Consulta no encontrada." });
+  res.json({ ok: true, intent });
+});
+
+app.put("/api/finance/query-intents/:id/response", (req, res) => {
+  try {
+    const intent = queryIntents.setRespuesta(req.params.id, req.body?.campo, req.body?.texto);
+    res.json({ ok: true, intent });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 // Deudas por persona

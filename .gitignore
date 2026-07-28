@@ -15,5 +15,6 @@ debts-data.json
 shortfalls-data.json
 reference-accounts-data.json
 finance-goals-data.json
+query-intents-data.json
 .env
 *.log

@@ -22,6 +22,7 @@ const shortfalls = require("./shortfalls");
 const referenceAccounts = require("./referenceAccounts");
 const financeGoals = require("./financeGoals");
 const budgetCategories = require("./budgetCategories");
+const queryIntents = require("./queryIntents");
 const { dataPath } = require("./dataDir");
 const { sectorSeedByName, specialSeedByName, numberExceptionSeed } = require("./groupSeed");
 const {
@@ -469,113 +470,144 @@ function capitalizar(str) {
 // registrar), el bot responde con datos reales en vez de tratarlo como
 // ganancia/gasto. Devuelve null si el texto no matchea ninguna consulta
 // conocida (y entonces sigue el camino normal de parseCashboxMessage).
+// Tanto las frases que disparan cada consulta como el texto de la
+// respuesta son editables desde el panel (ver queryIntents.js).
+function aplicarPlantilla(texto, vars) {
+  return String(texto || "").replace(/\{(\w+)\}/g, (match, key) => (key in vars ? vars[key] : match));
+}
+
+// Para consultas "prefijo" (ej. "cuanto debe {persona}"): el mensaje debe
+// EMPEZAR con la frase configurada, y lo que sigue es la variable.
+function extraerTrasPrefijo(textoLimpio, frase) {
+  if (!textoLimpio.startsWith(frase)) return null;
+  const resto = textoLimpio.slice(frase.length).trim().replace(/\?+$/, "").trim();
+  return resto || null;
+}
+
+function calcularRespuestaConsulta(intent, variable) {
+  const campo = (nombre, fallback) => (intent[nombre] ? intent[nombre] : fallback);
+
+  if (intent.id === "deudaPersona") {
+    const deuda = debts.getDeuda(variable);
+    if (!deuda || deuda.saldo === 0) {
+      return aplicarPlantilla(campo("respuestaVacia", "{persona} no te debe nada. ✅"), { persona: capitalizar(variable) });
+    }
+    return aplicarPlantilla(intent.respuesta, { persona: deuda.label, monto: formatSoles(deuda.saldo) });
+  }
+
+  if (intent.id === "quienDebe") {
+    const deudas = debts.getDeudas().filter((d) => d.saldo > 0);
+    if (deudas.length === 0) return aplicarPlantilla(campo("respuestaVacia", "Nadie te debe nada ahora mismo. ✅"), {});
+    const lista = deudas.map((d) => `${d.label}: ${formatSoles(d.saldo)}`).join("\n");
+    return aplicarPlantilla(intent.respuesta, { lista });
+  }
+
+  if (intent.id === "gastarCategoria") {
+    const cat = budgetCategories
+      .getAllCategorias()
+      .find((c) => c.tipo === "limite" && (normalizeText(c.label).includes(variable) || c.keywords.some((k) => variable.includes(k))));
+    if (!cat) return aplicarPlantilla(campo("respuestaSinCategoria", 'No tengo una categoría configurada como "{categoria}".'), { categoria: variable });
+    const resumen = budgetCategories.getResumen(cashbox.getMovimientos(), cashbox.getMesActualLabel());
+    const info = resumen.find((r) => r.id === cat.id);
+    if (info.limite === null) return aplicarPlantilla(campo("respuestaSinLimite", "{categoria} no tiene límite mensual configurado."), { categoria: cat.label });
+    return aplicarPlantilla(intent.respuesta, {
+      categoria: cat.label,
+      gastado: formatSoles(info.gastado),
+      limite: formatSoles(info.limite),
+      disponible: formatSoles(info.disponible),
+    });
+  }
+
+  if (intent.id === "gastarHoy") {
+    const metaDiaria = financeGoals.getGoals().diaria;
+    if (metaDiaria <= 0) return aplicarPlantilla(campo("respuestaSinMeta", "Todavía no configuraste una meta de ganancia diaria."), {});
+    const hoy = cashbox.getToday();
+    const disponible = Math.max(metaDiaria - hoy.gastos, 0);
+    return aplicarPlantilla(intent.respuesta, {
+      meta: formatSoles(metaDiaria),
+      gastos: formatSoles(hoy.gastos),
+      disponible: formatSoles(disponible),
+    });
+  }
+
+  if (intent.id === "vendiHoy") {
+    return aplicarPlantilla(intent.respuesta, { ganancias: formatSoles(cashbox.getToday().ganancias) });
+  }
+
+  if (intent.id === "gasteHoy") {
+    return aplicarPlantilla(intent.respuesta, { gastos: formatSoles(cashbox.getToday().gastos) });
+  }
+
+  if (intent.id === "caja") {
+    return aplicarPlantilla(intent.respuesta, { esperado: formatSoles(cashbox.getToday().esperado) });
+  }
+
+  if (intent.id === "metaHoy") {
+    const metaDiaria = financeGoals.getGoals().diaria;
+    if (metaDiaria <= 0) return aplicarPlantilla(campo("respuestaSinMeta", "No tienes una meta diaria configurada."), {});
+    const hoy = cashbox.getToday();
+    const falta = Math.max(metaDiaria - hoy.ganancias, 0);
+    if (falta === 0) {
+      return aplicarPlantilla(campo("respuestaCumplida", "¡Ya cumpliste tu meta de hoy! Llevas {ganancias} de {meta}. 🎉"), {
+        ganancias: formatSoles(hoy.ganancias),
+        meta: formatSoles(metaDiaria),
+      });
+    }
+    return aplicarPlantilla(intent.respuesta, {
+      meta: formatSoles(metaDiaria),
+      ganancias: formatSoles(hoy.ganancias),
+      falta: formatSoles(falta),
+    });
+  }
+
+  if (intent.id === "resumenDia") {
+    const hoy = cashbox.getToday();
+    return aplicarPlantilla(intent.respuesta, {
+      ganancias: formatSoles(hoy.ganancias),
+      gastos: formatSoles(hoy.gastos),
+      total: formatSoles(hoy.total),
+      esperado: formatSoles(hoy.esperado),
+    });
+  }
+
+  if (intent.id === "resumenMes") {
+    const mes = cashbox.getMonthSoFar();
+    const metaMensual = financeGoals.getGoals().mensual;
+    let respuesta = aplicarPlantilla(intent.respuesta, {
+      ganancias: formatSoles(mes.ganancias),
+      gastos: formatSoles(mes.gastos),
+      neto: formatSoles(mes.ganancias - mes.gastos),
+    });
+    if (metaMensual > 0) {
+      const falta = Math.max(metaMensual - mes.ganancias, 0);
+      respuesta += `\n🎯 Meta: ${formatSoles(metaMensual)} (te faltan ${formatSoles(falta)})`;
+    }
+    return respuesta;
+  }
+
+  if (intent.id === "faltante") {
+    return aplicarPlantilla(intent.respuesta, { total: formatSoles(shortfalls.getTotal()) });
+  }
+
+  return null;
+}
+
 function responderConsultaFinanciera(rawText) {
   const text = rawText.trim();
   if (!text) return null;
   const norm = normalizeText(text);
   if (!/[a-z]/.test(norm)) return null; // sin letras no puede ser una pregunta
+  const textoLimpio = norm.replace(/^¿+/, "").trim();
 
-  let m;
-
-  // "¿cuánto me debe Ana?" / "¿cuánto debe Luis?"
-  m = norm.match(/cuanto\s+(?:me\s+)?deb[ea]\s+(.+?)\??$/);
-  if (m) {
-    const persona = m[1].trim();
-    const deuda = debts.getDeuda(persona);
-    if (!deuda || deuda.saldo === 0) return `${capitalizar(persona)} no te debe nada. ✅`;
-    return `${deuda.label} te debe ${formatSoles(deuda.saldo)}.`;
-  }
-
-  // "¿quién me debe?" / "quién me debe dinero"
-  if (/quien.*deb/.test(norm)) {
-    const deudas = debts.getDeudas().filter((d) => d.saldo > 0);
-    if (deudas.length === 0) return "Nadie te debe nada ahora mismo. ✅";
-    const lista = deudas.map((d) => `${d.label}: ${formatSoles(d.saldo)}`).join("\n");
-    return `👥 Te deben:\n${lista}`;
-  }
-
-  // "¿cuánto puedo gastar en Mia?" (según el límite de esa categoría)
-  m = norm.match(/cuanto\s+puedo\s+gastar\s+en\s+(.+?)\??$/);
-  if (m) {
-    const texto = m[1].trim();
-    const cat = budgetCategories
-      .getAllCategorias()
-      .find((c) => c.tipo === "limite" && (normalizeText(c.label).includes(texto) || c.keywords.some((k) => texto.includes(k))));
-    if (!cat) return `No tengo una categoría configurada como "${m[1].trim()}".`;
-    const resumen = budgetCategories.getResumen(cashbox.getMovimientos(), cashbox.getMesActualLabel());
-    const info = resumen.find((r) => r.id === cat.id);
-    if (info.limite === null) return `${cat.label} no tiene límite mensual configurado.`;
-    return `En ${cat.label} ya gastaste ${formatSoles(info.gastado)} de ${formatSoles(info.limite)}. Puedes gastar ${formatSoles(info.disponible)} más.`;
-  }
-
-  // "¿cuánto puedo gastar hoy?" (general, según la meta diaria de ganancia)
-  if (/cuanto\s+puedo\s+gastar/.test(norm)) {
-    const metaDiaria = financeGoals.getGoals().diaria;
-    if (metaDiaria <= 0) {
-      return "Todavía no configuraste una meta de ganancia diaria (Finanzas → Metas en el panel), así que no puedo calcular esto.";
+  for (const intent of queryIntents.getIntents()) {
+    if (intent.tipo === "prefijo") {
+      for (const frase of intent.frases) {
+        const variable = extraerTrasPrefijo(textoLimpio, frase);
+        if (variable) return calcularRespuestaConsulta(intent, variable);
+      }
+    } else if (intent.frases.some((frase) => textoLimpio.includes(frase))) {
+      return calcularRespuestaConsulta(intent, null);
     }
-    const hoy = cashbox.getToday();
-    const disponible = Math.max(metaDiaria - hoy.gastos, 0);
-    return `Tu meta de hoy es ${formatSoles(metaDiaria)} y ya gastaste ${formatSoles(hoy.gastos)}. Puedes gastar hasta ${formatSoles(disponible)} más sin pasarte.`;
-  }
-
-  // "¿cuánto vendí/gané hoy?"
-  if (/cuanto\s+(vendi|gane|ingres)/.test(norm) && /hoy/.test(norm)) {
-    return `Hoy llevas ${formatSoles(cashbox.getToday().ganancias)} en ganancias.`;
-  }
-
-  // "¿cuánto gasté hoy?"
-  if (/cuanto\s+gast/.test(norm) && /hoy/.test(norm)) {
-    return `Hoy gastaste ${formatSoles(cashbox.getToday().gastos)}.`;
-  }
-
-  // "¿cuánto tengo/hay en caja?"
-  if (/cuanto\s+(tengo|hay)\s+en\s+caja/.test(norm)) {
-    return `Efectivo esperado en caja: ${formatSoles(cashbox.getToday().esperado)}.`;
-  }
-
-  // "meta de hoy"
-  if (/meta\s+de\s+hoy/.test(norm)) {
-    const metaDiaria = financeGoals.getGoals().diaria;
-    if (metaDiaria <= 0) return "No tienes una meta diaria configurada. Puedes ponerla en el panel (Finanzas → Metas).";
-    const hoy = cashbox.getToday();
-    const falta = Math.max(metaDiaria - hoy.ganancias, 0);
-    return falta === 0
-      ? `¡Ya cumpliste tu meta de hoy! Llevas ${formatSoles(hoy.ganancias)} de ${formatSoles(metaDiaria)}. 🎉`
-      : `Meta de hoy: ${formatSoles(metaDiaria)}. Llevas ${formatSoles(hoy.ganancias)}, te faltan ${formatSoles(falta)}.`;
-  }
-
-  // "resumen del día"
-  if (/resumen\s+del?\s+dia/.test(norm)) {
-    const hoy = cashbox.getToday();
-    return (
-      `📦 Resumen del día\n` +
-      `✅ Ganancias: ${formatSoles(hoy.ganancias)}\n` +
-      `📉 Gastos: ${formatSoles(hoy.gastos)}\n` +
-      `💰 Total: ${formatSoles(hoy.total)}\n` +
-      `💵 Efectivo esperado: ${formatSoles(hoy.esperado)}`
-    );
-  }
-
-  // "resumen del mes" / "¿cómo voy este mes?"
-  if (/resumen\s+del\s+mes/.test(norm) || /como\s+voy/.test(norm)) {
-    const mes = cashbox.getMonthSoFar();
-    const metaMensual = financeGoals.getGoals().mensual;
-    let texto =
-      `🗓️ Resumen del mes\n` +
-      `✅ Ganancias: ${formatSoles(mes.ganancias)}\n` +
-      `📉 Gastos: ${formatSoles(mes.gastos)}\n` +
-      `💰 Neto: ${formatSoles(mes.ganancias - mes.gastos)}`;
-    if (metaMensual > 0) {
-      const falta = Math.max(metaMensual - mes.ganancias, 0);
-      texto += `\n🎯 Meta: ${formatSoles(metaMensual)} (te faltan ${formatSoles(falta)})`;
-    }
-    return texto;
-  }
-
-  // "cuánto he perdido en faltantes"
-  if (/faltante/.test(norm)) {
-    return `Faltante acumulado en total: ${formatSoles(shortfalls.getTotal())}.`;
   }
 
   return null;

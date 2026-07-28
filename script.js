@@ -1634,6 +1634,8 @@ function showFinanceTab(tabId) {
     fetchBudgetCategories();
   } else if (tabId === "financeTabAna") {
     fetchAna();
+  } else if (tabId === "financeTabConsultas") {
+    fetchQueryIntents();
   }
 }
 
@@ -2694,6 +2696,127 @@ async function fetchAna() {
     renderAna(todayData.ana || { guardado: 0, gastado: 0, saldo: 0 }, movData.movimientos || []);
   } catch (err) {
     console.error("No se pudo obtener la info de Ana:", err);
+  }
+}
+
+// ---------- Finanzas: Consultas (frases y respuestas editables) ----------
+const queryIntentsList = document.getElementById("queryIntentsList");
+
+const CAMPOS_RESPUESTA_LABELS = {
+  respuesta: "Respuesta",
+  respuestaVacia: "Respuesta cuando no hay nada que mostrar (ej. nadie debe)",
+  respuestaCumplida: "Respuesta cuando ya se cumplió la meta",
+  respuestaSinMeta: "Respuesta cuando no hay meta configurada",
+  respuestaSinLimite: "Respuesta cuando la categoría no tiene límite",
+  respuestaSinCategoria: "Respuesta cuando no existe esa categoría",
+};
+
+function renderQueryIntents(intents) {
+  queryIntentsList.innerHTML = "";
+  intents.forEach((intent) => {
+    const card = document.createElement("div");
+    card.className = "card bg-white py-3";
+
+    const titulo = document.createElement("p");
+    titulo.className = "font-semibold text-slate-800 text-sm";
+    titulo.textContent = intent.label;
+    card.appendChild(titulo);
+
+    const hint = document.createElement("p");
+    hint.className = "text-[11px] text-slate-400 mt-0.5";
+    hint.textContent =
+      intent.tipo === "prefijo"
+        ? "El mensaje debe EMPEZAR con una de estas frases"
+        : "El mensaje puede contener cualquiera de estas frases";
+    card.appendChild(hint);
+
+    const frasesWrap = document.createElement("div");
+    frasesWrap.className = "flex flex-wrap gap-1.5 mt-2";
+    intent.frases.forEach((frase) => {
+      const chip = document.createElement("div");
+      chip.className = "flex items-center gap-1.5 rounded-full px-3 py-1 text-xs bg-teal-50 text-teal-700";
+      const label = document.createElement("span");
+      label.textContent = frase;
+      const removeBtn = document.createElement("button");
+      removeBtn.innerHTML = '<i class="fa-solid fa-xmark text-[10px]"></i>';
+      removeBtn.className = "opacity-60 hover:opacity-100";
+      removeBtn.addEventListener("click", async () => {
+        await fetch(`/api/finance/query-intents/${intent.id}/phrases`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ frase }),
+        });
+        await fetchQueryIntents();
+      });
+      chip.appendChild(label);
+      chip.appendChild(removeBtn);
+      frasesWrap.appendChild(chip);
+    });
+    card.appendChild(frasesWrap);
+
+    const addFraseWrap = document.createElement("div");
+    addFraseWrap.className = "flex gap-2 mt-2";
+    const fraseInput = document.createElement("input");
+    fraseInput.type = "text";
+    fraseInput.placeholder = "Nueva frase...";
+    fraseInput.className = "flex-1 min-w-0 bg-white rounded-xl px-3 py-2 text-xs border border-slate-200";
+    const addFraseBtn = document.createElement("button");
+    addFraseBtn.className = "w-8 h-8 shrink-0 rounded-xl bg-teal-600 text-white flex items-center justify-center active:scale-90 transition-all";
+    addFraseBtn.innerHTML = '<i class="fa-solid fa-plus text-xs"></i>';
+    addFraseBtn.addEventListener("click", async () => {
+      const frase = fraseInput.value.trim();
+      if (!frase) return;
+      await fetch(`/api/finance/query-intents/${intent.id}/phrases`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ frase }),
+      });
+      await fetchQueryIntents();
+    });
+    addFraseWrap.appendChild(fraseInput);
+    addFraseWrap.appendChild(addFraseBtn);
+    card.appendChild(addFraseWrap);
+
+    Object.keys(CAMPOS_RESPUESTA_LABELS).forEach((campo) => {
+      if (intent[campo] === undefined) return;
+      const wrap = document.createElement("div");
+      wrap.className = "mt-3";
+      const label = document.createElement("p");
+      label.className = "text-[11px] font-semibold text-slate-500 mb-1";
+      label.textContent = CAMPOS_RESPUESTA_LABELS[campo];
+      const textarea = document.createElement("textarea");
+      textarea.rows = 2;
+      textarea.value = intent[campo];
+      textarea.className = "w-full bg-white rounded-xl px-3 py-2 text-xs border border-slate-200";
+      const saveBtn = document.createElement("button");
+      saveBtn.className = "mt-1 rounded-lg px-3 py-1.5 text-xs font-semibold bg-slate-100 text-slate-600 active:scale-95 transition-all";
+      saveBtn.textContent = "Guardar";
+      saveBtn.addEventListener("click", async () => {
+        await fetch(`/api/finance/query-intents/${intent.id}/response`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ campo, texto: textarea.value }),
+        });
+        saveBtn.textContent = "Guardado ✓";
+        setTimeout(() => (saveBtn.textContent = "Guardar"), 1500);
+      });
+      wrap.appendChild(label);
+      wrap.appendChild(textarea);
+      wrap.appendChild(saveBtn);
+      card.appendChild(wrap);
+    });
+
+    queryIntentsList.appendChild(card);
+  });
+}
+
+async function fetchQueryIntents() {
+  try {
+    const res = await fetch("/api/finance/query-intents");
+    const data = await res.json();
+    renderQueryIntents(data.intents || []);
+  } catch (err) {
+    console.error("No se pudo obtener las consultas:", err);
   }
 }
 
