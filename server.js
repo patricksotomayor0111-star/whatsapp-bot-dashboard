@@ -582,6 +582,14 @@ app.get("/api/finance/goals/progress", (req, res) => {
   const promedioDiario = diaActual > 0 ? ahorroActual / diaActual : 0;
   const proyeccionFinDeMes = ahorroActual + promedioDiario * (diasEnMes - diaActual);
 
+  // Meta diaria "real": en vez de un número a ojo, cuánto hay que generar
+  // por día para cubrir los compromisos fijos del mes (Pendientes) más el
+  // ahorro deseado, restando lo que ya se generó neto este mes.
+  const compromisos = reminders.getComprisosDelMes();
+  const necesidadTotal = compromisos.total + goals.ahorroMensual;
+  const necesidadFaltante = Math.max(necesidadTotal - ahorroActual, 0);
+  const metaDiariaReal = diasRestantes > 0 ? necesidadFaltante / diasRestantes : necesidadFaltante;
+
   res.json({
     goals,
     diaria: { meta: goals.diaria, actual: hoy.ganancias, falta: Math.max(goals.diaria - hoy.ganancias, 0) },
@@ -596,6 +604,13 @@ app.get("/api/finance/goals/progress", (req, res) => {
     },
     proyeccion: { finDeMes: proyeccionFinDeMes },
     mesAnterior,
+    compromisos: {
+      total: compromisos.total,
+      detalle: compromisos.detalle,
+      necesidadTotal,
+      necesidadFaltante,
+      metaDiariaReal,
+    },
   });
 });
 

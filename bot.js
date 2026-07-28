@@ -484,6 +484,22 @@ function extraerTrasPrefijo(textoLimpio, frase) {
   return resto || null;
 }
 
+// Cuánto hay que generar por día para cubrir los compromisos fijos del
+// mes (Pendientes) más el ahorro deseado, descontando lo ya generado neto
+// este mes y repartiendo entre los días que quedan. Mismo cálculo que
+// /api/finance/goals/progress en server.js.
+function calcularMetaDiariaReal() {
+  const compromisos = reminders.getComprisosDelMes();
+  const goals = financeGoals.getGoals();
+  const mes = cashbox.getMonthSoFar();
+  const { diasRestantes } = cashbox.getDiasDelMes();
+
+  const ahorroActual = mes.ganancias - mes.gastos;
+  const necesidadTotal = compromisos.total + goals.ahorroMensual;
+  const necesidadFaltante = Math.max(necesidadTotal - ahorroActual, 0);
+  return diasRestantes > 0 ? necesidadFaltante / diasRestantes : necesidadFaltante;
+}
+
 function calcularRespuestaConsulta(intent, variable) {
   const campo = (nombre, fallback) => (intent[nombre] ? intent[nombre] : fallback);
 
@@ -519,8 +535,12 @@ function calcularRespuestaConsulta(intent, variable) {
   }
 
   if (intent.id === "gastarHoy") {
-    const metaDiaria = financeGoals.getGoals().diaria;
-    if (metaDiaria <= 0) return aplicarPlantilla(campo("respuestaSinMeta", "Todavía no configuraste una meta de ganancia diaria."), {});
+    // La meta de hoy para "cuánto puedo gastar" no es un número a ojo:
+    // sale de lo que realmente hay que cubrir este mes (compromisos fijos
+    // de Pendientes + el ahorro deseado), repartido entre los días que
+    // quedan, descontando lo que ya se generó neto en el mes.
+    const metaDiaria = calcularMetaDiariaReal();
+    if (metaDiaria <= 0) return aplicarPlantilla(campo("respuestaSinMeta", "No tienes compromisos ni meta de ahorro configurados este mes, así que no puedo calcular esto."), {});
     const hoy = cashbox.getToday();
     const disponible = Math.max(metaDiaria - hoy.gastos, 0);
     return aplicarPlantilla(intent.respuesta, {

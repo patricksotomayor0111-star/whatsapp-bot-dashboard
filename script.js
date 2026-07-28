@@ -2344,6 +2344,12 @@ const ahorroFaltaTxt = document.getElementById("ahorroFaltaTxt");
 const ahorroRecomendadoTxt = document.getElementById("ahorroRecomendadoTxt");
 const proyeccionTxt = document.getElementById("proyeccionTxt");
 const comparativaTxt = document.getElementById("comparativaTxt");
+const compromisosList = document.getElementById("compromisosList");
+const compromisosTotalTxt = document.getElementById("compromisosTotalTxt");
+const compromisosAhorroTxt = document.getElementById("compromisosAhorroTxt");
+const compromisosNecesidadTxt = document.getElementById("compromisosNecesidadTxt");
+const compromisosGeneradoTxt = document.getElementById("compromisosGeneradoTxt");
+const metaDiariaRealTxt = document.getElementById("metaDiariaRealTxt");
 
 async function fetchGoalsAndProgress() {
   try {
@@ -2440,6 +2446,36 @@ function renderGoalProgress(data) {
     } else {
       comparativaTxt.textContent = "";
     }
+  }
+
+  if (data.compromisos) {
+    const c = data.compromisos;
+    compromisosList.innerHTML = "";
+    if (c.detalle.length === 0) {
+      const p = document.createElement("p");
+      p.className = "text-xs text-slate-400";
+      p.textContent = "No hay pagos fijos activos este mes.";
+      compromisosList.appendChild(p);
+    } else {
+      c.detalle.forEach((d) => {
+        const row = document.createElement("div");
+        row.className = "flex items-center justify-between text-xs";
+        const nombre = document.createElement("span");
+        nombre.className = "text-slate-600";
+        nombre.textContent = d.veces > 1 ? `${d.label} (x${d.veces})` : d.label;
+        const monto = document.createElement("span");
+        monto.className = "font-semibold text-slate-700";
+        monto.textContent = formatSoles(d.subtotal);
+        row.appendChild(nombre);
+        row.appendChild(monto);
+        compromisosList.appendChild(row);
+      });
+    }
+    compromisosTotalTxt.textContent = formatSoles(c.total);
+    compromisosAhorroTxt.textContent = formatSoles(data.goals.ahorroMensual);
+    compromisosNecesidadTxt.textContent = formatSoles(c.necesidadTotal);
+    compromisosGeneradoTxt.textContent = formatSoles(data.ahorro.actual);
+    metaDiariaRealTxt.textContent = formatSoles(c.metaDiariaReal);
   }
 }
 

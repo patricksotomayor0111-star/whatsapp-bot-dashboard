@@ -273,6 +273,45 @@ function registrarNotificacion() {
   save();
 }
 
+// Cuántas veces cae un día de la semana (0=domingo...6=sábado) dentro de
+// un mes dado.
+function ocurrenciasDiaSemanaEnMes(y, mo, diaSemana) {
+  const total = diasEnMes(y, mo);
+  let veces = 0;
+  for (let d = 1; d <= total; d++) {
+    if (new Date(Date.UTC(y, mo - 1, d)).getUTCDay() === diaSemana) veces++;
+  }
+  return veces;
+}
+
+// Compromisos fijos del mes en curso: suma todas las ocurrencias de cada
+// recordatorio ACTIVO que caen dentro del mes (un semanal puede caer 4 o
+// 5 veces; uno mensual, una sola vez), sin importar si ya se marcaron
+// como pagados o no — es el total que hay que cubrir en el mes completo.
+function getComprisosDelMes() {
+  const hoy = fechaLabelPeru();
+  const [y, mo] = hoy.split("-").map(Number);
+  const detalle = [];
+
+  data.reminders.forEach((r) => {
+    if (r.activo === false) return;
+    let veces = 0;
+    if (r.tipo === "semanal") {
+      veces = ocurrenciasDiaSemanaEnMes(y, mo, r.dia);
+    } else if (r.tipo === "mensual_dia" || r.tipo === "mensual_finmes") {
+      veces = 1;
+    } else if (r.tipo === "unica") {
+      veces = r.fecha && r.fecha.slice(0, 7) === hoy.slice(0, 7) ? 1 : 0;
+    }
+    if (veces > 0) {
+      detalle.push({ id: r.id, label: r.label, monto: r.monto, veces, subtotal: r.monto * veces });
+    }
+  });
+
+  const total = detalle.reduce((sum, d) => sum + d.subtotal, 0);
+  return { total, detalle };
+}
+
 module.exports = {
   getPendientes,
   getAll,
@@ -282,4 +321,5 @@ module.exports = {
   removeReminder,
   necesitaNotificar,
   registrarNotificacion,
+  getComprisosDelMes,
 };
