@@ -484,20 +484,10 @@ function extraerTrasPrefijo(textoLimpio, frase) {
   return resto || null;
 }
 
-// Cuánto hay que generar por día para cubrir los compromisos fijos del
-// mes (Pendientes) más el ahorro deseado, descontando lo ya generado neto
-// este mes y repartiendo entre los días que quedan. Mismo cálculo que
-// /api/finance/goals/progress en server.js.
-function calcularMetaDiariaReal() {
-  const compromisos = reminders.getComprisosDelMes();
-  const goals = financeGoals.getGoals();
-  const mes = cashbox.getMonthSoFar();
-  const { diasRestantes } = cashbox.getDiasDelMes();
-
-  const ahorroActual = mes.ganancias - mes.gastos;
-  const necesidadTotal = compromisos.total + goals.ahorroMensual;
-  const necesidadFaltante = Math.max(necesidadTotal - ahorroActual, 0);
-  return diasRestantes > 0 ? necesidadFaltante / diasRestantes : necesidadFaltante;
+// Formatea una lista de pagos pendientes (de reminders.getPagos*) para
+// mandarla por WhatsApp: un renglón por pago, con su fecha.
+function formatearListaPagos(lista) {
+  return lista.map((p) => `${p.label} (${p.fecha}): ${formatSoles(p.monto)}`).join("\n");
 }
 
 function calcularRespuestaConsulta(intent, variable) {
@@ -535,19 +525,33 @@ function calcularRespuestaConsulta(intent, variable) {
   }
 
   if (intent.id === "gastarHoy") {
-    // La meta de hoy para "cuánto puedo gastar" no es un número a ojo:
-    // sale de lo que realmente hay que cubrir este mes (compromisos fijos
-    // de Pendientes + el ahorro deseado), repartido entre los días que
-    // quedan, descontando lo que ya se generó neto en el mes.
-    const metaDiaria = calcularMetaDiariaReal();
-    if (metaDiaria <= 0) return aplicarPlantilla(campo("respuestaSinMeta", "No tienes compromisos ni meta de ahorro configurados este mes, así que no puedo calcular esto."), {});
+    // "¿Voy bien?" no es "cuánto me queda para gastar" (gastar nunca
+    // ayuda a cumplir una meta de ingreso). Se compara lo que ya se tiene
+    // más lo proyectado a generar en lo que resta del mes, contra lo que
+    // de verdad falta pagar (Pendientes reales, no todo el mes) más la
+    // meta de ahorro.
     const hoy = cashbox.getToday();
-    const disponible = Math.max(metaDiaria - hoy.gastos, 0);
-    return aplicarPlantilla(intent.respuesta, {
-      meta: formatSoles(metaDiaria),
-      gastos: formatSoles(hoy.gastos),
-      disponible: formatSoles(disponible),
-    });
+    const pendientes = reminders.getPendientes();
+    const pendientesTotal = pendientes.reduce((sum, p) => sum + p.monto, 0);
+    const goals = financeGoals.getGoals();
+    const mes = cashbox.getMonthSoFar();
+    const { diaActual, diasRestantes } = cashbox.getDiasDelMes();
+
+    const promedioDiario = diaActual > 0 ? (mes.ganancias - mes.gastos) / diaActual : 0;
+    const gananciaProyectadaResto = promedioDiario * diasRestantes;
+    const recursos = hoy.esperado + gananciaProyectadaResto;
+    const necesidad = pendientesTotal + goals.ahorroMensual;
+    const margen = recursos - necesidad;
+    const lineaAhorro = goals.ahorroMensual > 0 ? ` y tu meta de ahorro (${formatSoles(goals.ahorroMensual)})` : "";
+
+    const vars = {
+      caja: formatSoles(hoy.esperado),
+      pendientes: formatSoles(pendientesTotal),
+      lineaAhorro,
+      margen: formatSoles(Math.abs(margen)),
+    };
+    if (margen >= 0) return aplicarPlantilla(intent.respuesta, vars);
+    return aplicarPlantilla(campo("respuestaFaltante", intent.respuesta), vars);
   }
 
   if (intent.id === "vendiHoy") {
@@ -607,6 +611,26 @@ function calcularRespuestaConsulta(intent, variable) {
 
   if (intent.id === "faltante") {
     return aplicarPlantilla(intent.respuesta, { total: formatSoles(shortfalls.getTotal()) });
+  }
+
+  if (intent.id === "pagosSemana" || intent.id === "pagosQuincena" || intent.id === "pagosMes") {
+    const lista =
+      intent.id === "pagosSemana"
+        ? reminders.getPagosSemana()
+        : intent.id === "pagosQuincena"
+          ? reminders.getPagosQuincena()
+          : reminders.getPagosMesRestante();
+    if (lista.length === 0) return aplicarPlantilla(campo("respuestaVacia", "No tienes pagos pendientes. ✅"), {});
+    const total = lista.reduce((sum, p) => sum + p.monto, 0);
+    return aplicarPlantilla(intent.respuesta, { lista: formatearListaPagos(lista), total: formatSoles(total) });
+  }
+
+  if (intent.id === "gastoMasFuerte") {
+    const resumen = budgetCategories.getResumen(cashbox.getMovimientos(), cashbox.getMesActualLabel());
+    const conGasto = resumen.filter((r) => r.tipo === "limite" && r.gastado > 0);
+    if (conGasto.length === 0) return aplicarPlantilla(campo("respuestaVacia", "Todavía no registraste gastos categorizados este mes."), {});
+    const mayor = conGasto.reduce((a, b) => (b.gastado > a.gastado ? b : a));
+    return aplicarPlantilla(intent.respuesta, { categoria: mayor.label, monto: formatSoles(mayor.gastado) });
   }
 
   return null;

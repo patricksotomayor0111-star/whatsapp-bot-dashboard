@@ -2745,6 +2745,7 @@ const CAMPOS_RESPUESTA_LABELS = {
   respuestaSinMeta: "Respuesta cuando no hay meta configurada",
   respuestaSinLimite: "Respuesta cuando la categoría no tiene límite",
   respuestaSinCategoria: "Respuesta cuando no existe esa categoría",
+  respuestaFaltante: "Respuesta cuando todavía falta cubrir la necesidad",
 };
 
 function renderQueryIntents(intents) {

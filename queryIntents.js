@@ -38,10 +38,12 @@ const DEFAULTS = [
   {
     id: "gastarHoy",
     tipo: "fijo",
-    label: "Cuánto puedo gastar hoy",
-    frases: ["cuanto puedo gastar hoy", "cuanto puedo gastar"],
-    respuesta: "Tu meta de hoy es {meta} y ya gastaste {gastos}. Puedes gastar hasta {disponible} más sin pasarte.",
-    respuestaSinMeta: "Todavía no configuraste una meta de ganancia diaria (Finanzas → Metas en el panel), así que no puedo calcular esto.",
+    label: "¿Voy bien con mis compromisos? (antes \"cuánto puedo gastar\")",
+    frases: ["cuanto puedo gastar hoy", "cuanto puedo gastar", "voy bien"],
+    respuesta:
+      "✅ Vas bien: con tu efectivo actual ({caja}) y lo que se proyecta generar en lo que queda del mes, cubres tus compromisos pendientes ({pendientes}){lineaAhorro}, con {margen} de sobra.",
+    respuestaFaltante:
+      "⚠️ Con tu efectivo actual ({caja}) y lo proyectado para lo que queda del mes, todavía te faltan {margen} netos para cubrir tus compromisos pendientes ({pendientes}){lineaAhorro}.",
   },
   {
     id: "vendiHoy",
@@ -94,9 +96,49 @@ const DEFAULTS = [
     frases: ["faltante", "faltantes"],
     respuesta: "Faltante acumulado en total: {total}.",
   },
+  {
+    id: "pagosSemana",
+    tipo: "fijo",
+    label: "Qué debo pagar esta semana",
+    frases: ["que debo pagar esta semana", "que pago esta semana", "pagos de esta semana", "que tengo que pagar esta semana"],
+    respuesta: "📅 Pagos de esta semana:\n{lista}\nTotal: {total}",
+    respuestaVacia: "No tienes pagos pendientes esta semana. ✅",
+  },
+  {
+    id: "pagosQuincena",
+    tipo: "fijo",
+    label: "Qué debo pagar esta quincena",
+    frases: ["que debo pagar esta quincena", "pagos de esta quincena", "que tengo que pagar esta quincena"],
+    respuesta: "📅 Pagos de esta quincena:\n{lista}\nTotal: {total}",
+    respuestaVacia: "No tienes pagos pendientes esta quincena. ✅",
+  },
+  {
+    id: "pagosMes",
+    tipo: "fijo",
+    label: "Qué debo pagar este mes",
+    frases: ["que debo pagar este mes", "pagos de este mes", "que falta pagar este mes", "que tengo que pagar este mes"],
+    respuesta: "📅 Pagos que faltan este mes:\n{lista}\nTotal: {total}",
+    respuestaVacia: "No te falta ningún pago pendiente este mes. ✅",
+  },
+  {
+    id: "gastoMasFuerte",
+    tipo: "fijo",
+    label: "Cuál es mi gasto más fuerte del mes",
+    frases: ["cual es mi gasto mas fuerte", "en que gasto mas", "mi gasto mas fuerte del mes", "cual es mi mayor gasto"],
+    respuesta: "Tu gasto más fuerte este mes es {categoria}: {monto}.",
+    respuestaVacia: "Todavía no registraste gastos categorizados este mes.",
+  },
 ];
 
-const CAMPOS_RESPUESTA = ["respuesta", "respuestaVacia", "respuestaCumplida", "respuestaSinMeta", "respuestaSinLimite", "respuestaSinCategoria"];
+const CAMPOS_RESPUESTA = [
+  "respuesta",
+  "respuestaVacia",
+  "respuestaCumplida",
+  "respuestaSinMeta",
+  "respuestaSinLimite",
+  "respuestaSinCategoria",
+  "respuestaFaltante",
+];
 
 function loadData() {
   try {

@@ -312,6 +312,65 @@ function getComprisosDelMes() {
   return { total, detalle };
 }
 
+// Lista genérica de ocurrencias dentro de un rango [hoy, hoy+dias], solo
+// de recordatorios activos y sin contar las que ya se marcaron pagadas
+// (lastPaidCycle). Recorre día por día el rango (acotado, barato) para
+// que funcione igual para semanales, mensuales y únicos.
+function getPagosEnRango(dias) {
+  const hoy = fechaLabelPeru();
+  const hasta = addDays(hoy, dias);
+  const lista = [];
+
+  data.reminders.forEach((r) => {
+    if (r.activo === false) return;
+
+    if (r.tipo === "unica") {
+      if (r.fecha && r.fecha >= hoy && r.fecha <= hasta) {
+        lista.push({ id: r.id, label: r.label, monto: r.monto, fecha: r.fecha });
+      }
+      return;
+    }
+
+    let cursor = hoy;
+    while (cursor <= hasta) {
+      let esOcurrencia = false;
+      if (r.tipo === "semanal") {
+        esOcurrencia = ymdToUtc(cursor).getUTCDay() === r.dia;
+      } else if (r.tipo === "mensual_dia") {
+        const [y, mo] = cursor.split("-").map(Number);
+        esOcurrencia = Number(cursor.split("-")[2]) === Math.min(r.dia, diasEnMes(y, mo));
+      } else if (r.tipo === "mensual_finmes") {
+        const [y, mo] = cursor.split("-").map(Number);
+        esOcurrencia = Number(cursor.split("-")[2]) === diasEnMes(y, mo);
+      }
+      const yaPagado = esOcurrencia && r.lastPaidCycle && cursor <= r.lastPaidCycle;
+      if (esOcurrencia && !yaPagado) {
+        lista.push({ id: r.id, label: r.label, monto: r.monto, fecha: cursor });
+      }
+      cursor = addDays(cursor, 1);
+    }
+  });
+
+  lista.sort((a, b) => a.fecha.localeCompare(b.fecha));
+  return lista;
+}
+
+function getPagosSemana() {
+  return getPagosEnRango(7);
+}
+
+function getPagosQuincena() {
+  return getPagosEnRango(15);
+}
+
+// Lo que falta pagar desde hoy hasta el último día del mes en curso.
+function getPagosMesRestante() {
+  const hoy = fechaLabelPeru();
+  const [y, mo] = hoy.split("-").map(Number);
+  const diasRestantes = diasEnMes(y, mo) - Number(hoy.split("-")[2]);
+  return getPagosEnRango(diasRestantes);
+}
+
 module.exports = {
   getPendientes,
   getAll,
@@ -322,4 +381,8 @@ module.exports = {
   necesitaNotificar,
   registrarNotificacion,
   getComprisosDelMes,
+  getPagosEnRango,
+  getPagosSemana,
+  getPagosQuincena,
+  getPagosMesRestante,
 };
