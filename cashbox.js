@@ -1,5 +1,6 @@
 const fs = require("fs");
 const { dataPath } = require("./dataDir");
+const businessDay = require("./businessDay");
 
 const DATA_PATH = dataPath("cashbox-data.json");
 const MAX_CIERRES = 90; // días de historial de cierres que se conservan
@@ -55,29 +56,15 @@ function save() {
 
 // Fecha y hora actuales en Perú (UTC-5, sin horario de verano), sin
 // depender de la zona horaria del servidor.
-function peruAhora() {
-  const now = new Date();
-  const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
-  return new Date(utcMs - 5 * 3600000);
-}
+const { peruAhora, fechaLabel, horaLabel, businessDayLabel } = businessDay;
 
-function fechaLabel(d) {
-  const y = d.getFullYear();
-  const mo = String(d.getMonth() + 1).padStart(2, "0");
-  const dia = String(d.getDate()).padStart(2, "0");
-  return `${y}-${mo}-${dia}`;
-}
-
-function horaLabel(d) {
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
-
-// Cada movimiento queda registrado con fecha y hora (Perú) para poder
-// exportar el detalle completo a Excel.
+// Cada movimiento queda registrado con el DÍA LABORAL (7am-7am, no el
+// calendario) y la hora real (Perú), para que un registro de la madrugada
+// (antes de las 7am) siga agrupado con el día que todavía sigue abierto.
 function registrarMovimiento(tipo, monto, descripcion) {
   const ahora = peruAhora();
   data.movimientos.push({
-    fecha: fechaLabel(ahora),
+    fecha: businessDayLabel(),
     hora: horaLabel(ahora),
     tipo,
     monto,
@@ -131,7 +118,7 @@ function getToday() {
 function registrarAna(tipo, monto, descripcion) {
   const ahora = peruAhora();
   data.anaMovimientos.push({
-    fecha: fechaLabel(ahora),
+    fecha: businessDayLabel(),
     hora: horaLabel(ahora),
     tipo,
     monto,
@@ -259,7 +246,7 @@ function rebuildDay(fecha, caja, movs, resetAna) {
     else if (m.tipo === "gasto") gs += monto;
   });
   const cajaNum = Number(caja) || 0;
-  const esHoy = fecha === fechaLabel(peruAhora());
+  const esHoy = fecha === businessDayLabel();
   if (esHoy) {
     data.todayGanancias = g;
     data.todayGastos = gs;
@@ -293,7 +280,7 @@ function getMovimientos() {
 // addMovimientoManual para que el panel pueda corregir cualquier
 // movimiento sin romper el efectivo esperado.
 function ajustarTotalesPorFecha(fecha, deltaGanancia, deltaGasto) {
-  const esHoy = fecha === fechaLabel(peruAhora());
+  const esHoy = fecha === businessDayLabel();
   if (esHoy) {
     data.todayGanancias += deltaGanancia;
     data.todayGastos += deltaGasto;
@@ -392,7 +379,7 @@ function editCierre(fecha, cambios) {
     cierreSiguiente.caja = cierre.esperado;
     cierreSiguiente.total = cierreSiguiente.ganancias - cierreSiguiente.gastos;
     cierreSiguiente.esperado = cierreSiguiente.caja + cierreSiguiente.total;
-  } else if (siguiente === fechaLabel(peruAhora())) {
+  } else if (siguiente === businessDayLabel()) {
     data.cajaInicial = cierre.esperado;
   }
 
@@ -411,13 +398,13 @@ function getLastClosedWeek() {
 // "YYYY-MM" del mes actual (hora Perú), para agrupar gastos por mes en
 // el resumen de categorías con límite mensual.
 function getMesActualLabel() {
-  return fechaLabel(peruAhora()).slice(0, 7);
+  return businessDayLabel().slice(0, 7);
 }
 
 // "YYYY-MM-DD" de hoy (hora Perú), para que los gráficos puedan ubicar el
 // día en curso junto al historial de días ya cerrados.
 function getHoyLabel() {
-  return fechaLabel(peruAhora());
+  return businessDayLabel();
 }
 
 // Lo acumulado de la semana (weekGanancias/weekGastos, que solo se suman

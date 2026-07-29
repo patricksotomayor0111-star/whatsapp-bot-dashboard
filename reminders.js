@@ -1,5 +1,6 @@
 const fs = require("fs");
 const { dataPath } = require("./dataDir");
+const businessDay = require("./businessDay");
 
 const DATA_PATH = dataPath("reminders-data.json");
 
@@ -55,49 +56,14 @@ if (!fs.existsSync(DATA_PATH)) save();
 
 // ---------- Utilidades de fecha (solo calendario, sin zona horaria) ----------
 // Se trabaja con etiquetas "YYYY-MM-DD" y fechas UTC a medianoche para que la
-// aritmética de días/meses no dependa de la zona del servidor.
-function peruAhora() {
-  const now = new Date();
-  const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
-  return new Date(utcMs - 5 * 3600000);
-}
-
-function fechaLabelPeru() {
-  const d = peruAhora();
-  const y = d.getFullYear();
-  const mo = String(d.getMonth() + 1).padStart(2, "0");
-  const dia = String(d.getDate()).padStart(2, "0");
-  return `${y}-${mo}-${dia}`;
-}
-
-function horaPeru() {
-  return peruAhora().getHours();
-}
-
-function ymdToUtc(label) {
-  const [y, mo, d] = label.split("-").map(Number);
-  return new Date(Date.UTC(y, mo - 1, d));
-}
-
-function utcToLabel(dt) {
-  const y = dt.getUTCFullYear();
-  const mo = String(dt.getUTCMonth() + 1).padStart(2, "0");
-  const d = String(dt.getUTCDate()).padStart(2, "0");
-  return `${y}-${mo}-${d}`;
-}
-
-function addDays(label, n) {
-  const dt = ymdToUtc(label);
-  dt.setUTCDate(dt.getUTCDate() + n);
-  return utcToLabel(dt);
-}
+// aritmética de días/meses no dependa de la zona del servidor. "Hoy" es el
+// día LABORAL (7am a 7am, ver businessDay.js), no el día calendario: así los
+// pagos vencidos/pendientes respetan el mismo corte que la caja y los
+// resúmenes diarios.
+const { ymdToUtc, utcToLabel, addDays, diasEnMes, horaPeru, businessDayLabel: fechaLabelPeru } = businessDay;
 
 function diasEntre(labelA, labelB) {
   return Math.round((ymdToUtc(labelB).getTime() - ymdToUtc(labelA).getTime()) / 86400000);
-}
-
-function diasEnMes(y, mo) {
-  return new Date(Date.UTC(y, mo, 0)).getUTCDate(); // día 0 del mes siguiente = último de este
 }
 
 // La fecha de vencimiento del ciclo cuyo aviso YA se abrió (1 día antes),

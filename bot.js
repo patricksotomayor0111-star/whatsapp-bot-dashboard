@@ -15,6 +15,7 @@ const cashbox = require("./cashbox");
 const pendingQuotes = require("./pendingQuotes");
 const pushSubscriptions = require("./pushSubscriptions");
 const reminders = require("./reminders");
+const businessDay = require("./businessDay");
 const contactTriggerGroups = require("./contactTriggerGroups");
 const groupDelays = require("./groupDelays");
 const debts = require("./debts");
@@ -686,26 +687,20 @@ function handleCashboxEntries(entradas) {
   });
 }
 
-// Formatea la fecha (en hora Perú) como "YYYY-MM-DD", para usarla como
-// identificador de "qué día ya se cerró" y no cerrar el mismo día dos veces.
-function peruDateLabel(now) {
-  const y = now.getFullYear();
-  const mo = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  return `${y}-${mo}-${d}`;
-}
-
-// Revisa cada cierto tiempo si ya son las 11:59pm hora Perú para cerrar el
-// día (y, si es domingo, también la semana). Guarda qué día ya cerró para
+// Revisa cada cierto tiempo si ya son las 3:00am hora Perú (fin del día
+// laboral, que va de 7am a 7am) para cerrar el día (y, si el día laboral
+// que cierra fue domingo, también la semana). Guarda qué día ya cerró para
 // no mandar el mensaje dos veces si esta función corre más de una vez
 // dentro del mismo minuto.
 async function checkCashboxSchedule() {
   if (!currentSock || !botState.connected) return;
 
   const now = getPeruNow();
-  if (now.getHours() !== 23 || now.getMinutes() !== 59) return;
+  if (now.getHours() !== 3 || now.getMinutes() !== 0) return;
 
-  const hoyLabel = peruDateLabel(now);
+  // A las 3am, businessDayLabel() ya resuelve al día laboral que se está
+  // cerrando (el que empezó ayer a las 7am), no al calendario de hoy.
+  const hoyLabel = businessDay.businessDayLabel();
   if (cashbox.getLastClosedDay() === hoyLabel) return;
 
   const grupo = botState.groups.find((g) => g.name.trim().toUpperCase() === CASHBOX_GROUP_NAME);
@@ -738,8 +733,10 @@ async function checkCashboxSchedule() {
       .catch((err) => console.error("Error al notificar meta diaria no cumplida:", err.message));
   }
 
-  // Domingo = 0 en getDay(). Además del cierre diario, manda el resumen semanal.
-  if (now.getDay() === 0 && cashbox.getLastClosedWeek() !== hoyLabel) {
+  // Domingo = 0. Se revisa el día de la semana del día laboral que se
+  // está cerrando (hoyLabel), no el del momento actual (3am ya es lunes).
+  // Además del cierre diario, manda el resumen semanal.
+  if (businessDay.ymdToUtc(hoyLabel).getUTCDay() === 0 && cashbox.getLastClosedWeek() !== hoyLabel) {
     const resumenSemana = cashbox.closeWeek(hoyLabel);
     const textoSemana =
       `🗓️ Resumen semanal\n\n` +
