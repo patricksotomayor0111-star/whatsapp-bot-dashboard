@@ -492,6 +492,28 @@ function formatearListaPagos(lista) {
   return lista.map((p) => `${p.label} (${p.fecha}): ${formatSoles(p.monto)}`).join("\n");
 }
 
+// "¿Voy bien?" no es "cuánto me queda para gastar" (gastar nunca ayuda a
+// cumplir una meta de ingreso). Se compara lo que ya se tiene más lo
+// proyectado a generar en lo que resta del mes, contra lo que de verdad
+// falta pagar (Pendientes reales, no todo el mes) más la meta de ahorro.
+// Compartido entre la consulta "gastarHoy" y el mensaje automático de las
+// 7am.
+function calcularMargenHoy() {
+  const hoy = cashbox.getToday();
+  const pendientes = reminders.getPendientes();
+  const pendientesTotal = pendientes.reduce((sum, p) => sum + p.monto, 0);
+  const goals = financeGoals.getGoals();
+  const mes = cashbox.getMonthSoFar();
+  const { diaActual, diasRestantes } = cashbox.getDiasDelMes();
+
+  const promedioDiario = diaActual > 0 ? (mes.ganancias - mes.gastos) / diaActual : 0;
+  const gananciaProyectadaResto = promedioDiario * diasRestantes;
+  const recursos = hoy.esperado + gananciaProyectadaResto;
+  const necesidad = pendientesTotal + goals.ahorroMensual;
+  const margen = recursos - necesidad;
+  return { hoy, pendientesTotal, goals, margen };
+}
+
 function calcularRespuestaConsulta(intent, variable) {
   const campo = (nombre, fallback) => (intent[nombre] ? intent[nombre] : fallback);
 
@@ -527,23 +549,7 @@ function calcularRespuestaConsulta(intent, variable) {
   }
 
   if (intent.id === "gastarHoy") {
-    // "¿Voy bien?" no es "cuánto me queda para gastar" (gastar nunca
-    // ayuda a cumplir una meta de ingreso). Se compara lo que ya se tiene
-    // más lo proyectado a generar en lo que resta del mes, contra lo que
-    // de verdad falta pagar (Pendientes reales, no todo el mes) más la
-    // meta de ahorro.
-    const hoy = cashbox.getToday();
-    const pendientes = reminders.getPendientes();
-    const pendientesTotal = pendientes.reduce((sum, p) => sum + p.monto, 0);
-    const goals = financeGoals.getGoals();
-    const mes = cashbox.getMonthSoFar();
-    const { diaActual, diasRestantes } = cashbox.getDiasDelMes();
-
-    const promedioDiario = diaActual > 0 ? (mes.ganancias - mes.gastos) / diaActual : 0;
-    const gananciaProyectadaResto = promedioDiario * diasRestantes;
-    const recursos = hoy.esperado + gananciaProyectadaResto;
-    const necesidad = pendientesTotal + goals.ahorroMensual;
-    const margen = recursos - necesidad;
+    const { hoy, pendientesTotal, goals, margen } = calcularMargenHoy();
     const lineaAhorro = goals.ahorroMensual > 0 ? ` y tu meta de ahorro (${formatSoles(goals.ahorroMensual)})` : "";
 
     const vars = {
@@ -724,14 +730,36 @@ async function checkCashboxSchedule() {
   const grupo = botState.groups.find((g) => g.name.trim().toUpperCase() === CASHBOX_GROUP_NAME);
   if (!grupo) return;
 
+  // La meta de producción que estuvo vigente el día que se está cerrando
+  // se calcula ANTES de cerrar (closeDay agrega el cierre de hoy, lo que
+  // recalcularía la meta para el día siguiente en vez de la de hoy).
+  const mesQueCierra = hoyLabel.slice(0, 7);
+  const progresoAntes = productionGoals.getProgresoMes(mesQueCierra);
+
   const resumenDia = cashbox.closeDay(hoyLabel);
-  const textoDia =
+
+  // La meta del día siguiente ya sale recalculada con el cierre de hoy
+  // incluido; puede caer en otro mes (ej. cerrar el 31 y empezar el 1).
+  const mesSiguiente = businessDay.addDays(hoyLabel, 1).slice(0, 7);
+  const progresoSiguiente = productionGoals.getProgresoMes(mesSiguiente);
+
+  let textoDia =
     `📦 Caja chica del día\n\n` +
     `✅ Ganancias: ${formatSoles(resumenDia.ganancias)}\n` +
     `📉 Gastos: ${formatSoles(resumenDia.gastos)}\n` +
     `💰 Total líquido: ${formatSoles(resumenDia.total)}\n` +
     `🧮 Caja inicial: ${formatSoles(resumenDia.caja)}\n` +
     `💵 Efectivo esperado: ${formatSoles(resumenDia.esperado)}`;
+
+  if (progresoAntes) {
+    const cumplioMeta = resumenDia.ganancias >= progresoAntes.metaHoy;
+    textoDia +=
+      `\n\n🎯 Meta de producción de hoy: ${formatSoles(progresoAntes.metaHoy)} — ${cumplioMeta ? "cumplida ✅" : "no cumplida ⚠️"}\n` +
+      `📈 Vas en ${formatSoles(progresoAntes.generadoAcumulado + resumenDia.ganancias)} de ${formatSoles(progresoAntes.metaMensualReferencia)} este mes.`;
+  }
+  if (progresoSiguiente) {
+    textoDia += `\n🌅 Meta de mañana: ${formatSoles(progresoSiguiente.metaHoy)}`;
+  }
 
   try {
     await enviarMensaje(currentSock, grupo.id, { text: textoDia });
@@ -768,8 +796,61 @@ async function checkCashboxSchedule() {
   }
 }
 
+let lastMorningMessageLabel = null;
+
+// Revisa cada cierto tiempo si ya son las 7:00am hora Perú (inicio del día
+// laboral) para mandar el mensaje de "buenos días": la meta de producción
+// de hoy, cuánto falta para completar el mes, cuánto conviene ahorrar hoy
+// y cuánto se puede gastar sin afectar los objetivos.
+async function checkMorningSchedule() {
+  if (!currentSock || !botState.connected) return;
+
+  const now = getPeruNow();
+  if (now.getHours() !== 7 || now.getMinutes() !== 0) return;
+
+  const hoyLabel = businessDay.businessDayLabel();
+  if (lastMorningMessageLabel === hoyLabel) return;
+
+  const grupo = botState.groups.find((g) => g.name.trim().toUpperCase() === CASHBOX_GROUP_NAME);
+  if (!grupo) return;
+
+  lastMorningMessageLabel = hoyLabel;
+
+  const progreso = productionGoals.getProgresoMes(cashbox.getMesActualLabel());
+  const { goals, margen } = calcularMargenHoy();
+  const { diasRestantes } = cashbox.getDiasDelMes();
+  const mes = cashbox.getMonthSoFar();
+  const ahorroActual = mes.ganancias - mes.gastos;
+  const ahorroFaltante = Math.max(goals.ahorroMensual - ahorroActual, 0);
+  const recomendadoDiario = diasRestantes > 0 ? ahorroFaltante / diasRestantes : ahorroFaltante;
+
+  let texto = `☀️ Buenos días, Patrick.\n\n`;
+  if (progreso) {
+    const faltaMes = Math.max(progreso.metaMensualReferencia - progreso.generadoAcumulado, 0);
+    texto +=
+      `🎯 Hoy tu meta de producción es: ${formatSoles(progreso.metaHoy)}\n` +
+      `📅 Te faltan ${formatSoles(faltaMes)} para completar la meta del mes.\n`;
+  } else {
+    texto += `No tienes una meta de producción configurada para este mes.\n`;
+  }
+  if (goals.ahorroMensual > 0) {
+    texto += `💰 Deberías ahorrar hoy: ${formatSoles(recomendadoDiario)}\n`;
+  }
+  texto +=
+    margen >= 0
+      ? `✅ Puedes gastar hoy hasta ${formatSoles(margen)} sin afectar tus objetivos.`
+      : `⚠️ Todavía no tienes margen para gastar de más: te faltan ${formatSoles(Math.abs(margen))} para cubrir tus compromisos y tu ahorro.`;
+
+  try {
+    await enviarMensaje(currentSock, grupo.id, { text: texto });
+  } catch (err) {
+    console.error("Error al mandar el mensaje de buenos días:", err.message);
+  }
+}
+
 setInterval(() => {
   checkCashboxSchedule().catch((err) => console.error("Error en checkCashboxSchedule:", err.message));
+  checkMorningSchedule().catch((err) => console.error("Error en checkMorningSchedule:", err.message));
 }, 30000);
 
 // Deja solo los dígitos y se queda con los últimos 9 (número peruano sin
