@@ -121,6 +121,21 @@ const DEFAULTS = [
     respuestaVacia: "No te falta ningún pago pendiente este mes. ✅",
   },
   {
+    id: "metaProduccionHoy",
+    tipo: "fijo",
+    label: "Cuánto debo generar hoy (meta de producción)",
+    frases: [
+      "cuanto debo generar hoy",
+      "cuanto tengo que generar hoy",
+      "meta de produccion hoy",
+      "cuanto necesito generar hoy",
+      "cual es mi meta de produccion",
+    ],
+    respuesta: "🎯 Meta de producción de hoy: {metaHoy}. Llevas {generadoHoy}, te faltan {faltaHoy}.",
+    respuestaCumplida: "🎉 ¡Ya cumpliste tu meta de producción de hoy! Llevas {generadoHoy} de {metaHoy} ({excedenteHoy} de más).",
+    respuestaSinMeta: "No tienes una meta de producción configurada para este mes. Puedes crearla en el panel (Finanzas → Metas).",
+  },
+  {
     id: "gastoMasFuerte",
     tipo: "fijo",
     label: "Cuál es mi gasto más fuerte del mes",

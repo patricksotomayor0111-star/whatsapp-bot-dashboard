@@ -16,6 +16,7 @@ const debts = require("./debts");
 const shortfalls = require("./shortfalls");
 const referenceAccounts = require("./referenceAccounts");
 const financeGoals = require("./financeGoals");
+const productionGoals = require("./productionGoals");
 const ExcelJS = require("exceljs");
 
 const app = express();
@@ -152,7 +153,8 @@ app.post("/api/focus/clear", (req, res) => {
   res.json({ ok: true });
 });
 
-// Enfoca de una todos los grupos de un sector (según su sectorId efectivo).
+// Enfoca/desenfoca de una todos los grupos de un sector (toggle: si ya
+// estaban todos enfocados, los saca a todos; si no, los enfoca a todos).
 // Al ser un path con 2 segmentos no choca con "/api/focus/:groupId" de abajo.
 app.post("/api/focus/sector/:sectorId", (req, res) => {
   const sectorId = req.params.sectorId;
@@ -415,6 +417,34 @@ app.put("/api/finance/query-intents/:id/response", (req, res) => {
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+});
+
+// Meta de producción diaria (por mes): mínimo diario base + días de
+// producción aproximados, con redistribución automática del faltante o
+// excedente entre los días que quedan.
+app.get("/api/finance/production-goals", (req, res) => {
+  res.json({ metas: productionGoals.getAllMetas(), hoy: productionGoals.getProgresoHoy() });
+});
+
+app.get("/api/finance/production-goals/:mes", (req, res) => {
+  const progreso = productionGoals.getProgresoMes(req.params.mes);
+  if (!progreso) return res.status(404).json({ error: "No hay meta configurada para ese mes." });
+  res.json({ progreso });
+});
+
+app.put("/api/finance/production-goals/:mes", (req, res) => {
+  try {
+    const meta = productionGoals.setMeta(req.params.mes, req.body?.metaDiariaBase, req.body?.diasProduccion);
+    res.json({ ok: true, meta });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete("/api/finance/production-goals/:mes", (req, res) => {
+  const ok = productionGoals.removeMeta(req.params.mes);
+  if (!ok) return res.status(404).json({ error: "No hay meta configurada para ese mes." });
+  res.json({ ok: true });
 });
 
 // Deudas por persona

@@ -16,6 +16,7 @@ const pendingQuotes = require("./pendingQuotes");
 const pushSubscriptions = require("./pushSubscriptions");
 const reminders = require("./reminders");
 const businessDay = require("./businessDay");
+const productionGoals = require("./productionGoals");
 const contactTriggerGroups = require("./contactTriggerGroups");
 const groupDelays = require("./groupDelays");
 const debts = require("./debts");
@@ -624,6 +625,23 @@ function calcularRespuestaConsulta(intent, variable) {
     if (lista.length === 0) return aplicarPlantilla(campo("respuestaVacia", "No tienes pagos pendientes. ✅"), {});
     const total = lista.reduce((sum, p) => sum + p.monto, 0);
     return aplicarPlantilla(intent.respuesta, { lista: formatearListaPagos(lista), total: formatSoles(total) });
+  }
+
+  if (intent.id === "metaProduccionHoy") {
+    const progreso = productionGoals.getProgresoHoy();
+    if (!progreso) return aplicarPlantilla(campo("respuestaSinMeta", "No tienes una meta de producción configurada para este mes."), {});
+    if (progreso.cumplido) {
+      return aplicarPlantilla(campo("respuestaCumplida", intent.respuesta), {
+        generadoHoy: formatSoles(progreso.generadoHoy),
+        metaHoy: formatSoles(progreso.metaHoy),
+        excedenteHoy: formatSoles(progreso.excedenteHoy),
+      });
+    }
+    return aplicarPlantilla(intent.respuesta, {
+      metaHoy: formatSoles(progreso.metaHoy),
+      generadoHoy: formatSoles(progreso.generadoHoy),
+      faltaHoy: formatSoles(progreso.faltaHoy),
+    });
   }
 
   if (intent.id === "gastoMasFuerte") {
