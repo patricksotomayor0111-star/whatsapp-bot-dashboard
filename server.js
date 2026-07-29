@@ -17,6 +17,7 @@ const shortfalls = require("./shortfalls");
 const referenceAccounts = require("./referenceAccounts");
 const financeGoals = require("./financeGoals");
 const productionGoals = require("./productionGoals");
+const scheduledExpenses = require("./scheduledExpenses");
 const ExcelJS = require("exceljs");
 
 const app = express();
@@ -444,6 +445,54 @@ app.put("/api/finance/production-goals/:mes", (req, res) => {
 app.delete("/api/finance/production-goals/:mes", (req, res) => {
   const ok = productionGoals.removeMeta(req.params.mes);
   if (!ok) return res.status(404).json({ error: "No hay meta configurada para ese mes." });
+  res.json({ ok: true });
+});
+
+// Gastos programados (almuerzos, gasolina, salida familiar, etc.): solo
+// planificación/proyección, no tocan la caja real. "proyeccion" acepta
+// ?desde=YYYY-MM-DD&hasta=YYYY-MM-DD; sin parámetros, devuelve lo que
+// falta del mes en curso.
+app.get("/api/finance/scheduled-expenses", (req, res) => {
+  res.json({ gastos: scheduledExpenses.getAll() });
+});
+
+app.get("/api/finance/scheduled-expenses/proyeccion", (req, res) => {
+  const { desde, hasta } = req.query;
+  if (desde && hasta) return res.json(scheduledExpenses.getProyeccion(desde, hasta));
+  res.json(scheduledExpenses.getProyeccionRestoDeMes());
+});
+
+app.post("/api/finance/scheduled-expenses", (req, res) => {
+  try {
+    const gasto = scheduledExpenses.addGasto(req.body || {});
+    res.json({ ok: true, gasto });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.put("/api/finance/scheduled-expenses/:id", (req, res) => {
+  try {
+    const gasto = scheduledExpenses.editGasto(req.params.id, req.body || {});
+    if (!gasto) return res.status(404).json({ error: "Gasto programado no encontrado." });
+    res.json({ ok: true, gasto });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/finance/scheduled-expenses/:id/activo", (req, res) => {
+  try {
+    scheduledExpenses.setActivo(req.params.id, req.body?.activo);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete("/api/finance/scheduled-expenses/:id", (req, res) => {
+  const ok = scheduledExpenses.removeGasto(req.params.id);
+  if (!ok) return res.status(404).json({ error: "Gasto programado no encontrado." });
   res.json({ ok: true });
 });
 
