@@ -707,6 +707,16 @@ app.post("/api/reminders", (req, res) => {
   }
 });
 
+app.put("/api/reminders/:id", (req, res) => {
+  try {
+    const r = reminders.editReminder(req.params.id, req.body || {});
+    if (!r) return res.status(404).json({ error: "Recordatorio no encontrado." });
+    res.json({ ok: true, reminder: r });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 app.post("/api/reminders/:id/pagado", (req, res) => {
   try {
     reminders.marcarPagado(req.params.id);

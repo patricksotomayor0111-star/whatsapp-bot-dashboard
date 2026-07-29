@@ -18,11 +18,11 @@ const DATA_PATH = dataPath("reminders-data.json");
 const SEED = [
   { id: "junta", label: "Junta", monto: 100, tipo: "semanal", dia: 1 },
   { id: "arce", label: "Cuota ARCE", monto: 27, tipo: "semanal", dia: 2 },
-  { id: "movistar", label: "Movistar internet", monto: 45.9, tipo: "mensual_dia", dia: 5 },
-  { id: "cuzco", label: "Caja Cuzco", monto: 996, tipo: "mensual_dia", dia: 13 },
+  { id: "movistar", label: "Movistar internet", monto: 46, tipo: "mensual_dia", dia: 5 },
+  { id: "cuzco", label: "Caja Cuzco", monto: 998, tipo: "mensual_dia", dia: 13 },
   { id: "luz", label: "Luz", monto: 80, tipo: "mensual_dia", dia: 15 },
   { id: "terreno", label: "Terreno", monto: 500, tipo: "mensual_finmes" },
-  { id: "universidad", label: "Universidad", monto: 2500, tipo: "unica", fecha: "2026-08-20" },
+  { id: "universidad", label: "Universidad", monto: 3200, tipo: "mensual_finmes" },
 ];
 
 function loadData() {
@@ -216,6 +216,27 @@ function addReminder({ label, monto, tipo, dia, fecha }) {
   return nuevo.id;
 }
 
+// Edita un recordatorio existente (nombre, monto, tipo, día/fecha), para
+// no tener que borrarlo y crearlo de nuevo cuando cambia un monto o una
+// fecha real (ej. actualizar Cuzco o Universidad mes a mes).
+function editReminder(id, cambios) {
+  const r = data.reminders.find((x) => x.id === id);
+  if (!r) return null;
+  const tiposValidos = ["semanal", "mensual_dia", "mensual_finmes", "unica"];
+  if (cambios.label !== undefined && String(cambios.label).trim()) r.label = String(cambios.label).trim();
+  if (cambios.monto !== undefined) r.monto = Number(cambios.monto) || 0;
+  if (cambios.tipo !== undefined) {
+    if (!tiposValidos.includes(cambios.tipo)) throw new Error("Tipo de recordatorio inválido: " + cambios.tipo);
+    r.tipo = cambios.tipo;
+  }
+  if (cambios.dia !== undefined) r.dia = Number(cambios.dia);
+  if (cambios.fecha !== undefined) r.fecha = cambios.fecha;
+  if (r.tipo === "unica") delete r.dia;
+  else delete r.fecha;
+  save();
+  return r;
+}
+
 function removeReminder(id) {
   const antes = data.reminders.length;
   data.reminders = data.reminders.filter((r) => r.id !== id);
@@ -356,6 +377,7 @@ module.exports = {
   marcarPagado,
   setActivo,
   addReminder,
+  editReminder,
   removeReminder,
   necesitaNotificar,
   registrarNotificacion,
