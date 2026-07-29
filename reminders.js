@@ -359,6 +359,13 @@ function getPagosSemana() {
   return getPagosEnRango(7);
 }
 
+// Solo lo que vence exactamente mañana (no lo vencido/de hoy que arrastra
+// getPagosEnRango).
+function getPagosManana() {
+  const manana = addDays(fechaLabelPeru(), 1);
+  return getPagosEnRango(1).filter((p) => p.fecha === manana);
+}
+
 function getPagosQuincena() {
   return getPagosEnRango(15);
 }
@@ -384,6 +391,7 @@ module.exports = {
   getComprisosDelMes,
   getPagosEnRango,
   getPagosSemana,
+  getPagosManana,
   getPagosQuincena,
   getPagosMesRestante,
 };

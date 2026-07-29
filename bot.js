@@ -17,6 +17,7 @@ const pushSubscriptions = require("./pushSubscriptions");
 const reminders = require("./reminders");
 const businessDay = require("./businessDay");
 const productionGoals = require("./productionGoals");
+const scheduledExpenses = require("./scheduledExpenses");
 const contactTriggerGroups = require("./contactTriggerGroups");
 const groupDelays = require("./groupDelays");
 const debts = require("./debts");
@@ -647,6 +648,126 @@ function calcularRespuestaConsulta(intent, variable) {
       metaHoy: formatSoles(progreso.metaHoy),
       generadoHoy: formatSoles(progreso.generadoHoy),
       faltaHoy: formatSoles(progreso.faltaHoy),
+    });
+  }
+
+  if (intent.id === "faltaSemanaProduccion" || intent.id === "faltaQuincenaProduccion") {
+    const config = productionGoals.getMeta(cashbox.getMesActualLabel());
+    if (!config) return aplicarPlantilla(campo("respuestaSinMeta", "No tienes una meta de producción configurada para este mes."), {});
+    const esQuincena = intent.id === "faltaQuincenaProduccion";
+    const meta = config.metaDiariaBase * (esQuincena ? 15 : 7);
+    const generado = esQuincena ? cashbox.getQuincenaSoFar().ganancias : cashbox.getWeekSoFar().ganancias;
+    const falta = Math.max(meta - generado, 0);
+    if (falta === 0) {
+      return aplicarPlantilla(campo("respuestaCumplida", "¡Ya cumpliste tu meta! Llevas {generado} de {meta}. 🎉"), {
+        generado: formatSoles(generado),
+        meta: formatSoles(meta),
+      });
+    }
+    return aplicarPlantilla(intent.respuesta, { generado: formatSoles(generado), meta: formatSoles(meta), falta: formatSoles(falta) });
+  }
+
+  if (intent.id === "faltaMesProduccion") {
+    const progreso = productionGoals.getProgresoHoy();
+    if (!progreso) return aplicarPlantilla(campo("respuestaSinMeta", "No tienes una meta de producción configurada para este mes."), {});
+    const generado = progreso.generadoAcumulado + progreso.generadoHoy;
+    const falta = Math.max(progreso.metaMensualReferencia - generado, 0);
+    if (falta === 0) {
+      return aplicarPlantilla(campo("respuestaCumplida", "¡Ya cumpliste tu meta de producción del mes! Llevas {generado} de {meta}. 🎉"), {
+        generado: formatSoles(generado),
+        meta: formatSoles(progreso.metaMensualReferencia),
+      });
+    }
+    return aplicarPlantilla(intent.respuesta, {
+      generado: formatSoles(generado),
+      meta: formatSoles(progreso.metaMensualReferencia),
+      falta: formatSoles(falta),
+    });
+  }
+
+  if (intent.id === "ahorradoMes") {
+    const mes = cashbox.getMonthSoFar();
+    return aplicarPlantilla(intent.respuesta, { ahorrado: formatSoles(mes.ganancias - mes.gastos) });
+  }
+
+  if (intent.id === "faltaMeta") {
+    const cat = budgetCategories
+      .getAllCategorias()
+      .find((c) => c.tipo === "meta" && (normalizeText(c.label).includes(variable) || c.keywords.some((k) => variable.includes(k))));
+    if (cat) {
+      const resumen = budgetCategories.getResumen(cashbox.getMovimientos(), cashbox.getMesActualLabel());
+      const info = resumen.find((r) => r.id === cat.id);
+      return aplicarPlantilla(intent.respuesta, {
+        categoria: cat.label,
+        pagado: formatSoles(info.pagado),
+        meta: formatSoles(info.meta),
+        restante: formatSoles(info.restante),
+        porcentaje: Math.round(info.porcentaje * 100),
+      });
+    }
+    const rec = reminders.getAll().find((r) => {
+      const label = normalizeText(r.label);
+      return label.includes(variable) || variable.includes(label);
+    });
+    if (rec) {
+      return aplicarPlantilla(campo("respuestaRecordatorio", "{label}: {monto}, próximo vencimiento {proxima}."), {
+        label: rec.label,
+        monto: formatSoles(rec.monto),
+        proxima: rec.proxima,
+      });
+    }
+    return aplicarPlantilla(campo("respuestaSinCategoria", 'No encontré ninguna meta ni pago configurado como "{categoria}".'), { categoria: variable });
+  }
+
+  if (intent.id === "pagosManana") {
+    const lista = reminders.getPagosManana();
+    if (lista.length === 0) return aplicarPlantilla(campo("respuestaVacia", "No tienes pagos para mañana. ✅"), {});
+    const total = lista.reduce((sum, p) => sum + p.monto, 0);
+    return aplicarPlantilla(intent.respuesta, { lista: formatearListaPagos(lista), total: formatSoles(total) });
+  }
+
+  if (intent.id === "proyeccionMes") {
+    const progreso = productionGoals.getProgresoHoy();
+    const mes = cashbox.getMonthSoFar();
+    const compromisos = reminders.getComprisosDelMes();
+    const gastosProgramados = scheduledExpenses.getProyeccionRestoDeMes();
+    let respuesta = aplicarPlantilla(intent.respuesta, {
+      ganancias: formatSoles(mes.ganancias),
+      gastos: formatSoles(mes.gastos),
+      compromisos: formatSoles(compromisos.total),
+      gastosProgramados: formatSoles(gastosProgramados.total),
+    });
+    if (progreso) {
+      respuesta += `\n🎯 Meta de producción del mes: ${formatSoles(progreso.metaMensualReferencia)} (llevas ${formatSoles(progreso.generadoAcumulado + progreso.generadoHoy)})`;
+    }
+    return respuesta;
+  }
+
+  if (intent.id === "cumplireMetas") {
+    const { margen } = calcularMargenHoy();
+    if (margen >= 0) return aplicarPlantilla(intent.respuesta, { margen: formatSoles(margen) });
+    return aplicarPlantilla(campo("respuestaFaltante", intent.respuesta), { margen: formatSoles(Math.abs(margen)) });
+  }
+
+  if (intent.id === "promedioDiario") {
+    const mes = cashbox.getMonthSoFar();
+    const { diaActual } = cashbox.getDiasDelMes();
+    const promedio = diaActual > 0 ? (mes.ganancias - mes.gastos) / diaActual : 0;
+    return aplicarPlantilla(intent.respuesta, { promedio: formatSoles(promedio) });
+  }
+
+  if (intent.id === "metaDiariaTodasMetas") {
+    const goals = financeGoals.getGoals();
+    const mes = cashbox.getMonthSoFar();
+    const ahorroActual = mes.ganancias - mes.gastos;
+    const compromisos = reminders.getComprisosDelMes();
+    const necesidadTotal = compromisos.total + goals.ahorroMensual;
+    const necesidadFaltante = Math.max(necesidadTotal - ahorroActual, 0);
+    const { diasRestantes } = cashbox.getDiasDelMes();
+    const metaDiariaReal = diasRestantes > 0 ? necesidadFaltante / diasRestantes : necesidadFaltante;
+    return aplicarPlantilla(intent.respuesta, {
+      metaDiariaReal: formatSoles(metaDiariaReal),
+      necesidadFaltante: formatSoles(necesidadFaltante),
     });
   }
 

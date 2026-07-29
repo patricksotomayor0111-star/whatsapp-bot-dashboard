@@ -56,7 +56,7 @@ function save() {
 
 // Fecha y hora actuales en Perú (UTC-5, sin horario de verano), sin
 // depender de la zona horaria del servidor.
-const { peruAhora, fechaLabel, horaLabel, businessDayLabel } = businessDay;
+const { peruAhora, fechaLabel, horaLabel, businessDayLabel, diasEnMes: diasEnMesDe } = businessDay;
 
 // Cada movimiento queda registrado con el DÍA LABORAL (7am-7am, no el
 // calendario) y la hora real (Perú), para que un registro de la madrugada
@@ -451,12 +451,31 @@ function getPreviousMonthTotals() {
 
 // Día del mes en curso, cuántos días tiene el mes, y cuántos quedan
 // (incluyendo hoy), para calcular cuánto ahorrar por día y proyectar el
-// cierre de mes.
+// cierre de mes. Usa el día LABORAL (no el calendario): antes de las 7am
+// todavía cuenta como el día de ayer, igual que en el resto del sistema.
 function getDiasDelMes() {
-  const ahora = peruAhora();
-  const diaActual = ahora.getDate();
-  const diasEnMes = new Date(ahora.getFullYear(), ahora.getMonth() + 1, 0).getDate();
-  return { diaActual, diasEnMes, diasRestantes: diasEnMes - diaActual + 1 };
+  const hoy = businessDayLabel();
+  const [y, mo, d] = hoy.split("-").map(Number);
+  const totalDiasMes = diasEnMesDe(y, mo);
+  return { diaActual: d, diasEnMes: totalDiasMes, diasRestantes: totalDiasMes - d + 1 };
+}
+
+// Lo acumulado de la quincena en curso (días 1-15, o 16 hasta fin de mes)
+// más lo que va del día de hoy, para medir progreso a mitad de mes.
+function getQuincenaSoFar() {
+  const hoy = businessDayLabel();
+  const [, , d] = hoy.split("-").map(Number);
+  const inicioDia = d <= 15 ? 1 : 16;
+  const inicioLabel = `${hoy.slice(0, 7)}-${String(inicioDia).padStart(2, "0")}`;
+  let ganancias = data.todayGanancias;
+  let gastos = data.todayGastos;
+  data.cierres.forEach((c) => {
+    if (c.fecha >= inicioLabel && c.fecha.slice(0, 7) === hoy.slice(0, 7)) {
+      ganancias += c.ganancias;
+      gastos += c.gastos;
+    }
+  });
+  return { ganancias, gastos, diaInicioQuincena: inicioDia, diasTranscurridos: d - inicioDia + 1 };
 }
 
 module.exports = {
@@ -477,6 +496,7 @@ module.exports = {
   getMonthSoFar,
   getPreviousMonthTotals,
   getDiasDelMes,
+  getQuincenaSoFar,
   addAnaGuardo,
   addAnaGasto,
   getAna,
