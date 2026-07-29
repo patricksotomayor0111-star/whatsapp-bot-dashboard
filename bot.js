@@ -936,10 +936,28 @@ function esEcoDelBot(texto) {
 // Espera creciente para reintentar si falla la carga de grupos (ej. un
 // "rate-overlimit" temporal de WhatsApp por reconectar varias veces
 // seguidas): 30s, 1min, 2min. Si para entonces sigue fallando, se deja
-// así hasta la próxima reconexión real.
+// así hasta que se cumpla el "enfriamiento" de abajo.
 const REINTENTO_GRUPOS_MS = [30000, 60000, 120000];
 
+// refreshGroups() no se llama solo al conectar: WhatsApp también dispara
+// "groups.upsert"/"groups.update" mientras la conexión está inestable, y
+// cada uno arrancaba SU PROPIA cascada de reintentos sin esperar a que
+// terminara la anterior — varias cascadas solapadas terminaban insistiendo
+// mucho más de lo previsto contra un límite de WhatsApp que ya estaba
+// activo, probablemente empeorándolo. Estas dos variables evitan eso: no
+// se arranca una cascada nueva si ya hay una en curso, ni tampoco recién
+// fracasó una (se espera el enfriamiento antes de volver a intentar).
+let refreshEnCurso = false;
+let ultimoFalloTs = 0;
+const ENFRIAMIENTO_TRAS_FALLO_MS = 5 * 60 * 1000; // 5 minutos
+
 async function refreshGroups(sock, intento = 0) {
+  if (intento === 0) {
+    if (refreshEnCurso) return;
+    if (Date.now() - ultimoFalloTs < ENFRIAMIENTO_TRAS_FALLO_MS) return;
+    refreshEnCurso = true;
+  }
+
   try {
     const groupsMap = await sock.groupFetchAllParticipating();
     botState.groups = Object.values(groupsMap)
@@ -963,6 +981,7 @@ async function refreshGroups(sock, intento = 0) {
     });
 
     applyGroupSeed();
+    refreshEnCurso = false;
   } catch (err) {
     console.error("No se pudo obtener la lista de grupos:", err.message);
     if (intento < REINTENTO_GRUPOS_MS.length) {
@@ -972,6 +991,9 @@ async function refreshGroups(sock, intento = 0) {
         // viejo: el reintento de la reconexión nueva se encarga solo.
         if (sock === currentSock) refreshGroups(sock, intento + 1);
       }, esperaMs);
+    } else {
+      refreshEnCurso = false;
+      ultimoFalloTs = Date.now();
     }
   }
 }
