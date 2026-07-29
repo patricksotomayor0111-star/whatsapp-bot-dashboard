@@ -274,6 +274,13 @@
               <canvas id="chartEfectivo"></canvas>
             </div>
           </section>
+          <section>
+            <p class="eyebrow text-brand-green"><i class="fa-solid fa-bullseye"></i> META DE PRODUCCIÓN (MES EN CURSO)</p>
+            <div class="card bg-white mt-2" style="height: 220px;">
+              <canvas id="chartProduccion"></canvas>
+            </div>
+            <p id="chartProduccionEmpty" class="hidden text-center text-xs text-slate-400 py-6">No tienes una meta de producción configurada para este mes.</p>
+          </section>
         </div>
 
         <!-- Tab: Metas -->
@@ -348,6 +355,24 @@
               <p class="text-rose-700 font-semibold">Meta diaria real: <span id="metaDiariaRealTxt">S/ 0</span> / día</p>
             </div>
           </section>
+
+          <section class="card bg-amber-50 border border-amber-100 py-3">
+            <p class="eyebrow text-amber-700"><i class="fa-solid fa-rocket"></i> META DE PRODUCCIÓN</p>
+            <div id="productionGoalHoy" class="text-sm space-y-1 mt-1"></div>
+            <div class="w-full h-2 rounded-full bg-amber-100 overflow-hidden mt-2">
+              <div id="productionGoalBar" class="h-full bg-amber-500" style="width: 0%"></div>
+            </div>
+            <div id="productionGoalsList" class="space-y-2 mt-3"></div>
+            <details class="mt-2">
+              <summary class="text-xs font-bold text-amber-700 cursor-pointer">+ Configurar meta de un mes</summary>
+              <div class="mt-2 space-y-2">
+                <input id="productionGoalMes" type="month" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200" />
+                <input id="productionGoalBase" type="number" placeholder="Mínimo diario (S/)" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200" />
+                <input id="productionGoalDias" type="number" placeholder="Días de producción aprox. del mes" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200" />
+                <button id="saveProductionGoalBtn" class="w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-amber-600 text-white active:scale-95 transition-all">Guardar meta del mes</button>
+              </div>
+            </details>
+          </section>
         </div>
 
         <!-- Tab: Presupuesto -->
@@ -369,6 +394,42 @@
               <button id="addBudgetCategoryBtn" class="w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-emerald-600 text-white active:scale-95 transition-all">Agregar categoría</button>
             </div>
           </details>
+
+          <div class="pt-4 mt-2 border-t border-slate-200">
+            <p class="eyebrow text-brand-green"><i class="fa-solid fa-calendar-days"></i> GASTOS PROGRAMADOS</p>
+            <p class="text-xs text-slate-400 mt-1 mb-2">Solo sirven para proyectar cuánto vas a necesitar (almuerzos, gasolina, salidas). Nunca tocan la caja real — el gasto de verdad se sigue reportando por WhatsApp.</p>
+            <div id="scheduledExpensesList" class="space-y-2"></div>
+            <details class="mt-2">
+              <summary class="text-xs font-bold text-emerald-700 cursor-pointer">+ Agregar gasto programado</summary>
+              <div class="mt-2 space-y-2">
+                <input id="schedExpLabel" type="text" placeholder="Nombre (ej: Gasolina)" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200" />
+                <input id="schedExpMonto" type="number" placeholder="Monto (S/) por día/ocurrencia" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200" />
+                <select id="schedExpTipo" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200">
+                  <option value="rango">Todos los días de un rango de fechas</option>
+                  <option value="semanal">Un día fijo de la semana</option>
+                </select>
+                <div id="schedExpRangoFields" class="space-y-2">
+                  <input id="schedExpFechaInicio" type="date" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200" />
+                  <input id="schedExpFechaFin" type="date" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200" />
+                </div>
+                <div id="schedExpSemanalFields" class="hidden space-y-2">
+                  <select id="schedExpDia" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200">
+                    <option value="0">Domingo</option>
+                    <option value="1">Lunes</option>
+                    <option value="2">Martes</option>
+                    <option value="3">Miércoles</option>
+                    <option value="4">Jueves</option>
+                    <option value="5">Viernes</option>
+                    <option value="6">Sábado</option>
+                  </select>
+                  <input id="schedExpFechaInicioSemanal" type="date" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200" />
+                  <input id="schedExpFechaFinSemanal" type="date" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200" />
+                  <p class="text-xs text-slate-400">Fecha fin vacía = se repite cada semana indefinidamente.</p>
+                </div>
+                <button id="addSchedExpBtn" class="w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-emerald-600 text-white active:scale-95 transition-all">Agregar gasto programado</button>
+              </div>
+            </details>
+          </div>
         </div>
 
         <!-- Tab: Ana -->

@@ -1630,8 +1630,10 @@ function showFinanceTab(tabId) {
     fetchGraficos();
   } else if (tabId === "financeTabMetas") {
     fetchGoalsAndProgress();
+    fetchProductionGoals();
   } else if (tabId === "financeTabPresupuesto") {
     fetchBudgetCategories();
+    fetchScheduledExpenses();
   } else if (tabId === "financeTabAna") {
     fetchAna();
   } else if (tabId === "financeTabConsultas") {
@@ -2214,19 +2216,23 @@ async function fetchAccountEntries() {
 let chartCategoriasInstance = null;
 let chartGananciasGastosInstance = null;
 let chartEfectivoInstance = null;
+let chartProduccionInstance = null;
 
 const CHART_PALETTE = ["#22C55E", "#3B82F6", "#F59E0B", "#EF4444", "#8B5CF6", "#14B8A6", "#EC4899", "#84CC16", "#6366F1", "#F97316"];
 
 async function fetchGraficos() {
   try {
-    const [historyRes, categoriesRes] = await Promise.all([
+    const [historyRes, categoriesRes, productionRes] = await Promise.all([
       fetch("/api/finance/history"),
       fetch("/api/budget/categories"),
+      fetch("/api/finance/production-goals"),
     ]);
     const historyData = await historyRes.json();
     const categoriesData = await categoriesRes.json();
+    const productionData = await productionRes.json();
     renderChartCategorias(categoriesData.categorias || []);
     renderChartHistoria(historyData.cierres || [], historyData.hoy);
+    renderChartProduccion(productionData.hoy);
   } catch (err) {
     console.error("No se pudo obtener los datos para los gráficos:", err);
   }
@@ -2326,6 +2332,47 @@ function renderChartHistoria(cierres, hoy) {
       responsive: true,
       maintainAspectRatio: false,
       scales: { x: { ticks: { font: { size: 9 } } } },
+      plugins: { legend: { display: false } },
+    },
+  });
+}
+
+// progreso viene de GET /api/finance/production-goals -> campo "hoy"
+// (null si el mes en curso no tiene una meta de producción configurada).
+function renderChartProduccion(progreso) {
+  const canvas = document.getElementById("chartProduccion");
+  const empty = document.getElementById("chartProduccionEmpty");
+
+  if (!progreso) {
+    canvas.classList.add("hidden");
+    empty.classList.remove("hidden");
+    return;
+  }
+  canvas.classList.remove("hidden");
+  empty.classList.add("hidden");
+
+  const generadoTotal = progreso.generadoAcumulado + progreso.generadoHoy;
+
+  if (chartProduccionInstance) chartProduccionInstance.destroy();
+  chartProduccionInstance = new Chart(canvas, {
+    type: "bar",
+    data: {
+      labels: ["Meta del mes", "Generado hasta hoy"],
+      datasets: [
+        {
+          data: [progreso.metaMensualReferencia, generadoTotal],
+          backgroundColor: [
+            "#FDE68A",
+            generadoTotal >= progreso.metaMensualReferencia ? "#22C55E" : "#F59E0B",
+          ],
+        },
+      ],
+    },
+    options: {
+      indexAxis: "y",
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: { x: { beginAtZero: true } },
       plugins: { legend: { display: false } },
     },
   });
@@ -2501,6 +2548,111 @@ document.querySelectorAll(".goal-save-btn").forEach((btn) => {
   });
 });
 
+// ---------- Finanzas: Meta de producción ----------
+const productionGoalHoy = document.getElementById("productionGoalHoy");
+const productionGoalBar = document.getElementById("productionGoalBar");
+const productionGoalsList = document.getElementById("productionGoalsList");
+const productionGoalMes = document.getElementById("productionGoalMes");
+const productionGoalBase = document.getElementById("productionGoalBase");
+const productionGoalDias = document.getElementById("productionGoalDias");
+const saveProductionGoalBtn = document.getElementById("saveProductionGoalBtn");
+
+async function fetchProductionGoals() {
+  try {
+    const res = await fetch("/api/finance/production-goals");
+    const data = await res.json();
+    renderProductionGoalHoy(data.hoy);
+    renderProductionGoalsList(data.metas || []);
+  } catch (err) {
+    console.error("No se pudo obtener la meta de producción:", err);
+  }
+}
+
+function renderProductionGoalHoy(progreso) {
+  productionGoalHoy.innerHTML = "";
+  if (!progreso) {
+    const p = document.createElement("p");
+    p.className = "text-slate-500";
+    p.textContent = "No tienes una meta de producción configurada para este mes.";
+    productionGoalHoy.appendChild(p);
+    productionGoalBar.style.width = "0%";
+    return;
+  }
+
+  const generadoTotal = progreso.generadoAcumulado + progreso.generadoHoy;
+  const pct = progreso.metaMensualReferencia > 0 ? Math.min(generadoTotal / progreso.metaMensualReferencia, 1) : 0;
+  productionGoalBar.style.width = `${Math.round(pct * 100)}%`;
+
+  const filas = [
+    ["Meta de hoy", formatSoles(progreso.metaHoy)],
+    ["Llevas hoy", formatSoles(progreso.generadoHoy)],
+    [progreso.cumplido ? "¡Meta de hoy cumplida! 🎉" : "Te falta hoy", progreso.cumplido ? "" : formatSoles(progreso.faltaHoy)],
+    ["Generado este mes", `${formatSoles(generadoTotal)} de ${formatSoles(progreso.metaMensualReferencia)}`],
+    ["Días de producción restantes", String(progreso.diasProduccionRestantes)],
+  ];
+  filas.forEach(([label, valor]) => {
+    const p = document.createElement("p");
+    p.innerHTML = `${label}${valor ? ": " : ""}<span class="font-semibold">${valor}</span>`;
+    productionGoalHoy.appendChild(p);
+  });
+}
+
+function renderProductionGoalsList(metas) {
+  productionGoalsList.innerHTML = "";
+  if (metas.length === 0) {
+    const p = document.createElement("p");
+    p.className = "text-xs text-slate-400";
+    p.textContent = "Todavía no configuraste ninguna meta mensual.";
+    productionGoalsList.appendChild(p);
+    return;
+  }
+  metas.forEach((m) => {
+    const row = document.createElement("div");
+    row.className = "flex items-center justify-between text-xs bg-white rounded-xl px-3 py-2 border border-amber-100";
+
+    const info = document.createElement("span");
+    info.className = "text-slate-600";
+    info.textContent = `${m.mes}: ${formatSoles(m.metaDiariaBase)}/día × ${m.diasProduccion} días`;
+
+    const del = document.createElement("button");
+    del.className = "btn-capsule bg-rose-100 text-rose-700 text-xs px-3 py-1.5";
+    del.textContent = "Eliminar";
+    del.addEventListener("click", async () => {
+      if (!confirm(`¿Eliminar la meta de producción de ${m.mes}?`)) return;
+      await fetch(`/api/finance/production-goals/${m.mes}`, { method: "DELETE" });
+      await fetchProductionGoals();
+    });
+
+    row.appendChild(info);
+    row.appendChild(del);
+    productionGoalsList.appendChild(row);
+  });
+}
+
+saveProductionGoalBtn.addEventListener("click", async () => {
+  const mes = productionGoalMes.value;
+  const metaDiariaBase = parseFloat(productionGoalBase.value) || 0;
+  const diasProduccion = parseInt(productionGoalDias.value, 10) || 1;
+  if (!mes) {
+    alert("Elige el mes (arriba, formato mes/año).");
+    return;
+  }
+  const res = await fetch(`/api/finance/production-goals/${mes}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ metaDiariaBase, diasProduccion }),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    alert(err.error || "No se pudo guardar la meta.");
+    return;
+  }
+  productionGoalMes.value = "";
+  productionGoalBase.value = "";
+  productionGoalDias.value = "";
+  await fetchProductionGoals();
+});
+
 // ---------- Finanzas: Presupuesto (categorías, límites y metas) ----------
 const budgetList = document.getElementById("budgetList");
 const budgetNuevoLabel = document.getElementById("budgetNuevoLabel");
@@ -2645,6 +2797,157 @@ addBudgetCategoryBtn.addEventListener("click", async () => {
   budgetNuevoMeta.value = "";
   budgetNuevoSaldoInicial.value = "";
   await fetchBudgetCategories();
+});
+
+// ---------- Finanzas: Gastos programados (solo planificación) ----------
+const scheduledExpensesList = document.getElementById("scheduledExpensesList");
+const schedExpLabel = document.getElementById("schedExpLabel");
+const schedExpMonto = document.getElementById("schedExpMonto");
+const schedExpTipo = document.getElementById("schedExpTipo");
+const schedExpRangoFields = document.getElementById("schedExpRangoFields");
+const schedExpSemanalFields = document.getElementById("schedExpSemanalFields");
+const schedExpFechaInicio = document.getElementById("schedExpFechaInicio");
+const schedExpFechaFin = document.getElementById("schedExpFechaFin");
+const schedExpDia = document.getElementById("schedExpDia");
+const schedExpFechaInicioSemanal = document.getElementById("schedExpFechaInicioSemanal");
+const schedExpFechaFinSemanal = document.getElementById("schedExpFechaFinSemanal");
+const addSchedExpBtn = document.getElementById("addSchedExpBtn");
+
+const DIAS_SEMANA_LABEL = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+
+function toggleSchedExpFields() {
+  const esSemanal = schedExpTipo.value === "semanal";
+  schedExpRangoFields.classList.toggle("hidden", esSemanal);
+  schedExpSemanalFields.classList.toggle("hidden", !esSemanal);
+}
+schedExpTipo.addEventListener("change", toggleSchedExpFields);
+toggleSchedExpFields();
+
+async function fetchScheduledExpenses() {
+  try {
+    const res = await fetch("/api/finance/scheduled-expenses");
+    const data = await res.json();
+    renderScheduledExpenses(data.gastos || []);
+  } catch (err) {
+    console.error("No se pudo obtener los gastos programados:", err);
+  }
+}
+
+function renderScheduledExpenses(gastos) {
+  scheduledExpensesList.innerHTML = "";
+  if (gastos.length === 0) {
+    const p = document.createElement("p");
+    p.className = "text-xs text-slate-400";
+    p.textContent = "No tienes gastos programados todavía.";
+    scheduledExpensesList.appendChild(p);
+    return;
+  }
+  gastos.forEach((g) => {
+    const row = document.createElement("div");
+    row.className = "card bg-white py-3";
+
+    const nombre = document.createElement("p");
+    nombre.className = "font-semibold text-slate-800 text-sm";
+    nombre.textContent = `${g.label} — ${formatSoles(g.monto)}${g.activo === false ? " (inactivo)" : ""}`;
+
+    const detalle = document.createElement("p");
+    detalle.className = "text-xs text-slate-500 mt-1";
+    detalle.textContent =
+      g.tipo === "rango"
+        ? `Del ${g.fechaInicio} al ${g.fechaFin}`
+        : `Cada ${DIAS_SEMANA_LABEL[g.dia]}${g.fechaFin ? ` (hasta ${g.fechaFin})` : " (indefinido)"}, desde ${g.fechaInicio}`;
+
+    const acciones = document.createElement("div");
+    acciones.className = "flex items-center gap-2 mt-2";
+
+    const toggleBtn = document.createElement("button");
+    toggleBtn.className = "btn-capsule bg-slate-100 text-slate-600 text-xs px-3 py-1.5";
+    toggleBtn.textContent = g.activo === false ? "Activar" : "Desactivar";
+    toggleBtn.addEventListener("click", async () => {
+      await fetch(`/api/finance/scheduled-expenses/${g.id}/activo`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ activo: g.activo === false }),
+      });
+      await fetchScheduledExpenses();
+    });
+
+    const editBtn = document.createElement("button");
+    editBtn.className = "btn-capsule bg-slate-100 text-slate-600 text-xs px-3 py-1.5";
+    editBtn.textContent = "Editar monto";
+    editBtn.addEventListener("click", async () => {
+      const nuevoMonto = prompt("Nuevo monto (S/):", g.monto);
+      if (nuevoMonto === null) return;
+      await fetch(`/api/finance/scheduled-expenses/${g.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ monto: nuevoMonto }),
+      });
+      await fetchScheduledExpenses();
+    });
+
+    const delBtn = document.createElement("button");
+    delBtn.className = "btn-capsule bg-rose-100 text-rose-700 text-xs px-3 py-1.5";
+    delBtn.textContent = "Eliminar";
+    delBtn.addEventListener("click", async () => {
+      if (!confirm(`¿Eliminar "${g.label}"?`)) return;
+      await fetch(`/api/finance/scheduled-expenses/${g.id}`, { method: "DELETE" });
+      await fetchScheduledExpenses();
+    });
+
+    acciones.appendChild(toggleBtn);
+    acciones.appendChild(editBtn);
+    acciones.appendChild(delBtn);
+
+    row.appendChild(nombre);
+    row.appendChild(detalle);
+    row.appendChild(acciones);
+    scheduledExpensesList.appendChild(row);
+  });
+}
+
+addSchedExpBtn.addEventListener("click", async () => {
+  const label = schedExpLabel.value.trim();
+  const monto = parseFloat(schedExpMonto.value) || 0;
+  const tipo = schedExpTipo.value;
+  if (!label) return;
+
+  const body = { label, monto, tipo };
+  if (tipo === "rango") {
+    if (!schedExpFechaInicio.value || !schedExpFechaFin.value) {
+      alert("Elige fecha de inicio y fecha de fin.");
+      return;
+    }
+    body.fechaInicio = schedExpFechaInicio.value;
+    body.fechaFin = schedExpFechaFin.value;
+  } else {
+    if (!schedExpFechaInicioSemanal.value) {
+      alert("Elige desde qué fecha empieza a repetirse.");
+      return;
+    }
+    body.dia = schedExpDia.value;
+    body.fechaInicio = schedExpFechaInicioSemanal.value;
+    body.fechaFin = schedExpFechaFinSemanal.value || null;
+  }
+
+  const res = await fetch("/api/finance/scheduled-expenses", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    alert(err.error || "No se pudo agregar el gasto programado.");
+    return;
+  }
+
+  schedExpLabel.value = "";
+  schedExpMonto.value = "";
+  schedExpFechaInicio.value = "";
+  schedExpFechaFin.value = "";
+  schedExpFechaInicioSemanal.value = "";
+  schedExpFechaFinSemanal.value = "";
+  await fetchScheduledExpenses();
 });
 
 // ---------- Finanzas: Ana (custodia, editable) ----------
