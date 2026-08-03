@@ -1,0 +1,15 @@
+node_modules/
+session/
+cashbox-data.json
+reminders-data.json
+debts-data.json
+shortfalls-data.json
+reference-accounts-data.json
+finance-goals-data.json
+budget-categories-data.json
+production-goals-data.json
+scheduled-expenses-data.json
+query-intents-data.json
+push-data.json
+.env
+*.log

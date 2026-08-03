@@ -1,0 +1,20 @@
+{
+  "name": "whatsapp-finanzas",
+  "version": "1.0.0",
+  "description": "Planificador Financiero Inteligente: caja chica, deudas, metas, gastos programados y consultas por WhatsApp",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "7.0.0-rc13",
+    "exceljs": "^4.4.0",
+    "express": "^4.19.2",
+    "pino": "^9.3.2",
+    "qrcode-terminal": "^0.12.0",
+    "web-push": "^3.6.7"
+  }
+}
