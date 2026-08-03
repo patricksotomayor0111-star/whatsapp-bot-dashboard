@@ -1054,6 +1054,48 @@ function checkIntegrationSecret(req, res) {
   return true;
 }
 
+// ---------- Migración a FINANZAS (temporal) ----------
+// Exporta el contenido crudo de los archivos de datos de finanzas, para
+// copiarlos una sola vez al proyecto separado (finanzas/). Protegido con
+// el mismo patrón de secreto compartido que ya se usa para la web de La
+// Bumanguesa: sin MIGRATION_SECRET configurado, la ruta queda cerrada.
+const FINANCE_DATA_FILES = [
+  "cashbox-data.json",
+  "reminders-data.json",
+  "debts-data.json",
+  "shortfalls-data.json",
+  "reference-accounts-data.json",
+  "finance-goals-data.json",
+  "budget-categories-data.json",
+  "production-goals-data.json",
+  "scheduled-expenses-data.json",
+  "query-intents-data.json",
+];
+
+function checkMigrationSecret(req, res) {
+  const expected = process.env.MIGRATION_SECRET;
+  if (!expected || req.headers["x-migration-secret"] !== expected) {
+    res.status(401).json({ error: "No autorizado" });
+    return false;
+  }
+  return true;
+}
+
+app.get("/api/admin/export-finance-data", (req, res) => {
+  if (!checkMigrationSecret(req, res)) return;
+  const fs = require("fs");
+  const { dataPath } = require("./dataDir");
+  const archivos = {};
+  FINANCE_DATA_FILES.forEach((nombre) => {
+    try {
+      archivos[nombre] = JSON.parse(fs.readFileSync(dataPath(nombre), "utf8"));
+    } catch (err) {
+      archivos[nombre] = null; // no existía (nunca se usó esa función) -> finanzas/ se queda con su propia semilla
+    }
+  });
+  res.json({ archivos });
+});
+
 app.post("/api/delivery-quote/request", async (req, res) => {
   if (!checkIntegrationSecret(req, res)) return;
   const { codigo, lat, lng, referencia } = req.body || {};

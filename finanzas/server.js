@@ -63,6 +63,48 @@ app.post("/api/bot/logout", async (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- Migración desde el proyecto de delivery (temporal) ----------
+// Recibe lo que devuelve GET /api/admin/export-finance-data del proyecto
+// viejo y lo escribe tal cual en este DATA_DIR. Los módulos ya cargaron su
+// "semilla" en memoria al arrancar, así que hace falta reiniciar este
+// servicio (redeploy o restart en Railway) para que tome los datos
+// importados.
+const FINANCE_DATA_FILES = [
+  "cashbox-data.json",
+  "reminders-data.json",
+  "debts-data.json",
+  "shortfalls-data.json",
+  "reference-accounts-data.json",
+  "finance-goals-data.json",
+  "budget-categories-data.json",
+  "production-goals-data.json",
+  "scheduled-expenses-data.json",
+  "query-intents-data.json",
+];
+
+function checkMigrationSecret(req, res) {
+  const expected = process.env.MIGRATION_SECRET;
+  if (!expected || req.headers["x-migration-secret"] !== expected) {
+    res.status(401).json({ error: "No autorizado" });
+    return false;
+  }
+  return true;
+}
+
+app.post("/api/admin/import-finance-data", (req, res) => {
+  if (!checkMigrationSecret(req, res)) return;
+  const fs = require("fs");
+  const { dataPath } = require("./dataDir");
+  const archivos = req.body?.archivos || {};
+  const escritos = [];
+  FINANCE_DATA_FILES.forEach((nombre) => {
+    if (archivos[nombre] === undefined || archivos[nombre] === null) return;
+    fs.writeFileSync(dataPath(nombre), JSON.stringify(archivos[nombre], null, 2));
+    escritos.push(nombre);
+  });
+  res.json({ ok: true, escritos, aviso: "Reinicia este servicio para que tome los datos importados." });
+});
+
 app.get("/api/cashbox/today", (req, res) => {
   res.json({ ...cashbox.getToday(), ana: cashbox.getAna() });
 });
