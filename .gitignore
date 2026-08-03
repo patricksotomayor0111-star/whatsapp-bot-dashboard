@@ -16,5 +16,7 @@ shortfalls-data.json
 reference-accounts-data.json
 finance-goals-data.json
 query-intents-data.json
+production-goals-data.json
+scheduled-expenses-data.json
 .env
 *.log
