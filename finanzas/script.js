@@ -531,6 +531,54 @@ const movNuevoFecha = document.getElementById("movNuevoFecha");
 const addMovimientoBtn = document.getElementById("addMovimientoBtn");
 
 let movimientosData = [];
+let categoriasParaSelector = [];
+
+// Crea un <select> para asignar/mover la categoría de un gasto puntual.
+// Se usa tanto en Movimientos como en Presupuesto > Ver gastos.
+function crearSelectorCategoria(categoriaActualId, movIndex, categorias, onCambiado) {
+  const select = document.createElement("select");
+  select.className = "w-full bg-white rounded-lg px-2 py-1.5 text-xs border border-slate-200";
+  categorias.forEach((c) => {
+    const opt = document.createElement("option");
+    opt.value = c.id;
+    opt.textContent = c.label;
+    if (c.id === categoriaActualId) opt.selected = true;
+    select.appendChild(opt);
+  });
+  const optNueva = document.createElement("option");
+  optNueva.value = "__nueva__";
+  optNueva.textContent = "+ Categoría nueva...";
+  select.appendChild(optNueva);
+
+  select.addEventListener("change", async () => {
+    let destino = select.value;
+    if (destino === "__nueva__") {
+      const nombre = prompt("Nombre de la categoría nueva:");
+      if (!nombre || !nombre.trim()) {
+        select.value = categoriaActualId;
+        return;
+      }
+      const creada = await fetch("/api/budget/categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label: nombre.trim(), keywords: [], tipo: "limite" }),
+      }).then((r) => r.json());
+      if (!creada.categoria) {
+        select.value = categoriaActualId;
+        return;
+      }
+      destino = creada.categoria.id;
+    }
+    await fetch(`/api/finance/movements/${movIndex}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ categoriaId: destino }),
+    });
+    if (onCambiado) await onCambiado();
+  });
+
+  return select;
+}
 
 function tipoLabel(tipo) {
   if (tipo === "ganancia") return "Ganancia";
@@ -565,12 +613,15 @@ function renderMovimientos() {
     .reverse()
     .forEach((m) => {
       const row = document.createElement("div");
-      row.className = "flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs bg-white border border-slate-100";
+      row.className = "rounded-lg px-3 py-2 text-xs bg-white border border-slate-100";
+
+      const top = document.createElement("div");
+      top.className = "flex items-center justify-between gap-2";
 
       const info = document.createElement("div");
       info.className = "min-w-0";
       const linea1 = document.createElement("p");
-      linea1.className = "font-semibold text-slate-800 truncate";
+      linea1.className = "font-semibold text-slate-800 break-words";
       const signo = m.tipo === "gasto" ? "-" : m.tipo === "ganancia" ? "+" : "";
       linea1.textContent = `${signo}${formatSoles(m.monto)} · ${m.descripcion || tipoLabel(m.tipo)}`;
       const linea2 = document.createElement("p");
@@ -613,17 +664,32 @@ function renderMovimientos() {
 
       acciones.appendChild(editBtn);
       acciones.appendChild(delBtn);
-      row.appendChild(info);
-      row.appendChild(acciones);
+      top.appendChild(info);
+      top.appendChild(acciones);
+      row.appendChild(top);
+
+      if (m.tipo === "gasto") {
+        const selectCategoria = crearSelectorCategoria(
+          m.categoriaEfectiva || "otros",
+          m.index,
+          categoriasParaSelector,
+          fetchMovimientos
+        );
+        selectCategoria.classList.add("mt-1.5");
+        row.appendChild(selectCategoria);
+      }
+
       movimientosList.appendChild(row);
     });
 }
 
 async function fetchMovimientos() {
   try {
-    const res = await fetch("/api/finance/movements");
-    const data = await res.json();
+    const [movRes, catRes] = await Promise.all([fetch("/api/finance/movements"), fetch("/api/budget/categories")]);
+    const data = await movRes.json();
+    const catData = await catRes.json();
     movimientosData = data.movimientos || [];
+    categoriasParaSelector = catData.categorias || [];
     renderMovimientos();
   } catch (err) {
     console.error("No se pudo obtener los movimientos:", err);
@@ -1581,47 +1647,7 @@ function renderCategoriaMovimientos(container, catId, todasCategorias) {
       row.appendChild(linea1);
       row.appendChild(linea2);
 
-      const select = document.createElement("select");
-      select.className = "w-full bg-white rounded-lg px-2 py-1.5 text-xs border border-slate-200";
-      todasCategorias.forEach((c) => {
-        const opt = document.createElement("option");
-        opt.value = c.id;
-        opt.textContent = c.label;
-        if (c.id === catId) opt.selected = true;
-        select.appendChild(opt);
-      });
-      const optNueva = document.createElement("option");
-      optNueva.value = "__nueva__";
-      optNueva.textContent = "+ Categoría nueva...";
-      select.appendChild(optNueva);
-
-      select.addEventListener("change", async () => {
-        let destino = select.value;
-        if (destino === "__nueva__") {
-          const nombre = prompt("Nombre de la categoría nueva:");
-          if (!nombre || !nombre.trim()) {
-            select.value = catId;
-            return;
-          }
-          const creada = await fetch("/api/budget/categories", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ label: nombre.trim(), keywords: [], tipo: "limite" }),
-          }).then((r) => r.json());
-          if (!creada.categoria) {
-            select.value = catId;
-            return;
-          }
-          destino = creada.categoria.id;
-        }
-        await fetch(`/api/finance/movements/${m.index}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ categoriaId: destino }),
-        });
-        await fetchBudgetCategories();
-      });
-
+      const select = crearSelectorCategoria(catId, m.index, todasCategorias, fetchBudgetCategories);
       row.appendChild(select);
       container.appendChild(row);
     });

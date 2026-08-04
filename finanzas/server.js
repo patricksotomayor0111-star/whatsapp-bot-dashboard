@@ -129,7 +129,14 @@ app.post("/api/cashbox/rebuild-day", (req, res) => {
 // también se puede agregar, editar o eliminar a mano desde el panel.
 
 app.get("/api/finance/movements", (req, res) => {
-  const movimientos = cashbox.getMovimientos().map((m, index) => ({ ...m, index }));
+  const movimientos = cashbox.getMovimientos().map((m, index) => ({
+    ...m,
+    index,
+    // Categoría resuelta (manual si se asignó, si no por palabras clave),
+    // para que el panel pueda mostrar/editar la categoría de cada gasto
+    // sin tener que reimplementar la clasificación del lado del cliente.
+    categoriaEfectiva: m.tipo === "gasto" ? budgetCategories.resolveCategoriaId(m) : undefined,
+  }));
   res.json({ movimientos });
 });
 
