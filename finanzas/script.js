@@ -1154,6 +1154,7 @@ async function fetchAccountEntries() {
 // ---------- Finanzas: Gráficos ----------
 let chartCategoriasInstance = null;
 let chartGananciasGastosInstance = null;
+let chartMensualInstance = null;
 let chartEfectivoInstance = null;
 let chartProduccionInstance = null;
 
@@ -1171,6 +1172,7 @@ async function fetchGraficos() {
     const productionData = await productionRes.json();
     renderChartCategorias(categoriesData.categorias || []);
     renderChartHistoria(historyData.cierres || [], historyData.hoy);
+    renderChartMensual(historyData.cierres || [], historyData.hoy);
     renderChartProduccion(productionData.hoy);
   } catch (err) {
     console.error("No se pudo obtener los datos para los gráficos:", err);
@@ -1272,6 +1274,58 @@ function renderChartHistoria(cierres, hoy) {
       maintainAspectRatio: false,
       scales: { x: { ticks: { font: { size: 9 } } } },
       plugins: { legend: { display: false } },
+    },
+  });
+}
+
+const MESES_CORTO = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+
+// Agrupa los cierres diarios (hasta 90 días de historial) por mes, para ver
+// cómo vino cada mes anterior en ganancias/gastos, no solo los últimos 14
+// días. Incluye el mes en curso sumando lo que va del día de hoy.
+function renderChartMensual(cierres, hoy) {
+  const porMes = {};
+  const sumarA = (mesLabel, ganancias, gastos) => {
+    if (!porMes[mesLabel]) porMes[mesLabel] = { ganancias: 0, gastos: 0 };
+    porMes[mesLabel].ganancias += ganancias;
+    porMes[mesLabel].gastos += gastos;
+  };
+  cierres.forEach((c) => sumarA(c.fecha.slice(0, 7), c.ganancias, c.gastos));
+  if (hoy && hoy.fecha) sumarA(hoy.fecha.slice(0, 7), hoy.ganancias, hoy.gastos);
+
+  const meses = Object.keys(porMes).sort();
+
+  const canvas = document.getElementById("chartMensual");
+  const empty = document.getElementById("chartMensualEmpty");
+
+  if (meses.length === 0) {
+    canvas.classList.add("hidden");
+    empty.classList.remove("hidden");
+    return;
+  }
+  canvas.classList.remove("hidden");
+  empty.classList.add("hidden");
+
+  const labels = meses.map((m) => {
+    const [anio, mes] = m.split("-");
+    return `${MESES_CORTO[Number(mes) - 1]} ${anio.slice(2)}`;
+  });
+
+  if (chartMensualInstance) chartMensualInstance.destroy();
+  chartMensualInstance = new Chart(canvas, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        { label: "Ganancias", data: meses.map((m) => porMes[m].ganancias), backgroundColor: "#22C55E" },
+        { label: "Gastos", data: meses.map((m) => porMes[m].gastos), backgroundColor: "#EF4444" },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: { y: { beginAtZero: true } },
+      plugins: { legend: { position: "bottom", labels: { boxWidth: 12, font: { size: 10 } } } },
     },
   });
 }
