@@ -328,6 +328,13 @@ function editMovimiento(indice, cambios) {
   if (cambios.descripcion !== undefined) mov.descripcion = cambios.descripcion;
   if (cambios.fecha !== undefined) mov.fecha = cambios.fecha;
   if (cambios.hora !== undefined) mov.hora = cambios.hora;
+  // Categoría asignada a mano desde el panel: pisa la clasificación
+  // automática por palabras clave. Mandar vacío/null la borra (vuelve a
+  // clasificarse solo según su descripción).
+  if (cambios.categoriaId !== undefined) {
+    if (cambios.categoriaId) mov.categoriaId = cambios.categoriaId;
+    else delete mov.categoriaId;
+  }
 
   const nuevo = efectoDelta(mov.tipo, mov.monto, 1);
   ajustarTotalesPorFecha(mov.fecha, nuevo.g, nuevo.gs);

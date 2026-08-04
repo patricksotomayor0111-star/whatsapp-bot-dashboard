@@ -1545,10 +1545,95 @@ function toggleBudgetNuevoFields() {
 budgetNuevoTipo.addEventListener("change", toggleBudgetNuevoFields);
 toggleBudgetNuevoFields();
 
+// Trae y dibuja los gastos de una categoría, cada uno con un selector para
+// moverlo a otra categoría (o crear una nueva) sin salir de la lista.
+function renderCategoriaMovimientos(container, catId, todasCategorias) {
+  return async () => {
+    let movimientos;
+    try {
+      const res = await fetch(`/api/budget/categories/${encodeURIComponent(catId)}/movements`);
+      const data = await res.json();
+      movimientos = data.movimientos || [];
+    } catch (err) {
+      console.error("No se pudo obtener los gastos de la categoría:", err);
+      return;
+    }
+
+    container.innerHTML = "";
+    if (movimientos.length === 0) {
+      const vacio = document.createElement("p");
+      vacio.className = "text-xs text-slate-400 text-center py-2";
+      vacio.textContent = "Sin gastos en esta categoría.";
+      container.appendChild(vacio);
+      return;
+    }
+
+    movimientos.forEach((m) => {
+      const row = document.createElement("div");
+      row.className = "flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs bg-slate-50 border border-slate-100";
+
+      const info = document.createElement("div");
+      info.className = "min-w-0";
+      const linea1 = document.createElement("p");
+      linea1.className = "font-semibold text-slate-800 truncate";
+      linea1.textContent = `${formatSoles(m.monto)} · ${m.descripcion || "(sin descripción)"}`;
+      const linea2 = document.createElement("p");
+      linea2.className = "text-slate-400";
+      linea2.textContent = `${m.fecha} ${m.hora}`;
+      info.appendChild(linea1);
+      info.appendChild(linea2);
+
+      const select = document.createElement("select");
+      select.className = "shrink-0 bg-white rounded-lg px-2 py-1.5 text-xs border border-slate-200";
+      todasCategorias.forEach((c) => {
+        const opt = document.createElement("option");
+        opt.value = c.id;
+        opt.textContent = c.label;
+        if (c.id === catId) opt.selected = true;
+        select.appendChild(opt);
+      });
+      const optNueva = document.createElement("option");
+      optNueva.value = "__nueva__";
+      optNueva.textContent = "+ Categoría nueva...";
+      select.appendChild(optNueva);
+
+      select.addEventListener("change", async () => {
+        let destino = select.value;
+        if (destino === "__nueva__") {
+          const nombre = prompt("Nombre de la categoría nueva:");
+          if (!nombre || !nombre.trim()) {
+            select.value = catId;
+            return;
+          }
+          const creada = await fetch("/api/budget/categories", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ label: nombre.trim(), keywords: [], tipo: "limite" }),
+          }).then((r) => r.json());
+          if (!creada.categoria) {
+            select.value = catId;
+            return;
+          }
+          destino = creada.categoria.id;
+        }
+        await fetch(`/api/finance/movements/${m.index}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ categoriaId: destino }),
+        });
+        await fetchBudgetCategories();
+      });
+
+      row.appendChild(info);
+      row.appendChild(select);
+      container.appendChild(row);
+    });
+  };
+}
+
 function renderBudgetCategories(categorias) {
   budgetList.innerHTML = "";
   categorias
-    .filter((cat) => cat.id !== "otros")
     .forEach((cat) => {
       const card = document.createElement("div");
       card.className = "card bg-white py-3";
@@ -1580,7 +1665,37 @@ function renderBudgetCategories(categorias) {
       }
 
       const acciones = document.createElement("div");
-      acciones.className = "flex items-center gap-2 mt-2";
+      acciones.className = "flex items-center gap-2 mt-2 flex-wrap";
+
+      const movimientosContainer = document.createElement("div");
+      movimientosContainer.className = "hidden space-y-1.5 mt-3 pt-3 border-t border-slate-100";
+
+      const verBtn = document.createElement("button");
+      verBtn.className = "btn-capsule bg-blue-50 text-blue-600 text-xs py-1.5 px-3";
+      verBtn.textContent = "Ver gastos";
+      let movimientosCargados = false;
+      verBtn.addEventListener("click", async () => {
+        const estabaOculto = movimientosContainer.classList.contains("hidden");
+        if (estabaOculto) {
+          movimientosContainer.classList.remove("hidden");
+          verBtn.textContent = "Ocultar gastos";
+          if (!movimientosCargados) {
+            await renderCategoriaMovimientos(movimientosContainer, cat.id, categorias)();
+            movimientosCargados = true;
+          }
+        } else {
+          movimientosContainer.classList.add("hidden");
+          verBtn.textContent = "Ver gastos";
+        }
+      });
+      acciones.appendChild(verBtn);
+
+      if (cat.id === "otros") {
+        card.appendChild(acciones);
+        card.appendChild(movimientosContainer);
+        budgetList.appendChild(card);
+        return;
+      }
 
       const editBtn = document.createElement("button");
       editBtn.className = "btn-capsule bg-slate-100 text-slate-600 text-xs py-1.5 px-3";
@@ -1632,6 +1747,7 @@ function renderBudgetCategories(categorias) {
       acciones.appendChild(editBtn);
       acciones.appendChild(delBtn);
       card.appendChild(acciones);
+      card.appendChild(movimientosContainer);
 
       budgetList.appendChild(card);
     });

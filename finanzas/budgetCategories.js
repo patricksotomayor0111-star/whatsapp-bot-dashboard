@@ -69,6 +69,15 @@ function categorize(descripcion) {
   return "otros";
 }
 
+// Categoría "de verdad" de un movimiento: si se le asignó una a mano desde
+// el panel (y esa categoría todavía existe), esa gana; si no, se clasifica
+// solo por palabras clave en la descripción.
+function resolveCategoriaId(movimiento) {
+  const manual = movimiento.categoriaId;
+  if (manual && (manual === "otros" || data.categorias.some((c) => c.id === manual))) return manual;
+  return categorize(movimiento.descripcion);
+}
+
 function slugify(label) {
   const base = String(label || "")
     .trim()
@@ -173,7 +182,7 @@ function getResumen(movimientos, mesActualLabel) {
 
   movimientos.forEach((m) => {
     if (m.tipo !== "gasto") return;
-    const catId = categorize(m.descripcion);
+    const catId = resolveCategoriaId(m);
     totalesTotal[catId] = (totalesTotal[catId] || 0) + m.monto;
     if (m.fecha.slice(0, 7) === mesActualLabel) {
       totalesMes[catId] = (totalesMes[catId] || 0) + m.monto;
@@ -209,10 +218,28 @@ function getResumen(movimientos, mesActualLabel) {
   });
 }
 
+// Lista los gastos que caen en una categoría (para el panel: "ver todo lo
+// que está en Otros" y poder reasignarlos). Mismo alcance que getResumen:
+// solo el mes actual para categorías de límite, histórico completo para
+// las de meta. Cada movimiento trae su índice real dentro de
+// cashbox.getMovimientos(), necesario para poder editarlo después.
+function getMovimientosCategoria(movimientos, catId, mesActualLabel) {
+  const def = getCategoriaDef(catId);
+  const esMeta = def && def.tipo === "meta";
+  return movimientos
+    .map((m, index) => ({ ...m, index }))
+    .filter((m) => m.tipo === "gasto")
+    .filter((m) => resolveCategoriaId(m) === catId)
+    .filter((m) => esMeta || m.fecha.slice(0, 7) === mesActualLabel)
+    .reverse();
+}
+
 module.exports = {
   getAllCategorias,
   getCategoriaDef,
   categorize,
+  resolveCategoriaId,
+  getMovimientosCategoria,
   getLimit,
   setLimit,
   getMeta,

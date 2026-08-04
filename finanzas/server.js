@@ -488,6 +488,14 @@ app.get("/api/budget/categories", (req, res) => {
   res.json({ categorias: budgetCategories.getResumen(cashbox.getMovimientos(), mesActual) });
 });
 
+// Lista los gastos de una categoría (incluye "otros"), para poder verlos
+// y reasignarlos a otra categoría desde el panel.
+app.get("/api/budget/categories/:id/movements", (req, res) => {
+  const mesActual = cashbox.getMesActualLabel();
+  const movimientos = budgetCategories.getMovimientosCategoria(cashbox.getMovimientos(), req.params.id, mesActual);
+  res.json({ movimientos });
+});
+
 app.post("/api/budget/categories/:id/limit", (req, res) => {
   try {
     budgetCategories.setLimit(req.params.id, req.body.limite);
