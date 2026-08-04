@@ -1570,21 +1570,19 @@ function renderCategoriaMovimientos(container, catId, todasCategorias) {
 
     movimientos.forEach((m) => {
       const row = document.createElement("div");
-      row.className = "flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs bg-slate-50 border border-slate-100";
+      row.className = "flex flex-col gap-1.5 rounded-lg px-3 py-2 text-xs bg-slate-50 border border-slate-100";
 
-      const info = document.createElement("div");
-      info.className = "min-w-0";
       const linea1 = document.createElement("p");
-      linea1.className = "font-semibold text-slate-800 truncate";
+      linea1.className = "font-semibold text-slate-800 break-words";
       linea1.textContent = `${formatSoles(m.monto)} · ${m.descripcion || "(sin descripción)"}`;
       const linea2 = document.createElement("p");
       linea2.className = "text-slate-400";
       linea2.textContent = `${m.fecha} ${m.hora}`;
-      info.appendChild(linea1);
-      info.appendChild(linea2);
+      row.appendChild(linea1);
+      row.appendChild(linea2);
 
       const select = document.createElement("select");
-      select.className = "shrink-0 bg-white rounded-lg px-2 py-1.5 text-xs border border-slate-200";
+      select.className = "w-full bg-white rounded-lg px-2 py-1.5 text-xs border border-slate-200";
       todasCategorias.forEach((c) => {
         const opt = document.createElement("option");
         opt.value = c.id;
@@ -1624,7 +1622,6 @@ function renderCategoriaMovimientos(container, catId, todasCategorias) {
         await fetchBudgetCategories();
       });
 
-      row.appendChild(info);
       row.appendChild(select);
       container.appendChild(row);
     });
