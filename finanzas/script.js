@@ -663,6 +663,90 @@ const debtNuevoMonto = document.getElementById("debtNuevoMonto");
 const debtNuevaDescripcion = document.getElementById("debtNuevaDescripcion");
 const addDebtBtn = document.getElementById("addDebtBtn");
 
+function debtTipoLabel(tipo) {
+  return tipo === "debe" ? "Debe" : "Pago";
+}
+
+function renderDebtMovimientos(container, persona) {
+  return async () => {
+    let movimientos;
+    try {
+      const res = await fetch(`/api/finance/debts/${encodeURIComponent(persona)}/movements`);
+      const data = await res.json();
+      movimientos = data.movimientos || [];
+    } catch (err) {
+      console.error("No se pudo obtener el historial de la deuda:", err);
+      return;
+    }
+
+    container.innerHTML = "";
+    if (movimientos.length === 0) {
+      const vacio = document.createElement("p");
+      vacio.className = "text-xs text-slate-400 text-center py-2";
+      vacio.textContent = "Sin movimientos todavía.";
+      container.appendChild(vacio);
+      return;
+    }
+
+    movimientos
+      .slice()
+      .reverse()
+      .forEach((m) => {
+        const row = document.createElement("div");
+        row.className = "flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs bg-slate-50 border border-slate-100";
+
+        const info = document.createElement("div");
+        info.className = "min-w-0";
+        const linea1 = document.createElement("p");
+        linea1.className = `font-semibold truncate ${m.tipo === "debe" ? "text-blue-700" : "text-emerald-700"}`;
+        linea1.textContent = `${formatSoles(m.monto)} · ${debtTipoLabel(m.tipo)}${m.descripcion ? " · " + m.descripcion : ""}`;
+        const linea2 = document.createElement("p");
+        linea2.className = "text-slate-400";
+        linea2.textContent = `${m.fecha} ${m.hora}`;
+        info.appendChild(linea1);
+        info.appendChild(linea2);
+
+        const acciones = document.createElement("div");
+        acciones.className = "flex items-center gap-1 shrink-0";
+
+        const editBtn = document.createElement("button");
+        editBtn.innerHTML = '<i class="fa-solid fa-pen text-slate-400"></i>';
+        editBtn.className = "w-7 h-7 flex items-center justify-center";
+        editBtn.addEventListener("click", async () => {
+          const nuevoMontoStr = prompt("Nuevo monto:", m.monto);
+          if (nuevoMontoStr === null) return;
+          const nuevoMonto = parseFloat(nuevoMontoStr);
+          if (!Number.isFinite(nuevoMonto) || nuevoMonto <= 0) return;
+          const nuevaDescripcion = prompt("Nueva descripción:", m.descripcion || "");
+          if (nuevaDescripcion === null) return;
+          await fetch(`/api/finance/debts/${encodeURIComponent(persona)}/movements/${m.index}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ monto: nuevoMonto, descripcion: nuevaDescripcion }),
+          });
+          await renderDebtMovimientos(container, persona)();
+          await fetchDebts();
+        });
+
+        const delBtn = document.createElement("button");
+        delBtn.innerHTML = '<i class="fa-solid fa-trash text-rose-400"></i>';
+        delBtn.className = "w-7 h-7 flex items-center justify-center";
+        delBtn.addEventListener("click", async () => {
+          if (!confirm("¿Eliminar este movimiento?")) return;
+          await fetch(`/api/finance/debts/${encodeURIComponent(persona)}/movements/${m.index}`, { method: "DELETE" });
+          await renderDebtMovimientos(container, persona)();
+          await fetchDebts();
+        });
+
+        acciones.appendChild(editBtn);
+        acciones.appendChild(delBtn);
+        row.appendChild(info);
+        row.appendChild(acciones);
+        container.appendChild(row);
+      });
+  };
+}
+
 function renderDebts(deudas) {
   debtsList.innerHTML = "";
   const conSaldo = deudas.filter((d) => d.saldo !== 0);
@@ -704,6 +788,31 @@ function renderDebts(deudas) {
         body: JSON.stringify({ persona: d.label, monto }),
       });
       await fetchDebts();
+      if (!historyContainer.classList.contains("hidden")) {
+        await renderDebtMovimientos(historyContainer, d.label)();
+      }
+    });
+
+    const historyContainer = document.createElement("div");
+    historyContainer.className = "hidden space-y-1.5 mt-3 pt-3 border-t border-slate-100";
+
+    const historyBtn = document.createElement("button");
+    historyBtn.className = "btn-capsule bg-blue-50 text-blue-600 text-xs py-1.5 px-3";
+    historyBtn.textContent = "Ver historial";
+    let historyLoaded = false;
+    historyBtn.addEventListener("click", async () => {
+      const estabaOculto = historyContainer.classList.contains("hidden");
+      if (estabaOculto) {
+        historyContainer.classList.remove("hidden");
+        historyBtn.textContent = "Ocultar historial";
+        if (!historyLoaded) {
+          await renderDebtMovimientos(historyContainer, d.label)();
+          historyLoaded = true;
+        }
+      } else {
+        historyContainer.classList.add("hidden");
+        historyBtn.textContent = "Ver historial";
+      }
     });
 
     const clearBtn = document.createElement("button");
@@ -725,11 +834,13 @@ function renderDebts(deudas) {
     });
 
     acciones.appendChild(payBtn);
+    acciones.appendChild(historyBtn);
     acciones.appendChild(clearBtn);
     acciones.appendChild(delBtn);
 
     card.appendChild(header);
     card.appendChild(acciones);
+    card.appendChild(historyContainer);
     debtsList.appendChild(card);
   });
 }
