@@ -239,11 +239,14 @@
         <!-- Tab: Gráficos -->
         <div id="financeTabGraficos" class="finance-tab-panel hidden space-y-6">
           <section>
-            <p class="eyebrow text-brand-green"><i class="fa-solid fa-chart-pie"></i> GASTO POR CATEGORÍA (ESTE MES)</p>
+            <div class="flex items-center justify-between gap-2 flex-wrap">
+              <p class="eyebrow text-brand-green"><i class="fa-solid fa-chart-pie"></i> GASTO POR CATEGORÍA</p>
+              <select id="chartCategoriasMes" class="bg-white rounded-lg px-2 py-1 text-xs border border-slate-200"></select>
+            </div>
             <div class="card bg-white mt-2" style="height: 260px;">
               <canvas id="chartCategorias"></canvas>
             </div>
-            <p id="chartCategoriasEmpty" class="hidden text-center text-xs text-slate-400 py-6">Todavía no hay gastos categorizados este mes.</p>
+            <p id="chartCategoriasEmpty" class="hidden text-center text-xs text-slate-400 py-6">Todavía no hay gastos categorizados ese mes.</p>
           </section>
           <section>
             <p class="eyebrow text-brand-green"><i class="fa-solid fa-chart-column"></i> GANANCIAS VS GASTOS (ÚLTIMOS 14 DÍAS)</p>

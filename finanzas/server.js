@@ -413,7 +413,14 @@ app.delete("/api/finance/accounts/entries/:index", (req, res) => {
 // día) más el día en curso, para los gráficos y la lista diaria de
 // Finanzas.
 app.get("/api/finance/history", (req, res) => {
-  res.json({ cierres: cashbox.getCierres(), hoy: { fecha: cashbox.getHoyLabel(), ...cashbox.getToday() } });
+  // "meses" sale de TODOS los movimientos (no solo los cierres) para que un
+  // gasto cargado a mano con fecha pasada también aparezca como mes
+  // disponible en el selector de "Gasto por categoría", aunque ese día
+  // nunca haya llegado a cerrar.
+  const meses = Array.from(new Set(cashbox.getMovimientos().map((m) => m.fecha.slice(0, 7))))
+    .sort()
+    .reverse();
+  res.json({ cierres: cashbox.getCierres(), hoy: { fecha: cashbox.getHoyLabel(), ...cashbox.getToday() }, meses });
 });
 
 // Corrige un día ya cerrado (ganancias/gastos/caja inicial); recalcula su
@@ -491,8 +498,10 @@ app.get("/api/finance/goals/progress", (req, res) => {
 // Presupuesto: límites mensuales por categoría y metas de deudas (Junta,
 // Caja Cuzco, Universidad), calculados a partir del registro de gastos.
 app.get("/api/budget/categories", (req, res) => {
-  const mesActual = cashbox.getMesActualLabel();
-  res.json({ categorias: budgetCategories.getResumen(cashbox.getMovimientos(), mesActual) });
+  // ?mes=YYYY-MM opcional: para ver el gasto por categoría de un mes
+  // anterior en los gráficos, en vez de siempre el mes en curso.
+  const mes = req.query.mes || cashbox.getMesActualLabel();
+  res.json({ categorias: budgetCategories.getResumen(cashbox.getMovimientos(), mes) });
 });
 
 // Lista los gastos de una categoría (incluye "otros"), para poder verlos

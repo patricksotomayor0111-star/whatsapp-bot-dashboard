@@ -1160,17 +1160,57 @@ let chartProduccionInstance = null;
 
 const CHART_PALETTE = ["#22C55E", "#3B82F6", "#F59E0B", "#EF4444", "#8B5CF6", "#14B8A6", "#EC4899", "#84CC16", "#6366F1", "#F97316"];
 
+// Mes que se está mostrando en el gráfico de categorías (se conserva
+// mientras el usuario siga en la pestaña, aunque se refresquen los datos).
+let mesCategoriasSeleccionado = null;
+const chartCategoriasMesSelect = document.getElementById("chartCategoriasMes");
+
+async function fetchChartCategorias(mes) {
+  mesCategoriasSeleccionado = mes;
+  try {
+    const res = await fetch(`/api/budget/categories?mes=${encodeURIComponent(mes)}`);
+    const data = await res.json();
+    renderChartCategorias(data.categorias || []);
+  } catch (err) {
+    console.error("No se pudo obtener las categorías del mes:", err);
+  }
+}
+
+chartCategoriasMesSelect.addEventListener("change", () => {
+  fetchChartCategorias(chartCategoriasMesSelect.value);
+});
+
+// Arma la lista de meses disponibles (los del historial de cierres + el
+// actual) para que el usuario pueda elegir cuál ver en "Gasto por
+// categoría", que si no queda fijo en el mes en curso.
+function poblarSelectorMesCategorias(meses, mesActual) {
+  const valorPrevio = mesCategoriasSeleccionado && meses.includes(mesCategoriasSeleccionado) ? mesCategoriasSeleccionado : mesActual;
+  chartCategoriasMesSelect.innerHTML = "";
+  meses.forEach((m) => {
+    const opt = document.createElement("option");
+    opt.value = m;
+    const [anio, mes] = m.split("-");
+    opt.textContent = `${MESES_CORTO[Number(mes) - 1]} ${anio}${m === mesActual ? " (actual)" : ""}`;
+    if (m === valorPrevio) opt.selected = true;
+    chartCategoriasMesSelect.appendChild(opt);
+  });
+  mesCategoriasSeleccionado = valorPrevio;
+}
+
 async function fetchGraficos() {
   try {
-    const [historyRes, categoriesRes, productionRes] = await Promise.all([
+    const [historyRes, productionRes] = await Promise.all([
       fetch("/api/finance/history"),
-      fetch("/api/budget/categories"),
       fetch("/api/finance/production-goals"),
     ]);
     const historyData = await historyRes.json();
-    const categoriesData = await categoriesRes.json();
     const productionData = await productionRes.json();
-    renderChartCategorias(categoriesData.categorias || []);
+
+    const mesActual = historyData.hoy && historyData.hoy.fecha ? historyData.hoy.fecha.slice(0, 7) : new Date().toISOString().slice(0, 7);
+    const mesesDisponibles = Array.from(new Set([...(historyData.meses || []), mesActual])).sort().reverse();
+    poblarSelectorMesCategorias(mesesDisponibles, mesActual);
+    await fetchChartCategorias(mesCategoriasSeleccionado);
+
     renderChartHistoria(historyData.cierres || [], historyData.hoy);
     renderChartMensual(historyData.cierres || [], historyData.hoy);
     renderChartProduccion(productionData.hoy);
