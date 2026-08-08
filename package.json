@@ -13,6 +13,7 @@
     "@whiskeysockets/baileys": "7.0.0-rc13",
     "exceljs": "^4.4.0",
     "express": "^4.19.2",
+    "multer": "^2.2.0",
     "pino": "^9.3.2",
     "qrcode-terminal": "^0.12.0",
     "web-push": "^3.6.7"

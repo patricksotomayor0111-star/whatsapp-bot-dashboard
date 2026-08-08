@@ -1,6 +1,7 @@
 const express = require("express");
 const path = require("path");
-const { startBot, botState, logoutBot, getSock, DELIVERY_QUOTE_GROUP_NAMES } = require("./bot");
+const { startBot, botState, logoutBot, getSock } = require("./bot");
+const quoteConfig = require("./quoteConfig");
 const sectors = require("./sectors");
 const dynamicKeywords = require("./dynamicKeywords");
 const numberExceptions = require("./numberExceptions");
@@ -8,9 +9,22 @@ const pendingQuotes = require("./pendingQuotes");
 const pushSubscriptions = require("./pushSubscriptions");
 const contactTriggerGroups = require("./contactTriggerGroups");
 const groupDelays = require("./groupDelays");
+const scheduledBroadcasts = require("./scheduledBroadcasts");
+const multer = require("multer");
 
 const app = express();
 app.use(express.json());
+
+// Sube la foto de un mensaje programado a memoria (se guarda a disco desde
+// la ruta, vía scheduledBroadcasts.setImagen); 5MB alcanza de sobra para
+// una foto de WhatsApp.
+const uploadBroadcastImage = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    cb(null, /^image\//.test(file.mimetype));
+  },
+});
 
 // Solo se exponen estos 3 archivos del panel (no todo el proyecto,
 // para no dejar accesible el código del bot ni la sesión de WhatsApp)
@@ -347,6 +361,67 @@ app.post("/api/group-delays/remove", (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- Mensajes programados (texto + foto opcional, a horas fijas) ----------
+// Se mandan solos, todos los días, a los grupos elegidos, en cada horario
+// configurado (hora Perú). Todo editable desde el panel.
+app.get("/api/broadcasts", (req, res) => {
+  res.json({ broadcasts: scheduledBroadcasts.getAll() });
+});
+
+app.post("/api/broadcasts", (req, res) => {
+  try {
+    const broadcast = scheduledBroadcasts.addBroadcast(req.body || {});
+    res.json({ ok: true, broadcast });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.put("/api/broadcasts/:id", (req, res) => {
+  try {
+    const broadcast = scheduledBroadcasts.editBroadcast(req.params.id, req.body || {});
+    if (!broadcast) return res.status(404).json({ error: "Mensaje programado no encontrado." });
+    res.json({ ok: true, broadcast });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/broadcasts/:id/active", (req, res) => {
+  const broadcast = scheduledBroadcasts.setActivo(req.params.id, req.body.activo);
+  if (!broadcast) return res.status(404).json({ error: "Mensaje programado no encontrado." });
+  res.json({ ok: true });
+});
+
+app.delete("/api/broadcasts/:id", (req, res) => {
+  scheduledBroadcasts.removeBroadcast(req.params.id);
+  res.json({ ok: true });
+});
+
+app.post("/api/broadcasts/:id/image", uploadBroadcastImage.single("imagen"), (req, res) => {
+  if (!scheduledBroadcasts.getById(req.params.id)) {
+    return res.status(404).json({ error: "Mensaje programado no encontrado." });
+  }
+  if (!req.file) return res.status(400).json({ error: "No se recibió ninguna imagen." });
+  const extension = path.extname(req.file.originalname) || ".jpg";
+  scheduledBroadcasts.setImagen(req.params.id, req.file.buffer, extension);
+  res.json({ ok: true });
+});
+
+app.delete("/api/broadcasts/:id/image", (req, res) => {
+  const broadcast = scheduledBroadcasts.quitarImagen(req.params.id);
+  if (!broadcast) return res.status(404).json({ error: "Mensaje programado no encontrado." });
+  res.json({ ok: true });
+});
+
+// Sirve la foto de un mensaje programado para poder previsualizarla en el
+// panel (no es un directorio estático genérico, solo esta ruta puntual).
+app.get("/api/broadcasts/:id/image", (req, res) => {
+  const imagenPath = scheduledBroadcasts.getImagenPath(req.params.id);
+  if (!imagenPath) return res.status(404).end();
+  res.sendFile(imagenPath);
+});
+
 // Descarga el registro completo de la caja chica (todos los días guardados,
 // no solo hoy) como un Excel de verdad (.xlsx): columnas reales, encabezados
 // con color, montos "S/ 0.00" (gastos en rojo, ganancias en verde) y dos
@@ -364,6 +439,53 @@ app.post("/api/push/subscribe", (req, res) => {
 app.post("/api/push/unsubscribe", (req, res) => {
   pushSubscriptions.removeSubscription(req.body.endpoint);
   res.json({ ok: true });
+});
+
+// ---------- Configuración de cotizaciones (editable desde el panel) ----------
+app.get("/api/quote-config", (req, res) => {
+  res.json(quoteConfig.getConfig());
+});
+
+app.post("/api/quote-config/groups", (req, res) => {
+  try {
+    quoteConfig.addGroupName(req.body.name);
+    res.json({ ok: true, ...quoteConfig.getConfig() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/quote-config/groups/remove", (req, res) => {
+  quoteConfig.removeGroupName(req.body.name);
+  res.json({ ok: true, ...quoteConfig.getConfig() });
+});
+
+app.post("/api/quote-config/anyone", (req, res) => {
+  quoteConfig.setAnyoneCanQuote(req.body.anyoneCanQuote);
+  res.json({ ok: true, ...quoteConfig.getConfig() });
+});
+
+app.post("/api/quote-config/numbers", (req, res) => {
+  try {
+    quoteConfig.addAuthorizedNumber(req.body.number);
+    res.json({ ok: true, ...quoteConfig.getConfig() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/quote-config/numbers/remove", (req, res) => {
+  quoteConfig.removeAuthorizedNumber(req.body.number);
+  res.json({ ok: true, ...quoteConfig.getConfig() });
+});
+
+app.post("/api/quote-config/message", (req, res) => {
+  try {
+    quoteConfig.setMessage(req.body.message);
+    res.json({ ok: true, ...quoteConfig.getConfig() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 // La web de La Bumanguesa llama acá (con un secreto compartido, ya que no
@@ -388,13 +510,13 @@ app.post("/api/delivery-quote/request", async (req, res) => {
   if (!sock || !botState.connected) {
     return res.status(503).json({ error: "El bot de WhatsApp no está conectado" });
   }
-  const grupos = botState.groups.filter((g) => DELIVERY_QUOTE_GROUP_NAMES.has(g.name.trim().toUpperCase()));
+  const grupos = botState.groups.filter((g) => quoteConfig.isQuoteGroup(g.name));
   if (grupos.length === 0) {
     return res.status(503).json({ error: "No se encontró el grupo de cotización" });
   }
   const mapaUrl = `https://www.google.com/maps?q=${lat},${lng}`;
   const refLinea = referencia && referencia.trim() ? `\n\nReferencia: ${referencia.trim()}` : "";
-  const texto = `📍 ${mapaUrl}${refLinea}\n\nCotización urgente 🛵`;
+  const texto = `📍 ${mapaUrl}${refLinea}\n\n${quoteConfig.getMessage()}`;
   try {
     // Se manda a los dos grupos a la vez; el que responda primero con un
     // precio válido gana (bumanguesa-web ignora la segunda respuesta).

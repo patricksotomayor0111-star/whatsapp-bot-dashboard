@@ -1113,6 +1113,186 @@ addExceptionKeywordBtn.addEventListener("click", async () => {
   }
 });
 
+// ---------- Cotizaciones de delivery (zona no mapeada) ----------
+const quoteGroupList = document.getElementById("quoteGroupList");
+const quoteGroupSelect = document.getElementById("quoteGroupSelect");
+const addQuoteGroupBtn = document.getElementById("addQuoteGroupBtn");
+const quoteAnyoneCheck = document.getElementById("quoteAnyoneCheck");
+const quoteNumbersBlock = document.getElementById("quoteNumbersBlock");
+const quoteNumberList = document.getElementById("quoteNumberList");
+const quoteNumberInput = document.getElementById("quoteNumberInput");
+const addQuoteNumberBtn = document.getElementById("addQuoteNumberBtn");
+const quoteMessageInput = document.getElementById("quoteMessageInput");
+const saveQuoteMessageBtn = document.getElementById("saveQuoteMessageBtn");
+const quoteConfigStatus = document.getElementById("quoteConfigStatus");
+
+let quoteConfigData = { groupNames: [], anyoneCanQuote: false, authorizedNumbers: [], message: "" };
+
+function mostrarEstadoCotizacion(texto, esError) {
+  quoteConfigStatus.textContent = texto;
+  quoteConfigStatus.className = `text-xs mt-2 ${esError ? "text-brand-red" : "text-brand-green"}`;
+  setTimeout(() => {
+    quoteConfigStatus.textContent = "";
+  }, 3000);
+}
+
+function renderQuoteConfig() {
+  // Grupos configurados. Se avisa si un grupo guardado ya no existe en
+  // WhatsApp (nombre cambiado o el bot salió), porque si no la cotización
+  // se mandaría a la nada sin que se note.
+  quoteGroupList.innerHTML = "";
+  if (quoteConfigData.groupNames.length === 0) {
+    const p = document.createElement("p");
+    p.className = "text-xs text-brand-red";
+    p.textContent = "⚠ Sin grupos: las cotizaciones no se van a enviar a ninguna parte.";
+    quoteGroupList.appendChild(p);
+  } else {
+    quoteConfigData.groupNames.forEach((name) => {
+      const existe = groupsData.some((g) => g.name.trim().toUpperCase() === name.trim().toUpperCase());
+      const chip = document.createElement("div");
+      chip.className = `flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm ${
+        existe ? "bg-teal-50 text-teal-700" : "bg-amber-50 text-amber-700"
+      }`;
+      const label = document.createElement("span");
+      label.className = "truncate";
+      label.textContent = existe ? name : `${name} (no encontrado)`;
+      const removeBtn = document.createElement("button");
+      removeBtn.innerHTML = '<i class="fa-solid fa-xmark text-xs"></i>';
+      removeBtn.className = "shrink-0 opacity-60 hover:opacity-100";
+      removeBtn.addEventListener("click", async () => {
+        await fetch("/api/quote-config/groups/remove", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+        await fetchQuoteConfig();
+        mostrarEstadoCotizacion("Grupo quitado ✓", false);
+      });
+      chip.appendChild(label);
+      chip.appendChild(removeBtn);
+      quoteGroupList.appendChild(chip);
+    });
+  }
+
+  // Dropdown para agregar: solo los grupos que todavía no están puestos.
+  const seleccionActual = quoteGroupSelect.value;
+  quoteGroupSelect.innerHTML = '<option value="">— Agregar un grupo —</option>';
+  groupsData
+    .filter((g) => !quoteConfigData.groupNames.some((n) => n.trim().toUpperCase() === g.name.trim().toUpperCase()))
+    .forEach((g) => {
+      const opt = document.createElement("option");
+      opt.value = g.name;
+      opt.textContent = g.name;
+      quoteGroupSelect.appendChild(opt);
+    });
+  if (seleccionActual) quoteGroupSelect.value = seleccionActual;
+
+  // Quién puede cotizar
+  quoteAnyoneCheck.checked = quoteConfigData.anyoneCanQuote;
+  quoteNumbersBlock.classList.toggle("hidden", quoteConfigData.anyoneCanQuote);
+
+  quoteNumberList.innerHTML = "";
+  if (quoteConfigData.authorizedNumbers.length === 0) {
+    const p = document.createElement("p");
+    p.className = "text-xs text-brand-red";
+    p.textContent = "⚠ Sin números: nadie va a poder responder la tarifa.";
+    quoteNumberList.appendChild(p);
+  } else {
+    quoteConfigData.authorizedNumbers.forEach((number) => {
+      const chip = document.createElement("div");
+      chip.className = "flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm bg-slate-100 text-slate-700";
+      const label = document.createElement("span");
+      label.className = "truncate";
+      label.textContent = number;
+      const removeBtn = document.createElement("button");
+      removeBtn.innerHTML = '<i class="fa-solid fa-xmark text-xs"></i>';
+      removeBtn.className = "shrink-0 opacity-60 hover:opacity-100";
+      removeBtn.addEventListener("click", async () => {
+        await fetch("/api/quote-config/numbers/remove", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ number }),
+        });
+        await fetchQuoteConfig();
+        mostrarEstadoCotizacion("Número quitado ✓", false);
+      });
+      chip.appendChild(label);
+      chip.appendChild(removeBtn);
+      quoteNumberList.appendChild(chip);
+    });
+  }
+
+  // El textarea no se pisa mientras lo estás editando.
+  if (document.activeElement !== quoteMessageInput) {
+    quoteMessageInput.value = quoteConfigData.message;
+  }
+}
+
+async function fetchQuoteConfig() {
+  try {
+    const res = await fetch("/api/quote-config");
+    quoteConfigData = await res.json();
+    renderQuoteConfig();
+  } catch (err) {
+    console.error("No se pudo cargar la config de cotizaciones:", err);
+  }
+}
+
+addQuoteGroupBtn.addEventListener("click", async () => {
+  const name = quoteGroupSelect.value;
+  if (!name) return;
+  const res = await fetch("/api/quote-config/groups", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  quoteGroupSelect.value = "";
+  await fetchQuoteConfig();
+  mostrarEstadoCotizacion(res.ok ? "Grupo agregado ✓" : "No se pudo agregar", !res.ok);
+});
+
+quoteAnyoneCheck.addEventListener("change", async () => {
+  const res = await fetch("/api/quote-config/anyone", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ anyoneCanQuote: quoteAnyoneCheck.checked }),
+  });
+  await fetchQuoteConfig();
+  mostrarEstadoCotizacion(res.ok ? "Guardado ✓" : "No se pudo guardar", !res.ok);
+});
+
+addQuoteNumberBtn.addEventListener("click", async () => {
+  const number = quoteNumberInput.value.trim();
+  if (!number) return;
+  const res = await fetch("/api/quote-config/numbers", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ number }),
+  });
+  quoteNumberInput.value = "";
+  await fetchQuoteConfig();
+  mostrarEstadoCotizacion(res.ok ? "Número agregado ✓" : "No se pudo agregar", !res.ok);
+});
+
+quoteNumberInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") addQuoteNumberBtn.click();
+});
+
+saveQuoteMessageBtn.addEventListener("click", async () => {
+  const message = quoteMessageInput.value.trim();
+  if (!message) {
+    mostrarEstadoCotizacion("El mensaje no puede estar vacío", true);
+    return;
+  }
+  const res = await fetch("/api/quote-config/message", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message }),
+  });
+  await fetchQuoteConfig();
+  mostrarEstadoCotizacion(res.ok ? "Mensaje guardado ✓" : "No se pudo guardar", !res.ok);
+});
+
 // ---------- Responder a contacto compartido (por grupo) ----------
 const contactTriggerList = document.getElementById("contactTriggerList");
 const contactTriggerGroupSelect = document.getElementById("contactTriggerGroupSelect");
@@ -1375,6 +1555,280 @@ saveRemarcarOverrideBtn.addEventListener("click", async () => {
   }
 });
 
+// ---------- Mensajes programados (texto + foto opcional, a horas fijas) ----------
+const broadcastsList = document.getElementById("broadcastsList");
+const newBroadcastNombre = document.getElementById("newBroadcastNombre");
+const newBroadcastTexto = document.getElementById("newBroadcastTexto");
+const newBroadcastImagen = document.getElementById("newBroadcastImagen");
+const newBroadcastImagenPreview = document.getElementById("newBroadcastImagenPreview");
+const removeBroadcastImagenBtn = document.getElementById("removeBroadcastImagenBtn");
+const newBroadcastGroups = document.getElementById("newBroadcastGroups");
+const newBroadcastHorariosList = document.getElementById("newBroadcastHorariosList");
+const newBroadcastHorarioInput = document.getElementById("newBroadcastHorarioInput");
+const addBroadcastHorarioBtn = document.getElementById("addBroadcastHorarioBtn");
+const addBroadcastBtn = document.getElementById("addBroadcastBtn");
+const cancelBroadcastEditBtn = document.getElementById("cancelBroadcastEditBtn");
+const broadcastFormTitle = document.getElementById("broadcastFormTitle");
+
+let broadcastHorarios = [];
+let editingBroadcastId = null;
+let quitarImagenExistente = false;
+
+function renderBroadcastGroupsChecklist(seleccionados) {
+  newBroadcastGroups.innerHTML = "";
+  if (groupsData.length === 0) {
+    const p = document.createElement("p");
+    p.className = "text-xs text-slate-400";
+    p.textContent = "No hay grupos disponibles (conecta el bot primero).";
+    newBroadcastGroups.appendChild(p);
+    return;
+  }
+  groupsData.forEach((g) => {
+    const label = document.createElement("label");
+    label.className = "flex items-center gap-2 text-sm text-slate-700 py-0.5";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.value = g.id;
+    checkbox.checked = (seleccionados || []).includes(g.id);
+    checkbox.className = "shrink-0";
+    const span = document.createElement("span");
+    span.className = "truncate";
+    span.textContent = g.name;
+    label.appendChild(checkbox);
+    label.appendChild(span);
+    newBroadcastGroups.appendChild(label);
+  });
+}
+
+function renderBroadcastHorariosChips() {
+  newBroadcastHorariosList.innerHTML = "";
+  broadcastHorarios.forEach((h) => {
+    const chip = document.createElement("span");
+    chip.className = "inline-flex items-center gap-1 bg-slate-100 text-slate-600 rounded-full pl-2.5 pr-1.5 py-1 text-xs";
+    chip.textContent = h;
+    const del = document.createElement("button");
+    del.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+    del.className = "w-4 h-4 flex items-center justify-center text-slate-400 hover:text-rose-600";
+    del.addEventListener("click", () => {
+      broadcastHorarios = broadcastHorarios.filter((x) => x !== h);
+      renderBroadcastHorariosChips();
+    });
+    chip.appendChild(del);
+    newBroadcastHorariosList.appendChild(chip);
+  });
+}
+
+addBroadcastHorarioBtn.addEventListener("click", () => {
+  const valor = newBroadcastHorarioInput.value;
+  if (!valor) return;
+  if (!broadcastHorarios.includes(valor)) {
+    broadcastHorarios.push(valor);
+    broadcastHorarios.sort();
+    renderBroadcastHorariosChips();
+  }
+  newBroadcastHorarioInput.value = "";
+});
+
+function resetBroadcastForm() {
+  editingBroadcastId = null;
+  quitarImagenExistente = false;
+  newBroadcastNombre.value = "";
+  newBroadcastTexto.value = "";
+  newBroadcastImagen.value = "";
+  newBroadcastImagenPreview.classList.add("hidden");
+  newBroadcastImagenPreview.src = "";
+  removeBroadcastImagenBtn.classList.add("hidden");
+  broadcastHorarios = [];
+  renderBroadcastHorariosChips();
+  renderBroadcastGroupsChecklist([]);
+  addBroadcastBtn.textContent = "Guardar mensaje programado";
+  broadcastFormTitle.innerHTML = '<i class="fa-solid fa-plus"></i> AGREGAR MENSAJE PROGRAMADO';
+  cancelBroadcastEditBtn.classList.add("hidden");
+}
+
+removeBroadcastImagenBtn.addEventListener("click", () => {
+  quitarImagenExistente = true;
+  newBroadcastImagenPreview.classList.add("hidden");
+  removeBroadcastImagenBtn.classList.add("hidden");
+});
+
+cancelBroadcastEditBtn.addEventListener("click", () => {
+  resetBroadcastForm();
+});
+
+function iniciarEdicionBroadcast(b) {
+  editingBroadcastId = b.id;
+  quitarImagenExistente = false;
+  newBroadcastNombre.value = b.nombre;
+  newBroadcastTexto.value = b.texto || "";
+  newBroadcastImagen.value = "";
+  broadcastHorarios = (b.horarios || []).slice();
+  renderBroadcastHorariosChips();
+  renderBroadcastGroupsChecklist(b.groupIds || []);
+  if (b.imagenArchivo) {
+    newBroadcastImagenPreview.src = `/api/broadcasts/${encodeURIComponent(b.id)}/image?t=${Date.now()}`;
+    newBroadcastImagenPreview.classList.remove("hidden");
+    removeBroadcastImagenBtn.classList.remove("hidden");
+  } else {
+    newBroadcastImagenPreview.classList.add("hidden");
+    removeBroadcastImagenBtn.classList.add("hidden");
+  }
+  addBroadcastBtn.textContent = "Guardar cambios";
+  broadcastFormTitle.innerHTML = `<i class="fa-solid fa-pen"></i> EDITANDO "${b.nombre}"`;
+  cancelBroadcastEditBtn.classList.remove("hidden");
+}
+
+function textoHorarios(horarios) {
+  return (horarios || []).join(", ");
+}
+
+function renderBroadcastsList(lista) {
+  broadcastsList.innerHTML = "";
+  if (lista.length === 0) {
+    const p = document.createElement("p");
+    p.className = "text-sm text-slate-400";
+    p.textContent = "No hay mensajes programados todavía.";
+    broadcastsList.appendChild(p);
+    return;
+  }
+  lista.forEach((b) => {
+    const card = document.createElement("div");
+    card.className = "rounded-xl border p-3 " + (b.activo ? "bg-white border-slate-200" : "bg-slate-50 border-slate-200 opacity-70");
+
+    const top = document.createElement("div");
+    top.className = "flex items-start justify-between gap-2";
+    const info = document.createElement("div");
+    info.className = "min-w-0";
+    const nombre = document.createElement("p");
+    nombre.className = "text-sm font-semibold text-slate-800 truncate";
+    nombre.textContent = b.nombre + (b.imagenArchivo ? " 📷" : "");
+    const meta = document.createElement("p");
+    meta.className = "text-xs text-slate-400 mt-0.5";
+    meta.textContent = `${textoHorarios(b.horarios)} · ${b.groupIds.length} grupo${b.groupIds.length === 1 ? "" : "s"} · ${b.activo ? "activo" : "desactivado"}`;
+    info.appendChild(nombre);
+    info.appendChild(meta);
+    top.appendChild(info);
+
+    const acciones = document.createElement("div");
+    acciones.className = "flex items-center gap-1 shrink-0";
+
+    const btnToggle = document.createElement("button");
+    btnToggle.className = "w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 active:scale-90 transition-all";
+    btnToggle.title = b.activo ? "Desactivar" : "Activar";
+    btnToggle.innerHTML = b.activo ? '<i class="fa-solid fa-toggle-on text-brand-green"></i>' : '<i class="fa-solid fa-toggle-off"></i>';
+    btnToggle.addEventListener("click", async () => {
+      await fetch(`/api/broadcasts/${encodeURIComponent(b.id)}/active`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ activo: !b.activo }),
+      });
+      fetchBroadcasts();
+    });
+    acciones.appendChild(btnToggle);
+
+    const btnEdit = document.createElement("button");
+    btnEdit.className = "w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 active:scale-90 transition-all";
+    btnEdit.title = "Editar";
+    btnEdit.innerHTML = '<i class="fa-solid fa-pen"></i>';
+    btnEdit.addEventListener("click", () => iniciarEdicionBroadcast(b));
+    acciones.appendChild(btnEdit);
+
+    const btnDel = document.createElement("button");
+    btnDel.className = "w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-red-50 hover:text-brand-red active:scale-90 transition-all";
+    btnDel.title = "Eliminar";
+    btnDel.innerHTML = '<i class="fa-solid fa-trash"></i>';
+    btnDel.addEventListener("click", async () => {
+      if (!confirm(`¿Eliminar el mensaje programado "${b.nombre}"?`)) return;
+      await fetch(`/api/broadcasts/${encodeURIComponent(b.id)}`, { method: "DELETE" });
+      if (editingBroadcastId === b.id) resetBroadcastForm();
+      fetchBroadcasts();
+    });
+    acciones.appendChild(btnDel);
+
+    top.appendChild(acciones);
+    card.appendChild(top);
+    if (b.texto) {
+      const texto = document.createElement("p");
+      texto.className = "text-xs text-slate-500 mt-1.5 break-words";
+      texto.textContent = b.texto;
+      card.appendChild(texto);
+    }
+    broadcastsList.appendChild(card);
+  });
+}
+
+async function fetchBroadcasts() {
+  try {
+    const res = await fetch("/api/broadcasts");
+    const data = await res.json();
+    renderBroadcastsList(data.broadcasts || []);
+  } catch (err) {
+    console.error("No se pudo obtener los mensajes programados:", err);
+  }
+}
+
+addBroadcastBtn.addEventListener("click", async () => {
+  const nombre = newBroadcastNombre.value.trim();
+  const texto = newBroadcastTexto.value.trim();
+  const groupIds = Array.from(newBroadcastGroups.querySelectorAll("input[type=checkbox]:checked")).map((c) => c.value);
+  if (!nombre) {
+    alert("Ponle un nombre al mensaje programado.");
+    return;
+  }
+  if (groupIds.length === 0) {
+    alert("Elige al menos un grupo.");
+    return;
+  }
+  if (broadcastHorarios.length === 0) {
+    alert("Agrega al menos un horario.");
+    return;
+  }
+  const body = { nombre, texto, groupIds, horarios: broadcastHorarios };
+
+  try {
+    let broadcastId = editingBroadcastId;
+    if (editingBroadcastId) {
+      const res = await fetch(`/api/broadcasts/${encodeURIComponent(editingBroadcastId)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        alert(data.error || "No se pudo guardar los cambios.");
+        return;
+      }
+      if (quitarImagenExistente) {
+        await fetch(`/api/broadcasts/${encodeURIComponent(editingBroadcastId)}/image`, { method: "DELETE" });
+      }
+    } else {
+      const res = await fetch("/api/broadcasts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        alert(data.error || "No se pudo guardar.");
+        return;
+      }
+      broadcastId = data.broadcast.id;
+    }
+
+    const archivo = newBroadcastImagen.files[0];
+    if (archivo && broadcastId) {
+      const formData = new FormData();
+      formData.append("imagen", archivo);
+      await fetch(`/api/broadcasts/${encodeURIComponent(broadcastId)}/image`, { method: "POST", body: formData });
+    }
+
+    resetBroadcastForm();
+    await fetchBroadcasts();
+  } catch (err) {
+    console.error("No se pudo guardar el mensaje programado:", err);
+  }
+});
+
 // ---------- Categorías de Opciones (ahora directas desde el menú ☰) ----------
 // Cada categoría carga sus propios datos recién cuando se abre. Las funciones
 // ya existen todas; esto solo cambia desde dónde y cuándo se llaman.
@@ -1391,6 +1845,7 @@ const categoryLoaders = {
   categoryGroups: () => {
     populateMoveSelects();
     populateNoRemarcarSelect();
+    fetchQuoteConfig();
   },
   categoryTiming: () => {
     fetchDelay();
@@ -1400,6 +1855,10 @@ const categoryLoaders = {
   },
   categoryGeneral: () => {
     updatePushStatus();
+  },
+  categoryBroadcasts: () => {
+    resetBroadcastForm();
+    fetchBroadcasts();
   },
 };
 

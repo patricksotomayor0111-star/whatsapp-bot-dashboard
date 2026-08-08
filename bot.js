@@ -12,9 +12,11 @@ const { excludedNumbers } = require("./excludedNumbers");
 const dynamicKeywords = require("./dynamicKeywords");
 const numberExceptions = require("./numberExceptions");
 const pendingQuotes = require("./pendingQuotes");
+const quoteConfig = require("./quoteConfig");
 const pushSubscriptions = require("./pushSubscriptions");
 const contactTriggerGroups = require("./contactTriggerGroups");
 const groupDelays = require("./groupDelays");
+const scheduledBroadcasts = require("./scheduledBroadcasts");
 const { dataPath } = require("./dataDir");
 const { sectorSeedByName, specialSeedByName, numberExceptionSeed } = require("./groupSeed");
 const {
@@ -265,16 +267,11 @@ const IGNORED_GROUP_NAMES = new Set(["GANANCIAS"]);
 // ---------- Cotización de delivery ----------
 // La web de Punto Caliente (antes La Bumanguesa) pide acá una cotización
 // cuando el cliente cae fuera de las zonas ya mapeadas: manda el link de
-// ubicación a AMBOS grupos citando el mensaje, y solo cuenta como precio
-// válido una respuesta que CITE ese mensaje.
+// ubicación citando el mensaje, y solo cuenta como precio válido una
+// respuesta que CITE ese mensaje.
 //
-// "CARTAS RESTAURANTES" sigue con la lista fija de números autorizados
-// (AUTHORIZED_QUOTE_NUMBERS). "PUNTO CALIENTE - BOX DELIVERY" es el grupo
-// propio del negocio: ahí cualquier persona del grupo puede cotizar, sin
-// lista de números (ver OPEN_QUOTE_GROUP_NAMES).
-const DELIVERY_QUOTE_GROUP_NAMES = new Set(["CARTAS RESTAURANTES", "PUNTO CALIENTE - BOX DELIVERY"]);
-const OPEN_QUOTE_GROUP_NAMES = new Set(["PUNTO CALIENTE - BOX DELIVERY"]);
-const AUTHORIZED_QUOTE_NUMBERS = new Set(["939610396", "918943697"]);
+// A qué grupos se manda, quién puede responder la tarifa y el texto del
+// mensaje se configuran desde el panel (ver quoteConfig.js), no acá.
 
 // ---------- Grupos que también responden a fotos (sin texto) ----------
 // En estos grupos, el pedido a veces viene como una foto (nota escrita a
@@ -517,6 +514,17 @@ async function enviarMensaje(sock, chatId, contenido, opciones) {
   return enviado;
 }
 
+// Igual que enviarMensaje, pero con foto (usada por los mensajes
+// programados). "caption" es opcional: una foto sola sin texto es válida.
+async function enviarImagen(sock, chatId, buffer, caption) {
+  const contenido = { image: buffer };
+  if (caption) contenido.caption = caption;
+  const enviado = await sock.sendMessage(chatId, contenido);
+  const idEnviado = enviado?.key?.id;
+  if (idEnviado) yaFueProcesado(idEnviado);
+  return enviado;
+}
+
 // Espera creciente para reintentar si falla la carga de grupos (ej. un
 // "rate-overlimit" temporal de WhatsApp por reconectar varias veces
 // seguidas): 30s, 1min, 2min. Si para entonces sigue fallando, se deja
@@ -704,15 +712,13 @@ async function startBot() {
       // que él manda llegan como fromMe). Si no cita un mensaje de
       // cotización pendiente, no hace nada acá y el mensaje sigue su camino
       // normal (pedidos del grupo).
-      const nombreGrupoActualCotiz = (grupoActual?.name || "").trim().toUpperCase();
-      if (grupoActual && DELIVERY_QUOTE_GROUP_NAMES.has(nombreGrupoActualCotiz)) {
+      if (grupoActual && quoteConfig.isQuoteGroup(grupoActual.name)) {
         const stanzaId = extractQuotedStanzaId(msg);
         const pendiente = stanzaId ? pendingQuotes.get(stanzaId) : null;
         if (pendiente) {
-          const autorizado =
-            msg.key.fromMe || OPEN_QUOTE_GROUP_NAMES.has(nombreGrupoActualCotiz)
-              ? true
-              : AUTHORIZED_QUOTE_NUMBERS.has((await resolverSenderNumber(sock, msg.key)).senderNumber);
+          const autorizado = msg.key.fromMe
+            ? true
+            : quoteConfig.canQuote((await resolverSenderNumber(sock, msg.key)).senderNumber);
           if (autorizado) {
             const precio = parsePrecioCotizacion(rawText);
             if (precio != null) {
@@ -900,4 +906,44 @@ function getSock() {
   return currentSock;
 }
 
-module.exports = { startBot, botState, logoutBot, getSock, DELIVERY_QUOTE_GROUP_NAMES };
+// ---------- Mensajes programados (texto + foto opcional, a horas fijas) ----------
+// Revisa cada 30s si la hora Perú actual (HH:MM) coincide con algún
+// horario configurado en un mensaje activo, y si ese horario ya se mandó
+// hoy. Igual que checkCashboxSchedule en finanzas/bot.js, pero para varios
+// horarios por mensaje en vez de uno solo fijo.
+async function checkScheduledBroadcasts() {
+  if (!currentSock || !botState.connected || !botState.active) return;
+
+  const now = getPeruNow();
+  const horarioActual = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  const hoyLabel = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+
+  const pendientes = scheduledBroadcasts.getPendientesParaHorario(horarioActual, hoyLabel);
+  for (const b of pendientes) {
+    // Se marca como enviado ANTES de mandar (no después): si un solo grupo
+    // falla, no queremos reintentar el resto en el próximo tick y duplicar
+    // en los grupos que sí llegaron.
+    scheduledBroadcasts.registrarEnvio(b.id, horarioActual, hoyLabel);
+
+    const imagenPath = scheduledBroadcasts.getImagenPath(b.id);
+    const buffer = imagenPath && fs.existsSync(imagenPath) ? fs.readFileSync(imagenPath) : null;
+
+    for (const groupId of b.groupIds) {
+      try {
+        if (buffer) {
+          await enviarImagen(currentSock, groupId, buffer, b.texto);
+        } else if (b.texto) {
+          await enviarMensaje(currentSock, groupId, { text: b.texto });
+        }
+      } catch (err) {
+        console.error(`Error al mandar el mensaje programado "${b.nombre}" al grupo ${groupId}:`, err.message);
+      }
+    }
+  }
+}
+
+setInterval(() => {
+  checkScheduledBroadcasts().catch((err) => console.error("Error en checkScheduledBroadcasts:", err.message));
+}, 30000);
+
+module.exports = { startBot, botState, logoutBot, getSock };

@@ -85,6 +85,7 @@
         <a href="#" id="openCategoryGroups" class="drawer-link"><i class="fa-solid fa-map-location-dot w-5 text-brand-green"></i> Grupos y sectores</a>
         <a href="#" id="openCategoryTiming" class="drawer-link"><i class="fa-solid fa-clock w-5 text-brand-green"></i> Tiempos de respuesta</a>
         <a href="#" id="openCategoryGeneral" class="drawer-link"><i class="fa-solid fa-bell w-5 text-brand-green"></i> Notificaciones</a>
+        <a href="#" id="openCategoryBroadcasts" class="drawer-link"><i class="fa-solid fa-bullhorn w-5 text-brand-green"></i> Mensajes programados</a>
         <a href="#" id="logoutBtn" class="drawer-link text-brand-red"><i class="fa-solid fa-right-from-bracket w-5 text-brand-red"></i> Cerrar sesión</a>
       </nav>
       <div class="px-5 py-4 border-t border-slate-100 text-xs text-slate-400">v1.0 · Panel del Bot</div>
@@ -243,6 +244,47 @@
           <button id="saveRemarcarOverrideBtn" disabled class="w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-slate-300 text-slate-500 active:scale-95 transition-all">Guardar</button>
         </section>
 
+        <!-- Cotizaciones de delivery (zona no mapeada) -->
+        <section>
+          <p class="eyebrow text-teal-600"><i class="fa-solid fa-motorcycle"></i> COTIZACIONES DE DELIVERY</p>
+          <p class="text-xs text-slate-400 mt-1 mb-2">Cuando un cliente de la web pide a una zona que no está mapeada, el bot manda la ubicación a estos grupos para que le pongan tarifa.</p>
+
+          <p class="text-[11px] font-semibold text-slate-500 mb-1">Grupos que reciben la cotización</p>
+          <div id="quoteGroupList" class="space-y-1.5 mb-2"></div>
+          <div class="flex gap-2 mb-4">
+            <select id="quoteGroupSelect" class="flex-1 min-w-0 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-400/40">
+              <option value="">— Agregar un grupo —</option>
+            </select>
+            <button id="addQuoteGroupBtn" class="w-10 h-10 shrink-0 rounded-xl bg-teal-600 text-white flex items-center justify-center active:scale-90 transition-all">
+              <i class="fa-solid fa-plus text-sm"></i>
+            </button>
+          </div>
+
+          <p class="text-[11px] font-semibold text-slate-500 mb-1">¿Quién puede responder la tarifa?</p>
+          <label class="flex items-center gap-2 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 mb-2">
+            <input id="quoteAnyoneCheck" type="checkbox" class="w-4 h-4 accent-teal-600" />
+            <span>Cualquiera del grupo puede poner la tarifa</span>
+          </label>
+
+          <div id="quoteNumbersBlock">
+            <p class="text-[11px] text-slate-400 mb-1">Solo estos números pueden responder:</p>
+            <div id="quoteNumberList" class="space-y-1.5 mb-2"></div>
+            <div class="flex gap-2">
+              <input id="quoteNumberInput" type="text" placeholder="Número (ej: 939 610 396)"
+                class="flex-1 min-w-0 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-400/40" />
+              <button id="addQuoteNumberBtn" class="w-10 h-10 shrink-0 rounded-xl bg-teal-600 text-white flex items-center justify-center active:scale-90 transition-all">
+                <i class="fa-solid fa-plus text-sm"></i>
+              </button>
+            </div>
+          </div>
+
+          <p class="text-[11px] font-semibold text-slate-500 mt-4 mb-1">Mensaje que acompaña la ubicación</p>
+          <textarea id="quoteMessageInput" rows="2" placeholder="Ej: Cotización urgente 🛵"
+            class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-400/40 mb-2"></textarea>
+          <button id="saveQuoteMessageBtn" class="w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-teal-600 text-white active:scale-95 transition-all">Guardar mensaje</button>
+          <p id="quoteConfigStatus" class="text-xs text-slate-400 mt-2"></p>
+        </section>
+
       </div>
     </div>
 
@@ -308,6 +350,59 @@
           <p class="text-xs text-slate-400 mt-1 mb-2">Te avisa con una notificación en tu celular cada vez que el bot responde un mensaje, aunque tengas la pantalla bloqueada.</p>
           <button id="togglePushBtn" class="w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-amber-500 text-white active:scale-95 transition-all">🔔 Activar notificaciones</button>
           <p id="pushStatus" class="text-xs text-slate-400 mt-2"></p>
+        </section>
+
+      </div>
+    </div>
+
+    <!-- Categoría: 📢 Mensajes programados -->
+    <div id="categoryBroadcasts" class="fixed inset-0 bg-brand-bg z-50 hidden flex-col">
+      <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-white">
+        <span class="font-bold text-slate-900">📢 Mensajes programados</span>
+        <button class="category-close-btn w-9 h-9 rounded-xl flex items-center justify-center hover:bg-slate-100 active:scale-90 transition-all">
+          <i class="fa-solid fa-xmark text-lg text-slate-500"></i>
+        </button>
+      </div>
+      <div class="flex-1 overflow-y-auto px-5 py-5 space-y-6">
+
+        <section>
+          <p class="eyebrow text-brand-green"><i class="fa-solid fa-bullhorn"></i> MENSAJES PROGRAMADOS</p>
+          <p class="text-xs text-slate-400 mt-1 mb-2">Se mandan solos, todos los días, a los grupos y horas que elijas (hora Perú). La foto es opcional.</p>
+          <div id="broadcastsList" class="space-y-2"></div>
+        </section>
+
+        <section>
+          <p id="broadcastFormTitle" class="eyebrow text-blue-600"><i class="fa-solid fa-plus"></i> AGREGAR MENSAJE PROGRAMADO</p>
+          <div class="space-y-2 mt-2">
+            <input id="newBroadcastNombre" type="text" placeholder="Nombre (ej: Promo del día)" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-green/40" />
+            <textarea id="newBroadcastTexto" rows="3" placeholder="Texto del mensaje" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-green/40"></textarea>
+
+            <div>
+              <p class="text-xs font-semibold text-slate-500 mb-1">Foto (opcional):</p>
+              <img id="newBroadcastImagenPreview" class="hidden w-full max-h-40 object-cover rounded-xl mb-1.5" />
+              <button id="removeBroadcastImagenBtn" class="hidden w-full rounded-xl px-3 py-1.5 text-xs font-semibold bg-rose-100 text-rose-700 active:scale-95 transition-all mb-1.5">Quitar foto actual</button>
+              <input id="newBroadcastImagen" type="file" accept="image/*" class="w-full text-xs" />
+            </div>
+
+            <div>
+              <p class="text-xs font-semibold text-slate-500 mb-1">Grupos:</p>
+              <div id="newBroadcastGroups" class="max-h-40 overflow-y-auto space-y-1 bg-white rounded-xl border border-slate-200 p-2"></div>
+            </div>
+
+            <div>
+              <p class="text-xs font-semibold text-slate-500 mb-1">Horarios (hora Perú):</p>
+              <div id="newBroadcastHorariosList" class="flex flex-wrap gap-1.5 mb-1.5"></div>
+              <div class="flex gap-2">
+                <input id="newBroadcastHorarioInput" type="time" class="flex-1 min-w-0 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200" />
+                <button id="addBroadcastHorarioBtn" class="shrink-0 rounded-xl px-3 py-2.5 text-sm font-semibold bg-slate-100 text-slate-600 active:scale-95 transition-all">+ Agregar hora</button>
+              </div>
+            </div>
+
+            <div class="flex gap-2">
+              <button id="addBroadcastBtn" class="flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold bg-brand-green text-white active:scale-95 transition-all">Guardar mensaje programado</button>
+              <button id="cancelBroadcastEditBtn" class="hidden shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold bg-slate-100 text-slate-600 active:scale-95 transition-all">Cancelar</button>
+            </div>
+          </div>
         </section>
 
       </div>
