@@ -12,6 +12,7 @@ const referenceAccounts = require("./referenceAccounts");
 const financeGoals = require("./financeGoals");
 const productionGoals = require("./productionGoals");
 const scheduledExpenses = require("./scheduledExpenses");
+const tasks = require("./tasks");
 const ExcelJS = require("exceljs");
 
 const app = express();
@@ -598,6 +599,44 @@ app.post("/api/reminders/:id/activo", (req, res) => {
 
 app.delete("/api/reminders/:id", (req, res) => {
   reminders.removeReminder(req.params.id);
+  res.json({ ok: true });
+});
+
+// Tareas sueltas sin monto (distintas de los pagos de arriba): avisan cada
+// 30 minutos mientras no se marquen como hechas.
+app.get("/api/tasks", (req, res) => {
+  res.json({ tasks: tasks.getAll() });
+});
+
+app.post("/api/tasks", (req, res) => {
+  try {
+    const task = tasks.addTask(req.body?.texto);
+    res.json({ ok: true, task });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.put("/api/tasks/:id", (req, res) => {
+  const task = tasks.editTask(req.params.id, req.body?.texto);
+  if (!task) return res.status(404).json({ error: "Tarea no encontrada." });
+  res.json({ ok: true, task });
+});
+
+app.post("/api/tasks/:id/confirmar", (req, res) => {
+  const task = tasks.setConfirmado(req.params.id, true);
+  if (!task) return res.status(404).json({ error: "Tarea no encontrada." });
+  res.json({ ok: true });
+});
+
+app.post("/api/tasks/:id/reabrir", (req, res) => {
+  const task = tasks.setConfirmado(req.params.id, false);
+  if (!task) return res.status(404).json({ error: "Tarea no encontrada." });
+  res.json({ ok: true });
+});
+
+app.delete("/api/tasks/:id", (req, res) => {
+  tasks.removeTask(req.params.id);
   res.json({ ok: true });
 });
 

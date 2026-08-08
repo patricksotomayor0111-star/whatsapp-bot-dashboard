@@ -11,6 +11,7 @@ const fs = require("fs");
 const cashbox = require("./cashbox");
 const pushSubscriptions = require("./pushSubscriptions");
 const reminders = require("./reminders");
+const tasks = require("./tasks");
 const businessDay = require("./businessDay");
 const productionGoals = require("./productionGoals");
 const scheduledExpenses = require("./scheduledExpenses");
@@ -757,6 +758,25 @@ function chequearRecordatorios() {
 // Se revisa cada 5 minutos; la lógica interna se asegura de mandar una sola
 // notificación por día.
 setInterval(chequearRecordatorios, 5 * 60 * 1000);
+
+// ---------- Tareas sueltas: notificación cada 30 minutos ----------
+// A diferencia de los pagos de arriba (una vez al día), una tarea sin
+// confirmar sigue avisando cada 30 minutos. Se revisa cada 5 minutos; la
+// lógica de tasks.necesitanAviso() filtra cuáles ya llevan 30+ min sin avisar.
+function chequearTareas() {
+  const pendientes = tasks.necesitanAviso();
+  if (pendientes.length === 0) return;
+  const detalle = pendientes.map((t) => t.texto).join(", ");
+  pushSubscriptions
+    .notifyAll({
+      title: "🗒️ Tienes tareas pendientes",
+      body: detalle,
+    })
+    .then(() => tasks.registrarAviso(pendientes.map((t) => t.id)))
+    .catch((err) => console.error("Error al notificar tareas:", err.message));
+}
+
+setInterval(chequearTareas, 5 * 60 * 1000);
 
 function extractText(msg) {
   // Si el chat tiene mensajes que desaparecen (o es "ver una vez"), el texto

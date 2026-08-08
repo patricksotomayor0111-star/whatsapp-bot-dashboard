@@ -375,6 +375,101 @@ addReminderBtn.addEventListener("click", async () => {
   }
 });
 
+// ---------- Tareas (pendientes sueltos sin monto, avisan cada 30 min) ----------
+const tasksList = document.getElementById("tasksList");
+const tasksEmpty = document.getElementById("tasksEmpty");
+const newTaskTexto = document.getElementById("newTaskTexto");
+const addTaskBtn = document.getElementById("addTaskBtn");
+
+async function renderTasks() {
+  let data;
+  try {
+    const res = await fetch("/api/tasks");
+    data = await res.json();
+  } catch (err) {
+    tasksList.innerHTML = '<p class="text-sm text-slate-400">No se pudo cargar.</p>';
+    return;
+  }
+  const lista = data.tasks || [];
+  tasksList.innerHTML = "";
+  tasksEmpty.classList.toggle("hidden", lista.length > 0);
+
+  lista.forEach((t) => {
+    const card = document.createElement("div");
+    card.className = "rounded-xl border p-3 flex items-start justify-between gap-2 " + (t.confirmado ? "bg-slate-50 border-slate-200 opacity-70" : "bg-red-50 border-red-200");
+
+    const info = document.createElement("div");
+    info.className = "min-w-0";
+    const texto = document.createElement("p");
+    texto.className = "text-sm font-semibold text-slate-800 break-words" + (t.confirmado ? " line-through" : "");
+    texto.textContent = t.texto;
+    const meta = document.createElement("p");
+    meta.className = "text-xs text-slate-400 mt-0.5";
+    meta.textContent = t.confirmado ? "Hecha" : `Pendiente desde ${fmtFecha(t.creado)} · avisa cada 30 min`;
+    info.appendChild(texto);
+    info.appendChild(meta);
+
+    const acciones = document.createElement("div");
+    acciones.className = "flex items-center gap-1 shrink-0";
+
+    const btnToggle = document.createElement("button");
+    btnToggle.className = "rounded-lg px-2.5 py-1.5 text-xs font-semibold active:scale-95 transition-all whitespace-nowrap " + (t.confirmado ? "bg-slate-100 text-slate-500" : "bg-brand-green text-white");
+    btnToggle.textContent = t.confirmado ? "↺ Reabrir" : "✓ Hecha";
+    btnToggle.addEventListener("click", async () => {
+      await fetch(`/api/tasks/${encodeURIComponent(t.id)}/${t.confirmado ? "reabrir" : "confirmar"}`, { method: "POST" });
+      renderTasks();
+    });
+    acciones.appendChild(btnToggle);
+
+    const btnEdit = document.createElement("button");
+    btnEdit.className = "w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 active:scale-90 transition-all";
+    btnEdit.title = "Editar";
+    btnEdit.innerHTML = '<i class="fa-solid fa-pen"></i>';
+    btnEdit.addEventListener("click", async () => {
+      const nuevoTexto = prompt("Editar tarea:", t.texto);
+      if (nuevoTexto === null || !nuevoTexto.trim()) return;
+      await fetch(`/api/tasks/${encodeURIComponent(t.id)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ texto: nuevoTexto }),
+      });
+      renderTasks();
+    });
+    acciones.appendChild(btnEdit);
+
+    const btnDel = document.createElement("button");
+    btnDel.className = "w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-red-50 hover:text-brand-red active:scale-90 transition-all";
+    btnDel.title = "Eliminar";
+    btnDel.innerHTML = '<i class="fa-solid fa-trash"></i>';
+    btnDel.addEventListener("click", async () => {
+      if (!confirm(`¿Eliminar "${t.texto}"?`)) return;
+      await fetch(`/api/tasks/${encodeURIComponent(t.id)}`, { method: "DELETE" });
+      renderTasks();
+    });
+    acciones.appendChild(btnDel);
+
+    card.appendChild(info);
+    card.appendChild(acciones);
+    tasksList.appendChild(card);
+  });
+}
+
+addTaskBtn.addEventListener("click", async () => {
+  const texto = newTaskTexto.value.trim();
+  if (!texto) return;
+  try {
+    await fetch("/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ texto }),
+    });
+    newTaskTexto.value = "";
+    renderTasks();
+  } catch (err) {
+    console.error("No se pudo agregar la tarea:", err);
+  }
+});
+
 const statDeudasTotal = document.getElementById("statDeudasTotal");
 const statFaltanteTotal = document.getElementById("statFaltanteTotal");
 
@@ -1814,21 +1909,56 @@ function renderBudgetCategories(categorias) {
         return;
       }
 
+      // Palabras clave: se muestran como chips, cada una con su "x" para
+      // borrarla, más un campo para agregar una nueva sola.
+      async function guardarKeywords(nuevasKeywords) {
+        await fetch(`/api/budget/categories/${encodeURIComponent(cat.id)}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ keywords: nuevasKeywords }),
+        });
+        await fetchBudgetCategories();
+      }
+
+      const keywordsWrap = document.createElement("div");
+      keywordsWrap.className = "flex flex-wrap items-center gap-1.5 mt-2";
+      (cat.keywords || []).forEach((kw) => {
+        const chip = document.createElement("span");
+        chip.className = "inline-flex items-center gap-1 bg-slate-100 text-slate-600 rounded-full pl-2.5 pr-1.5 py-1 text-xs";
+        chip.textContent = kw;
+        const chipDel = document.createElement("button");
+        chipDel.className = "w-4 h-4 flex items-center justify-center text-slate-400 hover:text-rose-600";
+        chipDel.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+        chipDel.addEventListener("click", () => {
+          guardarKeywords((cat.keywords || []).filter((k) => k !== kw));
+        });
+        chip.appendChild(chipDel);
+        keywordsWrap.appendChild(chip);
+      });
+
+      const addKeywordInput = document.createElement("input");
+      addKeywordInput.type = "text";
+      addKeywordInput.placeholder = "+ palabra clave";
+      addKeywordInput.className = "bg-white rounded-full px-2.5 py-1 text-xs border border-slate-200 w-28";
+      addKeywordInput.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter") return;
+        const nueva = addKeywordInput.value.trim().toLowerCase();
+        if (!nueva || (cat.keywords || []).includes(nueva)) return;
+        guardarKeywords([...(cat.keywords || []), nueva]);
+      });
+      keywordsWrap.appendChild(addKeywordInput);
+      card.appendChild(keywordsWrap);
+
       const editBtn = document.createElement("button");
       editBtn.className = "btn-capsule bg-slate-100 text-slate-600 text-xs py-1.5 px-3";
       editBtn.textContent = "Editar";
       editBtn.addEventListener("click", async () => {
         const nuevoLabel = prompt("Nombre:", cat.label);
         if (nuevoLabel === null) return;
-        const nuevasKeywords = prompt("Palabras clave (separadas por coma):", (cat.keywords || []).join(", "));
-        if (nuevasKeywords === null) return;
         await fetch(`/api/budget/categories/${encodeURIComponent(cat.id)}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            label: nuevoLabel,
-            keywords: nuevasKeywords.split(",").map((k) => k.trim()).filter(Boolean),
-          }),
+          body: JSON.stringify({ label: nuevoLabel }),
         });
         if (cat.tipo === "meta") {
           const nuevaMeta = prompt("Meta total (S/):", cat.meta);
@@ -2271,6 +2401,7 @@ openReminders.addEventListener("click", () => {
   remindersOverlay.classList.add("flex");
   updateNewReminderFields();
   renderReminders();
+  renderTasks();
 });
 
 closeReminders.addEventListener("click", () => {
