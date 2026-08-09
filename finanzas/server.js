@@ -353,6 +353,9 @@ app.post("/api/finance/shortfalls", (req, res) => {
   if (!Number.isFinite(montoNum) || montoNum <= 0) {
     return res.status(400).json({ error: "Se requiere 'monto' válido." });
   }
+  // Igual que "menos X falto" por WhatsApp: resta de la caja como un gasto
+  // normal, además de quedar en el total de faltantes aparte.
+  cashbox.addGasto(montoNum, req.body?.descripcion);
   shortfalls.addFaltante(montoNum, req.body?.descripcion);
   res.json({ ok: true });
 });
