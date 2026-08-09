@@ -397,16 +397,39 @@ try {
   lidMap = {};
 }
 
+// Guardar el mapa entero en disco es CARO, y antes se hacía una vez por
+// cada equivalencia nueva. Con ~7.000 participantes repartidos en ~360
+// grupos, refreshGroups() aprende miles de golpe: eso eran miles de
+// escrituras sincrónicas seguidas, cada una del archivo COMPLETO (y cada
+// vez más grande). Como writeFileSync bloquea el proceso entero, durante
+// todo ese rato el bot no procesaba ningún mensaje ni respondía el panel
+// — era la causa de que "se lageara" o pareciera colgado al conectar.
+//
+// Ahora solo se marca que hay cambios pendientes y se escribe UNA sola
+// vez, poco después de la última equivalencia nueva.
+let lidMapPendiente = false;
+let lidMapTimer = null;
+
+function guardarLidMap() {
+  lidMapTimer = null;
+  if (!lidMapPendiente) return;
+  lidMapPendiente = false;
+  try {
+    // Sin indentación: este archivo solo lo lee el bot, y así ocupa ~3
+    // veces menos (menos bytes que escribir y que leer al arrancar).
+    fs.writeFileSync(LID_MAP_PATH, JSON.stringify(lidMap));
+  } catch (err) {
+    console.error("No se pudo guardar lid-map.json:", err.message);
+  }
+}
+
 function recordLidMapping(lidJid, pnJid) {
   const lid = String(lidJid || "").replace(/@.*/, "");
   const pn = canonicalNumber(String(pnJid || "").replace(/@.*/, ""));
   if (!lid || !pn || lidMap[lid] === pn) return;
   lidMap[lid] = pn;
-  try {
-    fs.writeFileSync(LID_MAP_PATH, JSON.stringify(lidMap, null, 2));
-  } catch (err) {
-    console.error("No se pudo guardar lid-map.json:", err.message);
-  }
+  lidMapPendiente = true;
+  if (!lidMapTimer) lidMapTimer = setTimeout(guardarLidMap, 2000);
 }
 
 // Resuelve el número real del remitente. Prioridad: JID con número real
@@ -911,19 +934,29 @@ function getSock() {
 // horario configurado en un mensaje activo, y si ese horario ya se mandó
 // hoy. Igual que checkCashboxSchedule en finanzas/bot.js, pero para varios
 // horarios por mensaje en vez de uno solo fijo.
+// Cuánto tiempo después de su hora se puede "recuperar" un mensaje que no
+// llegó a salir (corte de internet, bot reconectando, Railway
+// redesplegando). Pasado ese rato se deja pasar hasta el día siguiente.
+const VENTANA_RECUPERACION_MIN = 120;
+
 async function checkScheduledBroadcasts() {
-  if (!currentSock || !botState.connected || !botState.active) return;
+  // OJO: a propósito acá NO se mira botState.active. Ese botón controla
+  // las respuestas por palabra clave y se apaga solo después de cada
+  // respuesta, así que atarle los mensajes programados hacía que casi
+  // nunca salieran. Cada mensaje ya tiene su propio interruptor
+  // (b.activo) en el panel, que es el que manda.
+  if (!currentSock || !botState.connected) return;
 
   const now = getPeruNow();
   const horarioActual = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
   const hoyLabel = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
-  const pendientes = scheduledBroadcasts.getPendientesParaHorario(horarioActual, hoyLabel);
-  for (const b of pendientes) {
+  const pendientes = scheduledBroadcasts.getPendientes(horarioActual, hoyLabel, VENTANA_RECUPERACION_MIN);
+  for (const { broadcast: b, horario } of pendientes) {
     // Se marca como enviado ANTES de mandar (no después): si un solo grupo
     // falla, no queremos reintentar el resto en el próximo tick y duplicar
     // en los grupos que sí llegaron.
-    scheduledBroadcasts.registrarEnvio(b.id, horarioActual, hoyLabel);
+    scheduledBroadcasts.registrarEnvio(b.id, horario, hoyLabel);
 
     const imagenPath = scheduledBroadcasts.getImagenPath(b.id);
     const buffer = imagenPath && fs.existsSync(imagenPath) ? fs.readFileSync(imagenPath) : null;

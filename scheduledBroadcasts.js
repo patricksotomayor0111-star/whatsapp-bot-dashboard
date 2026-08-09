@@ -137,15 +137,39 @@ function getImagenPath(id) {
   return path.join(IMAGES_DIR, b.imagenArchivo);
 }
 
-// Mensajes activos que tocan mandarse AHORA: su horario coincide con
-// "horarioActual" (HH:MM, hora Perú) y todavía no se mandaron hoy para
-// ese horario. Lo llama el scheduler del bot cada ~30s.
-function getPendientesParaHorario(horarioActual, fechaHoy) {
-  return data.broadcasts.filter((b) => {
-    if (!b.activo) return false;
-    if (!b.horarios.includes(horarioActual)) return false;
-    return b.ultimoEnvio[horarioActual] !== fechaHoy;
+function aMinutos(hhmm) {
+  const [h, m] = String(hhmm).split(":").map(Number);
+  return h * 60 + m;
+}
+
+// Mensajes activos que ya deberían haber salido hoy y todavía no salieron:
+// su horario ya llegó (o pasó hace poco) y no hay registro de envío hoy
+// para ese horario.
+//
+// Antes esto exigía que la hora coincidiera EXACTA con el minuto en curso,
+// así que si el bot estaba desconectado, sin internet o Railway estaba
+// redesplegando justo en ese minuto, el mensaje se perdía ese día entero.
+// Ahora se recupera, pero solo si el atraso es razonable
+// ("ventanaMinutos"): mejor no mandar nada que mandar un "buenos días" a
+// media tarde porque el bot estuvo caído toda la mañana.
+//
+// Devuelve pares { broadcast, horario } porque un mismo mensaje puede
+// tener varios horarios y hay que registrar cuál de ellos se envió.
+function getPendientes(horarioActual, fechaHoy, ventanaMinutos) {
+  const ahora = aMinutos(horarioActual);
+  const pendientes = [];
+
+  data.broadcasts.forEach((b) => {
+    if (!b.activo) return;
+    b.horarios.forEach((h) => {
+      const atraso = ahora - aMinutos(h);
+      if (atraso < 0 || atraso > ventanaMinutos) return; // aún no le toca, o ya es muy tarde
+      if (b.ultimoEnvio[h] === fechaHoy) return; // ya salió hoy a esa hora
+      pendientes.push({ broadcast: b, horario: h });
+    });
   });
+
+  return pendientes;
 }
 
 function registrarEnvio(id, horario, fechaHoy) {
@@ -165,6 +189,6 @@ module.exports = {
   setImagen,
   quitarImagen,
   getImagenPath,
-  getPendientesParaHorario,
+  getPendientes,
   registrarEnvio,
 };
