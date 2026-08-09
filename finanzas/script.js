@@ -284,8 +284,26 @@ async function renderReminders() {
       btnPay.className = "rounded-lg px-2.5 py-1.5 text-xs font-semibold bg-brand-green text-white active:scale-95 transition-all whitespace-nowrap";
       btnPay.textContent = "✓ Ya pagué";
       btnPay.addEventListener("click", async () => {
-        await fetch(`/api/reminders/${encodeURIComponent(r.id)}/pagado`, { method: "POST" });
+        // Se pregunta el monto real porque algunos pagos varían mes a mes
+        // (luz, agua): el configurado va como valor por defecto.
+        const montoStr = prompt(`¿Cuánto pagaste de ${r.label}?`, r.monto);
+        if (montoStr === null) return;
+        const monto = parseFloat(montoStr);
+        if (!Number.isFinite(monto) || monto <= 0) return;
+        const res = await fetch(`/api/reminders/${encodeURIComponent(r.id)}/pagado`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ monto }),
+        });
+        const data = await res.json();
+        if (data.registrado) {
+          alert(`Registré el gasto de ${r.label} por S/ ${monto} en la caja.`);
+        } else if (data.gastoExistente) {
+          alert(`Ese gasto ya estaba registrado ("${data.gastoExistente.descripcion || "sin descripción"}"), no lo dupliqué.`);
+        }
         renderReminders();
+        renderHistorialPagos();
+        fetchCashboxToday();
       });
       acciones.appendChild(btnPay);
     }
@@ -374,6 +392,43 @@ addReminderBtn.addEventListener("click", async () => {
     console.error("No se pudo agregar el recordatorio:", err);
   }
 });
+
+// ---------- Historial de pagos marcados (¿quedaron registrados?) ----------
+const historialPagosList = document.getElementById("historialPagosList");
+const historialPagosEmpty = document.getElementById("historialPagosEmpty");
+
+async function renderHistorialPagos() {
+  let data;
+  try {
+    const res = await fetch("/api/reminders/historial");
+    data = await res.json();
+  } catch (err) {
+    historialPagosList.innerHTML = '<p class="text-sm text-slate-400">No se pudo cargar.</p>';
+    return;
+  }
+  const lista = data.historial || [];
+  historialPagosList.innerHTML = "";
+  historialPagosEmpty.classList.toggle("hidden", lista.length > 0);
+
+  lista.forEach((p) => {
+    const card = document.createElement("div");
+    card.className = "rounded-xl border p-3 " + (p.registrado ? "bg-emerald-50 border-emerald-200" : "bg-white border-slate-200");
+
+    const titulo = document.createElement("p");
+    titulo.className = "text-sm font-semibold text-slate-800 break-words";
+    titulo.textContent = `${p.label} · ${formatSoles(p.monto)}`;
+
+    const detalle = document.createElement("p");
+    detalle.className = "text-xs mt-0.5 " + (p.registrado ? "text-emerald-700" : "text-slate-400");
+    detalle.textContent = p.registrado
+      ? `${fmtFecha(p.fecha)} ${p.hora} · se registró en la caja (te lo habías olvidado)`
+      : `${fmtFecha(p.fecha)} ${p.hora} · ya estaba registrado${p.gastoExistente ? ` como "${p.gastoExistente}"` : ""}`;
+
+    card.appendChild(titulo);
+    card.appendChild(detalle);
+    historialPagosList.appendChild(card);
+  });
+}
 
 // ---------- Tareas (pendientes sueltos sin monto, avisan cada 30 min) ----------
 const tasksList = document.getElementById("tasksList");
@@ -2401,6 +2456,7 @@ openReminders.addEventListener("click", () => {
   remindersOverlay.classList.add("flex");
   updateNewReminderFields();
   renderReminders();
+  renderHistorialPagos();
   renderTasks();
 });
 

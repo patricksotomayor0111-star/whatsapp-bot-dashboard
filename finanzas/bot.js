@@ -896,4 +896,16 @@ function getSock() {
   return currentSock;
 }
 
-module.exports = { startBot, botState, logoutBot, getSock };
+// Manda un aviso al grupo GANANCIAS desde afuera del listener (lo usa el
+// panel al marcar un pago como pagado). Va por enviarMensaje() a propósito:
+// así el propio bot no lee su aviso como si fuera una entrada de caja.
+// Devuelve false si no hay conexión o el grupo todavía no está cargado.
+async function avisarAlGrupo(texto) {
+  if (!currentSock || !botState.connected) return false;
+  const grupo = botState.groups.find((g) => g.name.trim().toUpperCase() === CASHBOX_GROUP_NAME);
+  if (!grupo) return false;
+  await enviarMensaje(currentSock, grupo.id, { text: texto });
+  return true;
+}
+
+module.exports = { startBot, botState, logoutBot, getSock, avisarAlGrupo };

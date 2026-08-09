@@ -32,12 +32,14 @@ function loadData() {
     return {
       reminders: Array.isArray(parsed.reminders) ? parsed.reminders : [],
       lastNotifiedLabel: parsed.lastNotifiedLabel || null,
+      pagosMarcados: Array.isArray(parsed.pagosMarcados) ? parsed.pagosMarcados : [],
     };
   } catch (err) {
     // Primera vez (sin archivo): se siembran los pagos que ya conocemos.
     return {
       reminders: SEED.map((r) => ({ ...r, activo: true, lastPaidCycle: null })),
       lastNotifiedLabel: null,
+      pagosMarcados: [],
     };
   }
 }
@@ -60,7 +62,7 @@ if (!fs.existsSync(DATA_PATH)) save();
 // día LABORAL (7am a 7am, ver businessDay.js), no el día calendario: así los
 // pagos vencidos/pendientes respetan el mismo corte que la caja y los
 // resúmenes diarios.
-const { ymdToUtc, utcToLabel, addDays, diasEnMes, horaPeru, businessDayLabel: fechaLabelPeru } = businessDay;
+const { ymdToUtc, utcToLabel, addDays, diasEnMes, horaPeru, peruAhora, horaLabel, businessDayLabel: fechaLabelPeru } = businessDay;
 
 function diasEntre(labelA, labelB) {
   return Math.round((ymdToUtc(labelB).getTime() - ymdToUtc(labelA).getTime()) / 86400000);
@@ -178,7 +180,62 @@ function getAll() {
   });
 }
 
-function marcarPagado(id) {
+function getById(id) {
+  return data.reminders.find((x) => x.id === id) || null;
+}
+
+// ---------- ¿El gasto de este pago ya está en la caja? ----------
+// Al marcar "Ya pagué" el gasto NO se registraba solo (había que
+// escribirlo aparte en el grupo GANANCIAS), así que era fácil olvidarlo y
+// que la caja quedara sin ese gasto. Ahora se busca primero si ya está
+// registrado, para poder anotarlo solo cuando falta y no duplicarlo.
+
+const COMBINING_MARKS = new RegExp("[̀-ͯ]", "g");
+function normalizeText(str) {
+  return String(str || "").normalize("NFD").replace(COMBINING_MARKS, "").toLowerCase();
+}
+
+// Palabras demasiado genéricas como para identificar un pago: "Caja Cuzco"
+// tiene que buscarse por "cuzco" (si no, cualquier gasto que diga "caja"
+// lo daría por registrado), y "Cuota ARCE" por "arce".
+const PALABRAS_GENERICAS = new Set(["cuota", "caja", "pago", "pagos", "mes", "mensual", "semanal", "del", "los", "las"]);
+
+function palabrasClaveDe(label) {
+  const palabras = normalizeText(label).split(/[^a-z0-9]+/).filter((p) => p.length >= 3);
+  const significativas = palabras.filter((p) => !PALABRAS_GENERICAS.has(p));
+  return significativas.length ? significativas : palabras;
+}
+
+// Cuántos días hacia atrás tiene sentido buscar, según cada cuánto se paga.
+const DIAS_VENTANA = { semanal: 7, mensual_dia: 31, mensual_finmes: 31, unica: 31 };
+
+// Busca en los movimientos de la caja un gasto que corresponda a este pago
+// dentro de su ciclo (la semana o el mes en curso). Devuelve el movimiento
+// encontrado, o null si no está registrado.
+function buscarGastoDelPago(id, movimientos) {
+  const r = getById(id);
+  if (!r) return null;
+  const hoy = fechaLabelPeru();
+  const due = ultimaVentanaAbierta(r, hoy) || hoy;
+  const desde = addDays(due, -(DIAS_VENTANA[r.tipo] || 31));
+  const claves = palabrasClaveDe(r.label);
+
+  return (
+    movimientos.find((m) => {
+      if (m.tipo !== "gasto") return false;
+      if (m.fecha < desde || m.fecha > hoy) return false;
+      const desc = normalizeText(m.descripcion);
+      return claves.some((k) => desc.includes(k));
+    }) || null
+  );
+}
+
+const MAX_PAGOS_MARCADOS = 100;
+
+// "info" queda guardado como historial de qué pasó cada vez que se marcó
+// un pago desde el panel: cuánto fue, y si el gasto se registró en la caja
+// en ese momento o ya estaba escrito.
+function marcarPagado(id, info) {
   const r = data.reminders.find((x) => x.id === id);
   if (!r) throw new Error("Recordatorio inexistente: " + id);
   const hoy = fechaLabelPeru();
@@ -188,7 +245,29 @@ function marcarPagado(id) {
   } else if (due) {
     r.lastPaidCycle = due; // recurrente: se apaga hasta el próximo ciclo
   }
+
+  if (info) {
+    data.pagosMarcados.push({
+      id: r.id,
+      label: r.label,
+      vence: due || hoy,
+      fecha: hoy,
+      hora: horaLabel(peruAhora()),
+      monto: Number(info.monto) || 0,
+      registrado: !!info.registrado,
+      gastoExistente: info.gastoExistente || null,
+    });
+    if (data.pagosMarcados.length > MAX_PAGOS_MARCADOS) {
+      data.pagosMarcados.splice(0, data.pagosMarcados.length - MAX_PAGOS_MARCADOS);
+    }
+  }
+
   save();
+}
+
+// Historial para el panel: lo más reciente primero.
+function getHistorialPagos() {
+  return data.pagosMarcados.slice().reverse();
 }
 
 function setActivo(id, activo) {
@@ -381,6 +460,9 @@ function getPagosMesRestante() {
 module.exports = {
   getPendientes,
   getAll,
+  getById,
+  buscarGastoDelPago,
+  getHistorialPagos,
   marcarPagado,
   setActivo,
   addReminder,

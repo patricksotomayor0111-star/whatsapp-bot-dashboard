@@ -1,6 +1,6 @@
 const express = require("express");
 const path = require("path");
-const { startBot, botState, logoutBot, getSock } = require("./bot");
+const { startBot, botState, logoutBot, getSock, avisarAlGrupo } = require("./bot");
 const cashbox = require("./cashbox");
 const pushSubscriptions = require("./pushSubscriptions");
 const budgetCategories = require("./budgetCategories");
@@ -582,13 +582,49 @@ app.put("/api/reminders/:id", (req, res) => {
   }
 });
 
+function formatSoles(n) {
+  return "S/ " + Number(n).toLocaleString("es-PE", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
+// Marcar un pago como pagado desde el panel. Antes esto solo apagaba el
+// aviso y el gasto había que escribirlo aparte en el grupo GANANCIAS, así
+// que era fácil marcarlo y olvidarse de registrarlo (la caja quedaba sin
+// ese gasto). Ahora se revisa si ya está registrado en el ciclo: si falta,
+// se registra solo; si ya estaba, no se duplica. En ambos casos se avisa
+// al grupo para que quede a la vista y no se escriba dos veces.
 app.post("/api/reminders/:id/pagado", (req, res) => {
   try {
-    reminders.marcarPagado(req.params.id);
-    res.json({ ok: true });
+    const recordatorio = reminders.getById(req.params.id);
+    if (!recordatorio) return res.status(404).json({ error: "Recordatorio inexistente." });
+
+    const montoNum = Number(req.body?.monto);
+    const monto = Number.isFinite(montoNum) && montoNum > 0 ? montoNum : recordatorio.monto;
+
+    const gastoExistente = reminders.buscarGastoDelPago(req.params.id, cashbox.getMovimientos());
+    const registrado = !gastoExistente;
+    if (registrado) cashbox.addGasto(monto, recordatorio.label);
+
+    reminders.marcarPagado(req.params.id, {
+      monto,
+      registrado,
+      gastoExistente: gastoExistente ? gastoExistente.descripcion || "" : null,
+    });
+
+    const aviso = registrado
+      ? `✅ Marcaste "${recordatorio.label}" como pagado desde el panel.\n📉 Registré el gasto por ${formatSoles(monto)}.\nNo hace falta que lo escribas acá.`
+      : `✅ Marcaste "${recordatorio.label}" como pagado desde el panel.\nEse gasto ya estaba registrado${gastoExistente.descripcion ? ` ("${gastoExistente.descripcion}")` : ""}, así que no registré nada para no duplicarlo.`;
+    avisarAlGrupo(aviso).catch((err) => console.error("No se pudo avisar al grupo:", err.message));
+
+    res.json({ ok: true, registrado, gastoExistente });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+});
+
+// Historial de pagos marcados desde el panel, con si su gasto se registró
+// en la caja o ya estaba escrito.
+app.get("/api/reminders/historial", (req, res) => {
+  res.json({ historial: reminders.getHistorialPagos() });
 });
 
 app.post("/api/reminders/:id/activo", (req, res) => {
