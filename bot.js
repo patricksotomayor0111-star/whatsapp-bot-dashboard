@@ -657,6 +657,29 @@ async function logoutBot() {
   }
 }
 
+// Antes se reconectaba AL INSTANTE y sin límite. Cuando WhatsApp está
+// rechazando la conexión (rate limit tras varios intentos seguidos), eso
+// se volvía un bucle: cerrar → reconectar → cerrar → reconectar... Cada
+// intento empeoraba el bloqueo y lo alargaba, por eso se veían decenas de
+// "Conexión cerrada. Reconectando..." seguidas y a veces tardaba horas en
+// volver. Ahora cada reintento seguido espera más, y el contador se
+// reinicia apenas la conexión vuelve a abrir.
+const ESPERA_RECONEXION_MS = [1000, 2000, 5000, 15000, 30000, 60000];
+let intentosReconexion = 0;
+let reconexionProgramada = false;
+
+function programarReconexion(motivo) {
+  if (reconexionProgramada) return; // ya hay una en camino: no encimar otra
+  reconexionProgramada = true;
+  const espera = ESPERA_RECONEXION_MS[Math.min(intentosReconexion, ESPERA_RECONEXION_MS.length - 1)];
+  intentosReconexion++;
+  console.log(`${motivo} Reintentando en ${Math.round(espera / 1000)}s...`);
+  setTimeout(() => {
+    reconexionProgramada = false;
+    startBot().catch((err) => console.error("Error al reconectar:", err.message));
+  }, espera);
+}
+
 async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState(SESSION_PATH);
   const { version } = await fetchLatestBaileysVersion();
@@ -672,6 +695,12 @@ async function startBot() {
   sock.ev.on("creds.update", saveCreds);
 
   sock.ev.on("connection.update", (update) => {
+    // Un socket viejo sigue emitiendo eventos un rato después de que ya se
+    // creó el nuevo. Si no se ignoran, el "close" del viejo dispara OTRA
+    // reconexión en paralelo: terminan dos sockets vivos peleándose la
+    // misma sesión, y WhatsApp corta los dos.
+    if (sock !== currentSock) return;
+
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
@@ -687,16 +716,17 @@ async function startBot() {
         lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
 
       if (shouldReconnect) {
-        console.log("Conexión cerrada. Reconectando...");
-        startBot().catch((err) => console.error("Error al reconectar:", err));
+        programarReconexion("Conexión cerrada.");
       } else {
         console.log("Sesión cerrada. Generando un nuevo QR para vincular...");
         fs.rmSync(SESSION_PATH, { recursive: true, force: true });
-        startBot().catch((err) => console.error("Error al reiniciar tras cerrar sesión:", err));
+        intentosReconexion = 0; // el usuario está esperando el QR: sin castigo de espera
+        programarReconexion("Sesión cerrada.");
       }
     } else if (connection === "open") {
       botState.connected = true;
       botState.qr = null;
+      intentosReconexion = 0; // conectó bien: la próxima caída vuelve a empezar desde 1s
       console.log("Bot conectado a WhatsApp correctamente.");
       refreshGroups(sock);
     }
