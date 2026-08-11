@@ -8,7 +8,7 @@ const numberExceptions = require("./numberExceptions");
 const excludedNumbers = require("./excludedNumbers");
 const pendingQuotes = require("./pendingQuotes");
 const pushSubscriptions = require("./pushSubscriptions");
-const contactTriggerGroups = require("./contactTriggerGroups");
+const mediaTriggers = require("./mediaTriggers");
 const groupDelays = require("./groupDelays");
 const scheduledBroadcasts = require("./scheduledBroadcasts");
 const multer = require("multer");
@@ -342,26 +342,39 @@ app.post("/api/exceptions/:groupId/:number/toggle", (req, res) => {
   res.json({ ok: true, list: numberExceptions.getExceptions(req.params.groupId, req.params.number) });
 });
 
-// Totales del día de la caja chica (grupo "GANANCIAS"): ganancias, gastos
-// y total líquido registrados hasta ahora.
-// Grupos donde el bot responde también si mandan una tarjeta de contacto
-// (sin palabra clave). Editable desde el panel: agregar/quitar locales.
-app.get("/api/contact-trigger-groups", (req, res) => {
-  res.json({ groupNames: contactTriggerGroups.getGroupNames() });
+// Pedidos que no llegan como texto: grupos donde el bot responde también a
+// una foto, a una tarjeta de contacto o a una nota de voz corta. Todo
+// editable desde el panel (antes las fotos estaban fijas en el código).
+app.get("/api/media-triggers", (req, res) => {
+  res.json(mediaTriggers.getConfig());
 });
 
-app.post("/api/contact-trigger-groups", (req, res) => {
+app.post("/api/media-triggers/groups", (req, res) => {
   try {
-    contactTriggerGroups.addGroup(req.body.name);
-    res.json({ ok: true });
+    mediaTriggers.addGroup(req.body?.tipo, req.body?.name);
+    res.json({ ok: true, ...mediaTriggers.getConfig() });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
 
-app.post("/api/contact-trigger-groups/remove", (req, res) => {
-  contactTriggerGroups.removeGroup(req.body.name);
-  res.json({ ok: true });
+app.post("/api/media-triggers/groups/remove", (req, res) => {
+  try {
+    const ok = mediaTriggers.removeGroup(req.body?.tipo, req.body?.name);
+    if (!ok) return res.status(404).json({ error: "Ese grupo no estaba en la lista." });
+    res.json({ ok: true, ...mediaTriggers.getConfig() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/media-triggers/audio-seconds", (req, res) => {
+  try {
+    const segundos = mediaTriggers.setAudioMaxSegundos(req.body?.segundos);
+    res.json({ ok: true, audioMaxSegundos: segundos });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 // Delays personalizados por grupo (100-1000ms, prioridad sobre el delay

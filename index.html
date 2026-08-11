@@ -82,6 +82,8 @@
       <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
         <a href="#" id="historyLink" class="drawer-link"><i class="fa-regular fa-clipboard w-5 text-brand-green"></i> Historial <span id="historyCount" class="text-slate-400 ml-auto">(0)</span></a>
         <a href="#" id="openCategoryKeywords" class="drawer-link"><i class="fa-solid fa-key w-5 text-brand-green"></i> Palabras clave</a>
+        <a href="#" id="openCategoryExcluded" class="drawer-link"><i class="fa-solid fa-user-slash w-5 text-brand-green"></i> Números ignorados</a>
+        <a href="#" id="openCategoryMedia" class="drawer-link"><i class="fa-solid fa-microphone w-5 text-brand-green"></i> Pedidos sin texto</a>
         <a href="#" id="openCategoryGroups" class="drawer-link"><i class="fa-solid fa-map-location-dot w-5 text-brand-green"></i> Grupos y sectores</a>
         <a href="#" id="openCategoryTiming" class="drawer-link"><i class="fa-solid fa-clock w-5 text-brand-green"></i> Tiempos de respuesta</a>
         <a href="#" id="openCategoryGeneral" class="drawer-link"><i class="fa-solid fa-bell w-5 text-brand-green"></i> Notificaciones</a>
@@ -161,24 +163,6 @@
           <div id="specialKeywordList" class="space-y-1.5 mt-2"></div>
         </section>
 
-        <!-- Números ignorados -->
-        <section>
-          <p class="eyebrow text-brand-red"><i class="fa-solid fa-user-slash"></i> NÚMEROS IGNORADOS</p>
-          <p class="text-xs text-slate-400 mt-1 mb-2">
-            El bot nunca le responde a estos números, aunque escriban una palabra clave. Puedes escribirlos con o sin "+51".
-          </p>
-          <div class="flex gap-2 mb-2">
-            <input id="excludedNumberInput" type="tel" inputmode="numeric" placeholder="Ej: 930 475 931"
-              class="flex-1 min-w-0 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-red/40" />
-            <button id="addExcludedNumberBtn" class="w-10 h-10 shrink-0 rounded-xl bg-brand-red text-white flex items-center justify-center active:scale-90 transition-all">
-              <i class="fa-solid fa-plus"></i>
-            </button>
-          </div>
-          <p id="excludedNumberStatus" class="text-xs mb-2"></p>
-          <p class="text-[11px] text-slate-400 mb-1">En la lista: <span id="excludedNumberCount" class="font-semibold text-slate-500">0</span></p>
-          <div id="excludedNumberList" class="space-y-1.5"></div>
-        </section>
-
         <!-- Excepciones número + grupo -->
         <section>
           <p class="eyebrow text-rose-600"><i class="fa-solid fa-user-shield"></i> FRASES POR SECTOR</p>
@@ -208,21 +192,106 @@
           </details>
         </section>
 
-        <!-- Responder a contacto compartido -->
+      </div>
+    </div>
+
+    <!-- Categoría: 🚫 Números ignorados -->
+    <div id="categoryExcluded" class="fixed inset-0 bg-brand-bg z-50 hidden flex-col">
+      <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-white">
+        <span class="font-bold text-slate-900">🚫 Números ignorados</span>
+        <button class="category-close-btn w-9 h-9 rounded-xl flex items-center justify-center hover:bg-slate-100 active:scale-90 transition-all">
+          <i class="fa-solid fa-xmark text-lg text-slate-500"></i>
+        </button>
+      </div>
+      <div class="flex-1 overflow-y-auto px-5 py-5 space-y-6">
         <section>
-          <p class="eyebrow text-indigo-600"><i class="fa-solid fa-address-card"></i> RESPONDER A CONTACTO COMPARTIDO</p>
-          <p class="text-xs text-slate-400 mt-1 mb-2">En estos grupos, el bot responde también si el restaurante manda una tarjeta de contacto, sin necesidad de escribir una palabra clave.</p>
-          <div id="contactTriggerList" class="space-y-1.5 mb-2"></div>
+          <p class="eyebrow text-brand-red"><i class="fa-solid fa-user-slash"></i> NÚMEROS IGNORADOS</p>
+          <p class="text-xs text-slate-400 mt-1 mb-2">
+            El bot nunca le responde a estos números, aunque escriban una palabra clave. Puedes escribirlos con o sin "+51".
+          </p>
+          <div class="flex gap-2 mb-2">
+            <input id="excludedNumberInput" type="tel" inputmode="numeric" placeholder="Ej: 930 475 931"
+              class="flex-1 min-w-0 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-red/40" />
+            <button id="addExcludedNumberBtn" class="w-10 h-10 shrink-0 rounded-xl bg-brand-red text-white flex items-center justify-center active:scale-90 transition-all">
+              <i class="fa-solid fa-plus"></i>
+            </button>
+          </div>
+          <p id="excludedNumberStatus" class="text-xs mb-2"></p>
+          <p class="text-[11px] text-slate-400 mb-1">En la lista: <span id="excludedNumberCount" class="font-semibold text-slate-500">0</span></p>
+          <div id="excludedNumberList" class="space-y-1.5"></div>
+        </section>
+      </div>
+    </div>
+
+    <!-- Categoría: 🎙️ Pedidos sin texto (foto / contacto / nota de voz) -->
+    <div id="categoryMedia" class="fixed inset-0 bg-brand-bg z-50 hidden flex-col">
+      <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-white">
+        <span class="font-bold text-slate-900">🎙️ Pedidos sin texto</span>
+        <button class="category-close-btn w-9 h-9 rounded-xl flex items-center justify-center hover:bg-slate-100 active:scale-90 transition-all">
+          <i class="fa-solid fa-xmark text-lg text-slate-500"></i>
+        </button>
+      </div>
+      <div class="flex-1 overflow-y-auto px-5 py-5 space-y-6">
+        <p class="text-xs text-slate-400">
+          Grupos donde el pedido no siempre llega escrito. El bot responde igual que con una palabra clave, y respeta las mismas reglas (números ignorados, sector encendido, y se apaga solo después de responder).
+        </p>
+
+        <!-- Notas de voz -->
+        <section>
+          <p class="eyebrow text-brand-green"><i class="fa-solid fa-microphone"></i> NOTAS DE VOZ</p>
+          <p class="text-xs text-slate-400 mt-1 mb-2">
+            El bot <b>no puede escuchar</b> el audio, así que responde a toda nota de voz corta de estos grupos. Solo cuenta la nota de voz grabada con el micrófono (no audios reenviados ni música).
+          </p>
+          <div class="flex items-center gap-2 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 mb-2">
+            <span class="text-slate-500 shrink-0">Responder si dura hasta</span>
+            <input id="audioSecondsInput" type="number" min="1" max="300"
+              class="w-16 min-w-0 bg-slate-50 rounded-lg px-2 py-1 text-sm border border-slate-200 text-center" />
+            <span class="text-slate-500 shrink-0">seg</span>
+            <button id="saveAudioSecondsBtn" class="ml-auto shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold bg-brand-green text-white active:scale-95 transition-all">Guardar</button>
+          </div>
+          <p id="audioSecondsStatus" class="text-xs mb-2"></p>
+          <div id="audioTriggerList" class="space-y-1.5 mb-2"></div>
           <div class="flex gap-2">
-            <select id="contactTriggerGroupSelect" class="flex-1 min-w-0 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-400/40">
+            <select data-media-tipo="audio" class="media-group-select flex-1 min-w-0 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-green/40">
               <option value="">— Agregar un grupo —</option>
             </select>
-            <button id="addContactTriggerBtn" class="w-10 h-10 shrink-0 rounded-xl bg-indigo-600 text-white flex items-center justify-center active:scale-90 transition-all">
+            <button data-media-tipo="audio" class="media-add-btn w-10 h-10 shrink-0 rounded-xl bg-brand-green text-white flex items-center justify-center active:scale-90 transition-all">
               <i class="fa-solid fa-plus text-sm"></i>
             </button>
           </div>
         </section>
 
+        <!-- Fotos -->
+        <section>
+          <p class="eyebrow text-brand-orange"><i class="fa-solid fa-camera"></i> FOTOS</p>
+          <p class="text-xs text-slate-400 mt-1 mb-2">En estos grupos el pedido a veces llega como foto (nota escrita a mano, boleta) en vez de texto.</p>
+          <div id="imagenTriggerList" class="space-y-1.5 mb-2"></div>
+          <div class="flex gap-2">
+            <select data-media-tipo="imagen" class="media-group-select flex-1 min-w-0 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-orange-400/40">
+              <option value="">— Agregar un grupo —</option>
+            </select>
+            <button data-media-tipo="imagen" class="media-add-btn w-10 h-10 shrink-0 rounded-xl bg-brand-orange text-white flex items-center justify-center active:scale-90 transition-all">
+              <i class="fa-solid fa-plus text-sm"></i>
+            </button>
+          </div>
+        </section>
+
+        <!-- Contacto compartido -->
+        <section>
+          <p class="eyebrow text-indigo-600"><i class="fa-solid fa-address-card"></i> CONTACTO COMPARTIDO</p>
+          <p class="text-xs text-slate-400 mt-1 mb-2">En estos grupos, el bot responde también si el restaurante manda una tarjeta de contacto.</p>
+          <div id="contactoTriggerList" class="space-y-1.5 mb-2"></div>
+          <div class="flex gap-2">
+            <select data-media-tipo="contacto" class="media-group-select flex-1 min-w-0 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-400/40">
+              <option value="">— Agregar un grupo —</option>
+            </select>
+            <button data-media-tipo="contacto" class="media-add-btn w-10 h-10 shrink-0 rounded-xl bg-indigo-600 text-white flex items-center justify-center active:scale-90 transition-all">
+              <i class="fa-solid fa-plus text-sm"></i>
+            </button>
+          </div>
+        </section>
+
+        <p id="mediaTriggerStatus" class="text-xs"></p>
       </div>
     </div>
 

@@ -1390,77 +1390,154 @@ saveQuoteMessageBtn.addEventListener("click", async () => {
   mostrarEstadoCotizacion(res.ok ? "Mensaje guardado ✓" : "No se pudo guardar", !res.ok);
 });
 
-// ---------- Responder a contacto compartido (por grupo) ----------
-const contactTriggerList = document.getElementById("contactTriggerList");
-const contactTriggerGroupSelect = document.getElementById("contactTriggerGroupSelect");
-const addContactTriggerBtn = document.getElementById("addContactTriggerBtn");
-let contactTriggerGroupNames = [];
+// ---------- Pedidos sin texto: foto / contacto / nota de voz ----------
+// Las tres listas funcionan igual, así que se manejan con el mismo código:
+// cada bloque del panel lleva data-media-tipo="imagen|contacto|audio".
+const MEDIA_LISTAS = {
+  imagen: document.getElementById("imagenTriggerList"),
+  contacto: document.getElementById("contactoTriggerList"),
+  audio: document.getElementById("audioTriggerList"),
+};
+const MEDIA_COLORES = {
+  imagen: "bg-orange-50 text-orange-700",
+  contacto: "bg-indigo-50 text-indigo-700",
+  audio: "bg-green-50 text-green-700",
+};
+const audioSecondsInput = document.getElementById("audioSecondsInput");
+const saveAudioSecondsBtn = document.getElementById("saveAudioSecondsBtn");
+const audioSecondsStatus = document.getElementById("audioSecondsStatus");
+const mediaTriggerStatus = document.getElementById("mediaTriggerStatus");
 
-function renderContactTriggerGroups() {
-  contactTriggerList.innerHTML = "";
-  if (contactTriggerGroupNames.length === 0) {
-    const p = document.createElement("p");
-    p.className = "text-xs text-slate-400";
-    p.textContent = "Ningún grupo configurado todavía.";
-    contactTriggerList.appendChild(p);
-  } else {
-    contactTriggerGroupNames.forEach((name) => {
+let mediaTriggerData = { imagen: [], contacto: [], audio: [], audioMaxSegundos: 15 };
+
+function mostrarEstadoMedia(el, texto, esError) {
+  el.textContent = texto;
+  el.className = `text-xs mb-2 ${esError ? "text-brand-red" : "text-brand-green"}`;
+  setTimeout(() => {
+    el.textContent = "";
+  }, 3000);
+}
+
+function renderMediaTriggers() {
+  Object.keys(MEDIA_LISTAS).forEach((tipo) => {
+    const cont = MEDIA_LISTAS[tipo];
+    const nombres = mediaTriggerData[tipo] || [];
+    cont.innerHTML = "";
+
+    if (nombres.length === 0) {
+      const p = document.createElement("p");
+      p.className = "text-xs text-slate-400";
+      p.textContent = "Ningún grupo configurado.";
+      cont.appendChild(p);
+      return;
+    }
+
+    nombres.forEach((name) => {
+      // Avisa si el grupo guardado ya no existe en WhatsApp (le cambiaron el
+      // nombre o el bot salió): si no, quedaría configurado y sin efecto.
+      const existe = groupsData.some((g) => g.name.trim().toUpperCase() === name.trim().toUpperCase());
       const chip = document.createElement("div");
-      chip.className = "flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm bg-indigo-50 text-indigo-700";
+      chip.className = `flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm ${
+        existe ? MEDIA_COLORES[tipo] : "bg-amber-50 text-amber-700"
+      }`;
+
       const label = document.createElement("span");
       label.className = "truncate";
-      label.textContent = name;
-      const removeBtn = document.createElement("button");
-      removeBtn.innerHTML = '<i class="fa-solid fa-xmark text-xs"></i>';
-      removeBtn.className = "shrink-0 opacity-60 hover:opacity-100";
-      removeBtn.addEventListener("click", async () => {
-        await fetch("/api/contact-trigger-groups/remove", {
+      label.textContent = existe ? name : `${name} (no encontrado)`;
+
+      const quitar = document.createElement("button");
+      quitar.innerHTML = '<i class="fa-solid fa-xmark text-xs"></i>';
+      quitar.className = "shrink-0 opacity-60 hover:opacity-100";
+      quitar.addEventListener("click", async () => {
+        const res = await fetch("/api/media-triggers/groups/remove", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name }),
+          body: JSON.stringify({ tipo, name }),
         });
-        await fetchContactTriggerGroups();
+        const data = await res.json();
+        if (res.ok) {
+          mediaTriggerData = data;
+          renderMediaTriggers();
+          mostrarEstadoMedia(mediaTriggerStatus, "Grupo quitado ✓", false);
+        } else {
+          mostrarEstadoMedia(mediaTriggerStatus, data.error || "No se pudo quitar", true);
+        }
       });
+
       chip.appendChild(label);
-      chip.appendChild(removeBtn);
-      contactTriggerList.appendChild(chip);
+      chip.appendChild(quitar);
+      cont.appendChild(chip);
     });
-  }
+  });
 
-  const seleccionActual = contactTriggerGroupSelect.value;
-  contactTriggerGroupSelect.innerHTML = '<option value="">— Agregar un grupo —</option>';
-  groupsData
-    .filter((g) => !contactTriggerGroupNames.some((n) => n.trim().toUpperCase() === g.name.trim().toUpperCase()))
-    .forEach((g) => {
-      const opt = document.createElement("option");
-      opt.value = g.name;
-      opt.textContent = g.name;
-      contactTriggerGroupSelect.appendChild(opt);
-    });
-  if (seleccionActual) contactTriggerGroupSelect.value = seleccionActual;
+  // Cada desplegable ofrece solo los grupos que todavía no están en ESA lista.
+  document.querySelectorAll(".media-group-select").forEach((select) => {
+    const tipo = select.dataset.mediaTipo;
+    const seleccionActual = select.value;
+    select.innerHTML = '<option value="">— Agregar un grupo —</option>';
+    groupsData
+      .filter((g) => !(mediaTriggerData[tipo] || []).some((n) => n.trim().toUpperCase() === g.name.trim().toUpperCase()))
+      .forEach((g) => {
+        const opt = document.createElement("option");
+        opt.value = g.name;
+        opt.textContent = g.name;
+        select.appendChild(opt);
+      });
+    if (seleccionActual) select.value = seleccionActual;
+  });
+
+  if (document.activeElement !== audioSecondsInput) {
+    audioSecondsInput.value = mediaTriggerData.audioMaxSegundos;
+  }
 }
 
-async function fetchContactTriggerGroups() {
+async function fetchMediaTriggers() {
   try {
-    const res = await fetch("/api/contact-trigger-groups");
-    const data = await res.json();
-    contactTriggerGroupNames = data.groupNames || [];
-    renderContactTriggerGroups();
+    const res = await fetch("/api/media-triggers");
+    mediaTriggerData = await res.json();
+    renderMediaTriggers();
   } catch (err) {
-    console.error("No se pudo cargar los grupos de contacto:", err);
+    console.error("No se pudo cargar los pedidos sin texto:", err);
   }
 }
 
-addContactTriggerBtn.addEventListener("click", async () => {
-  const name = contactTriggerGroupSelect.value;
-  if (!name) return;
-  await fetch("/api/contact-trigger-groups", {
+document.querySelectorAll(".media-add-btn").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    const tipo = btn.dataset.mediaTipo;
+    const select = document.querySelector(`.media-group-select[data-media-tipo="${tipo}"]`);
+    const name = select.value;
+    if (!name) return;
+    const res = await fetch("/api/media-triggers/groups", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tipo, name }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      mediaTriggerData = data;
+      select.value = "";
+      renderMediaTriggers();
+      mostrarEstadoMedia(mediaTriggerStatus, "Grupo agregado ✓", false);
+    } else {
+      mostrarEstadoMedia(mediaTriggerStatus, data.error || "No se pudo agregar", true);
+    }
+  });
+});
+
+saveAudioSecondsBtn.addEventListener("click", async () => {
+  const res = await fetch("/api/media-triggers/audio-seconds", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ segundos: audioSecondsInput.value }),
   });
-  contactTriggerGroupSelect.value = "";
-  await fetchContactTriggerGroups();
+  const data = await res.json();
+  if (res.ok) {
+    mediaTriggerData.audioMaxSegundos = data.audioMaxSegundos;
+    mostrarEstadoMedia(audioSecondsStatus, `Guardado ✓ Responde a notas de voz de hasta ${data.audioMaxSegundos} seg.`, false);
+  } else {
+    mostrarEstadoMedia(audioSecondsStatus, data.error || "No se pudo guardar", true);
+    audioSecondsInput.value = mediaTriggerData.audioMaxSegundos;
+  }
 });
 
 // ---------- Delays personalizados por grupo ----------
@@ -1935,10 +2012,14 @@ const categoryLoaders = {
     exceptionKeywordInput.value = "";
     renderSpecialKeywords(); // repinta lo que ya tenías guardado (localStorage)
     fetchKeywords();
-    fetchExcludedNumbers();
     populateExceptionGroupSelect();
     fetchExceptionsOverview();
-    fetchContactTriggerGroups();
+  },
+  categoryExcluded: () => {
+    fetchExcludedNumbers();
+  },
+  categoryMedia: () => {
+    fetchMediaTriggers();
   },
   categoryGroups: () => {
     populateMoveSelects();

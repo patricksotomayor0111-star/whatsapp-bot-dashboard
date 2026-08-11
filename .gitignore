@@ -23,3 +23,4 @@ broadcast-images/
 .env
 *.log
 excluded-numbers-data.json
+media-triggers-data.json

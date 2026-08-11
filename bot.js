@@ -14,7 +14,7 @@ const numberExceptions = require("./numberExceptions");
 const pendingQuotes = require("./pendingQuotes");
 const quoteConfig = require("./quoteConfig");
 const pushSubscriptions = require("./pushSubscriptions");
-const contactTriggerGroups = require("./contactTriggerGroups");
+const mediaTriggers = require("./mediaTriggers");
 const groupDelays = require("./groupDelays");
 const scheduledBroadcasts = require("./scheduledBroadcasts");
 const { dataPath } = require("./dataDir");
@@ -289,20 +289,14 @@ function esGrupoSoloAutorizados(nombreGrupo) {
 // A qué grupos se manda, quién puede responder la tarifa y el texto del
 // mensaje se configuran desde el panel (ver quoteConfig.js), no acá.
 
-// ---------- Grupos que también responden a fotos (sin texto) ----------
-// En estos grupos, el pedido a veces viene como una foto (nota escrita a
-// mano, boleta/recibo) en vez de texto con palabra clave. El bot responde
-// igual si detecta una imagen, siempre que se cumplan las demás reglas
-// (número no bloqueado, sector/grupo activos, etc.) — no las salta.
-const IMAGE_TRIGGER_GROUP_NAMES = new Set(
-  ["CANTONES - BOX DELIVERY", "CHIFA LIU BOX DELIVERY", "CARTAS RESTAURANTES"].map((n) =>
-    n.trim().toUpperCase()
-  )
-);
-
-function esGrupoConTriggerDeImagen(nombreGrupo) {
-  return IMAGE_TRIGGER_GROUP_NAMES.has((nombreGrupo || "").trim().toUpperCase());
-}
+// ---------- Pedidos que no llegan como texto (foto / contacto / audio) ----------
+// En algunos grupos el pedido viene como una foto (nota escrita a mano,
+// boleta), como una tarjeta de contacto, o como una nota de voz. El bot
+// responde igual, siempre que se cumplan las demás reglas (número no
+// bloqueado, sector/grupo activos, etc.) — no las salta.
+//
+// Qué grupos y el tope de segundos del audio se configuran desde el panel
+// (ver mediaTriggers.js), ya no acá.
 
 // True si el mensaje trae una imagen (foto), sin importar si viene
 // envuelta en un mensaje efímero o "ver una vez", igual que extractText().
@@ -317,9 +311,9 @@ function tieneImagen(msg) {
 
 // True si el mensaje trae una tarjeta de contacto compartida (una o varias),
 // igual de flexible ante mensajes efímeros / "ver una vez" que tieneImagen().
-// Se usa para los grupos configurados en contactTriggerGroups.js (editable
-// desde el panel), donde el restaurante a veces manda el contacto del
-// cliente en vez de escribir el pedido con palabra clave.
+// Se usa para los grupos configurados en mediaTriggers.js (editables desde
+// el panel), donde el restaurante a veces manda el contacto del cliente en
+// vez de escribir el pedido con palabra clave.
 function tieneContacto(msg) {
   const m =
     msg.message.ephemeralMessage?.message ||
@@ -327,6 +321,27 @@ function tieneContacto(msg) {
     msg.message.viewOnceMessageV2?.message ||
     msg.message;
   return Boolean(m.contactMessage || m.contactsArrayMessage);
+}
+
+// True si el mensaje es una NOTA DE VOZ (la del micrófono) lo bastante
+// corta como para ser un pedido. A propósito se exige ptt (push to talk):
+// un audio reenviado o una canción no son un pedido y no deben activar
+// nada. Como el bot no puede escuchar el audio, la duración es el único
+// filtro posible: un "mándame un motorizado" dura 2-5 segundos.
+//
+// Si WhatsApp no mandara la duración (no debería pasar), se toma como 0 y
+// se responde igual: en un grupo configurado para esto, una nota de voz
+// es casi siempre un pedido.
+function esNotaDeVozCorta(msg, maxSegundos) {
+  const m =
+    msg.message.ephemeralMessage?.message ||
+    msg.message.viewOnceMessage?.message ||
+    msg.message.viewOnceMessageV2?.message ||
+    msg.message;
+  const audio = m.audioMessage;
+  if (!audio || !audio.ptt) return false;
+  const segundos = Number(audio.seconds) || 0;
+  return segundos <= maxSegundos;
 }
 
 // True si el mensaje viene marcado como "reenviado" (la flechita de
@@ -822,9 +837,12 @@ async function startBot() {
       if (!botState.active) continue;
 
       const text = normalizeText(rawText);
-      const esImagenTrigger = esGrupoConTriggerDeImagen(grupoActual?.name) && tieneImagen(msg);
-      const esContactoTrigger = contactTriggerGroups.isEnabled(grupoActual?.name) && tieneContacto(msg);
-      if (!text && !esImagenTrigger && !esContactoTrigger) continue;
+      const esImagenTrigger = mediaTriggers.isEnabled("imagen", grupoActual?.name) && tieneImagen(msg);
+      const esContactoTrigger = mediaTriggers.isEnabled("contacto", grupoActual?.name) && tieneContacto(msg);
+      const esAudioTrigger =
+        mediaTriggers.isEnabled("audio", grupoActual?.name) &&
+        esNotaDeVozCorta(msg, mediaTriggers.getAudioMaxSegundos());
+      if (!text && !esImagenTrigger && !esContactoTrigger && !esAudioTrigger) continue;
 
       // Los mensajes reenviados no cuentan nunca (ni para keywords, ni
       // especiales, ni excepciones): suelen ser direcciones o pedidos
@@ -860,6 +878,9 @@ async function startBot() {
         }
         if (!match && esContactoTrigger) {
           match = { keyword: "(contacto)", index: 0, length: 0 };
+        }
+        if (!match && esAudioTrigger) {
+          match = { keyword: "(nota de voz)", index: 0, length: 0 };
         }
         if (!match) {
           // Las keywords globales agregadas desde el panel tampoco respetan
