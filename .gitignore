@@ -22,3 +22,4 @@ scheduled-broadcasts-data.json
 broadcast-images/
 .env
 *.log
+excluded-numbers-data.json

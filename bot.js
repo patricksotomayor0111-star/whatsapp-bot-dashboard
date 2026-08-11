@@ -8,7 +8,7 @@ const qrcode = require("qrcode-terminal");
 const path = require("path");
 const fs = require("fs");
 const { positiveKeywords, excludedKeywords, defaultResponse } = require("./keywords");
-const { excludedNumbers } = require("./excludedNumbers");
+const excludedNumbers = require("./excludedNumbers");
 const dynamicKeywords = require("./dynamicKeywords");
 const numberExceptions = require("./numberExceptions");
 const pendingQuotes = require("./pendingQuotes");
@@ -264,6 +264,22 @@ function tiempoEnRango(text) {
 // (ni caja chica, ni keywords, ni nada), para que no se pisen los dos.
 const IGNORED_GROUP_NAMES = new Set(["GANANCIAS"]);
 
+// ---------- Grupos donde SOLO responden los números autorizados ----------
+// En el resto de grupos el bot le responde a cualquiera (menos a los
+// números ignorados). En estos, al revés: ignora a TODOS por defecto y solo
+// responde a quien tenga una "frase por sector" activa para ese grupo
+// (panel → Palabras clave → FRASES POR SECTOR).
+//
+// Es lo que corresponde en un grupo de reportes con muchos repartidores:
+// antes, cualquiera que escribiera "moto" activaba el bot, y había que ir
+// agregando cada número a la lista de ignorados uno por uno, después de que
+// ya había activado el bot al menos una vez.
+const GRUPOS_SOLO_AUTORIZADOS = new Set(["REPORTES BOX DELIVERY"]);
+
+function esGrupoSoloAutorizados(nombreGrupo) {
+  return GRUPOS_SOLO_AUTORIZADOS.has(String(nombreGrupo || "").trim().toUpperCase());
+}
+
 // ---------- Cotización de delivery ----------
 // La web de Punto Caliente (antes La Bumanguesa) pide acá una cotización
 // cuando el cliente cae fuera de las zonas ya mapeadas: manda el link de
@@ -466,10 +482,6 @@ async function resolverSenderNumber(sock, msgKey) {
 
   return { senderJid, senderNumber: numeroReal || canonicalNumber(lidDigits) };
 }
-
-const excludedNumbersSet = new Set(
-  excludedNumbers.flatMap((n) => [canonicalNumber(n), String(n).replace(/\D/g, "")])
-);
 
 // Estado compartido con el dashboard (server.js lo lee)
 const botState = {
@@ -798,7 +810,11 @@ async function startBot() {
       // quedó bloqueado — sin que el bot responda. Solo se registran
       // mensajes de grupos (no estados ni chats privados).
       const { senderJid, senderNumber } = await resolverSenderNumber(sock, msg.key);
-      const bloqueadoGlobal = excludedNumbersSet.has(senderNumber);
+      // En un grupo de "solo autorizados" se trata a todos como bloqueados:
+      // así solo pasan los que tengan una frase por sector activa, que es
+      // exactamente el mismo permiso que ya usaban los números ignorados.
+      const bloqueadoGlobal =
+        excludedNumbers.isExcluded(senderNumber) || esGrupoSoloAutorizados(grupoActual?.name);
       if (chatId.endsWith("@g.us")) {
         logSender(chatId, grupoActual?.name || chatId, senderJid, senderNumber, bloqueadoGlobal, extractText(msg));
       }

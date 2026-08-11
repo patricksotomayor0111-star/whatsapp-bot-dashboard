@@ -5,6 +5,7 @@ const quoteConfig = require("./quoteConfig");
 const sectors = require("./sectors");
 const dynamicKeywords = require("./dynamicKeywords");
 const numberExceptions = require("./numberExceptions");
+const excludedNumbers = require("./excludedNumbers");
 const pendingQuotes = require("./pendingQuotes");
 const pushSubscriptions = require("./pushSubscriptions");
 const contactTriggerGroups = require("./contactTriggerGroups");
@@ -292,6 +293,28 @@ app.post("/api/keywords/special/:groupId/remove", (req, res) => {
 
 // Excepciones número+grupo+frase: un número excluido globalmente puede
 // responder en UN grupo puntual si escribe una de estas frases.
+// Números que el bot ignora por completo. Editable desde el panel (antes
+// había que tocar el código y redesplegar para agregar uno).
+app.get("/api/excluded-numbers", (req, res) => {
+  res.json({ numeros: excludedNumbers.getAll() });
+});
+
+app.post("/api/excluded-numbers", (req, res) => {
+  try {
+    const r = excludedNumbers.addNumber(req.body?.numero);
+    if (!r.ok) return res.status(400).json({ error: r.motivo });
+    res.json({ ok: true, numeros: excludedNumbers.getAll() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/excluded-numbers/remove", (req, res) => {
+  const ok = excludedNumbers.removeNumber(req.body?.numero);
+  if (!ok) return res.status(404).json({ error: "Ese número no estaba en la lista." });
+  res.json({ ok: true, numeros: excludedNumbers.getAll() });
+});
+
 app.get("/api/exceptions", (req, res) => {
   res.json({ exceptions: numberExceptions.getAllExceptions() });
 });

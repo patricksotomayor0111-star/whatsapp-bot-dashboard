@@ -992,6 +992,103 @@ function populateExceptionGroupSelect() {
   if (seleccionActual) exceptionGroupSelect.value = seleccionActual;
 }
 
+// ---------- Números ignorados (editable desde el panel) ----------
+const excludedNumberInput = document.getElementById("excludedNumberInput");
+const addExcludedNumberBtn = document.getElementById("addExcludedNumberBtn");
+const excludedNumberList = document.getElementById("excludedNumberList");
+const excludedNumberCount = document.getElementById("excludedNumberCount");
+const excludedNumberStatus = document.getElementById("excludedNumberStatus");
+
+// Muestra "930 475 931" en vez de "930475931" (más fácil de leer y de
+// comparar contra el número que te llegó por WhatsApp).
+function formatearNumero(n) {
+  const d = String(n).replace(/\D/g, "");
+  if (d.length === 9) return `${d.slice(0, 3)} ${d.slice(3, 6)} ${d.slice(6)}`;
+  if (d.length === 11 && d.startsWith("51")) {
+    const local = d.slice(2);
+    return `+51 ${local.slice(0, 3)} ${local.slice(3, 6)} ${local.slice(6)}`;
+  }
+  return d;
+}
+
+function mostrarEstadoNumero(texto, esError) {
+  excludedNumberStatus.textContent = texto;
+  excludedNumberStatus.className = `text-xs mb-2 ${esError ? "text-brand-red" : "text-brand-green"}`;
+  setTimeout(() => {
+    excludedNumberStatus.textContent = "";
+  }, 3000);
+}
+
+function renderExcludedNumbers(numeros) {
+  excludedNumberList.innerHTML = "";
+  excludedNumberCount.textContent = numeros.length;
+
+  numeros.forEach((n) => {
+    const fila = document.createElement("div");
+    fila.className = "flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm bg-rose-50 text-rose-700";
+
+    const label = document.createElement("span");
+    label.className = "truncate font-mono";
+    label.textContent = formatearNumero(n);
+
+    const quitar = document.createElement("button");
+    quitar.innerHTML = '<i class="fa-solid fa-xmark text-xs"></i>';
+    quitar.className = "shrink-0 opacity-60 hover:opacity-100";
+    quitar.title = "Quitar de la lista";
+    quitar.addEventListener("click", async () => {
+      if (!confirm(`¿Quitar ${formatearNumero(n)} de los ignorados? El bot volverá a responderle.`)) return;
+      const res = await fetch("/api/excluded-numbers/remove", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ numero: n }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        renderExcludedNumbers(data.numeros);
+        mostrarEstadoNumero("Número quitado ✓", false);
+      } else {
+        mostrarEstadoNumero(data.error || "No se pudo quitar", true);
+      }
+    });
+
+    fila.appendChild(label);
+    fila.appendChild(quitar);
+    excludedNumberList.appendChild(fila);
+  });
+}
+
+async function fetchExcludedNumbers() {
+  try {
+    const res = await fetch("/api/excluded-numbers");
+    const data = await res.json();
+    renderExcludedNumbers(data.numeros || []);
+  } catch (err) {
+    console.error("No se pudo cargar los números ignorados:", err);
+  }
+}
+
+addExcludedNumberBtn.addEventListener("click", async () => {
+  const numero = excludedNumberInput.value.trim();
+  if (!numero) return;
+  const res = await fetch("/api/excluded-numbers", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ numero }),
+  });
+  const data = await res.json();
+  if (res.ok) {
+    excludedNumberInput.value = "";
+    renderExcludedNumbers(data.numeros);
+    mostrarEstadoNumero("Número agregado ✓ El bot ya no le responde.", false);
+  } else {
+    mostrarEstadoNumero(data.error || "No se pudo agregar", true);
+  }
+});
+
+excludedNumberInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") addExcludedNumberBtn.click();
+});
+
 async function fetchExceptionsOverview() {
   try {
     const [groupsRes, sectorsRes, exceptionsRes] = await Promise.all([
@@ -1838,6 +1935,7 @@ const categoryLoaders = {
     exceptionKeywordInput.value = "";
     renderSpecialKeywords(); // repinta lo que ya tenías guardado (localStorage)
     fetchKeywords();
+    fetchExcludedNumbers();
     populateExceptionGroupSelect();
     fetchExceptionsOverview();
     fetchContactTriggerGroups();
