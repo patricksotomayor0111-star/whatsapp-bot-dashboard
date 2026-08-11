@@ -608,6 +608,7 @@ app.post("/api/reminders/:id/pagado", (req, res) => {
       monto,
       registrado,
       gastoExistente: gastoExistente ? gastoExistente.descripcion || "" : null,
+      origen: "panel",
     });
 
     const aviso = registrado
@@ -621,10 +622,21 @@ app.post("/api/reminders/:id/pagado", (req, res) => {
   }
 });
 
-// Historial de pagos marcados desde el panel, con si su gasto se registró
-// en la caja o ya estaba escrito.
+// Historial de pagos marcados, con si su gasto se registró en la caja o ya
+// estaba escrito. Con ?id=xxx devuelve solo el de ese pago.
 app.get("/api/reminders/historial", (req, res) => {
-  res.json({ historial: reminders.getHistorialPagos() });
+  res.json({ historial: reminders.getHistorialPagos(req.query.id) });
+});
+
+// Deshace un "Ya pagué" marcado por error (solo reabre el aviso; el gasto
+// que haya quedado en la caja se corrige aparte desde Movimientos).
+app.post("/api/reminders/:id/desmarcar", (req, res) => {
+  try {
+    reminders.desmarcarPagado(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 app.post("/api/reminders/:id/activo", (req, res) => {

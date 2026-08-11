@@ -230,6 +230,63 @@ function buscarGastoDelPago(id, movimientos) {
   );
 }
 
+// Cuántos días antes del vencimiento se acepta un pago adelantado, y qué
+// tan parecido tiene que ser el monto al configurado para dar por pagado
+// un gasto escrito en el grupo.
+const DIAS_ADELANTO = 7;
+const FRACCION_MONTO_MINIMA = 0.5;
+
+// Ciclo que se puede marcar como pagado ahora mismo: el que ya está
+// abierto (vencido o vence mañana) o, si se paga antes de tiempo, el
+// próximo que caiga dentro de DIAS_ADELANTO días. Devuelve la fecha de
+// vencimiento de ese ciclo, o null si no hay ninguno por marcar.
+function cicloMarcable(r, hoy) {
+  if (r.activo === false) return null;
+  const abierta = ultimaVentanaAbierta(r, hoy);
+  if (abierta && !(r.lastPaidCycle && r.lastPaidCycle >= abierta)) return abierta;
+
+  const proxima = proximaFecha(r, hoy);
+  if (!proxima) return null;
+  if (diasEntre(hoy, proxima) > DIAS_ADELANTO) return null;
+  if (r.lastPaidCycle && r.lastPaidCycle >= proxima) return null;
+  return proxima;
+}
+
+// Al revés que buscarGastoDelPago: dado un gasto escrito en el grupo
+// ("menos 100 junta"), busca a qué pago pendiente corresponde, para
+// marcarlo solo sin tener que tocar "Ya pagué" en el panel.
+//
+// Se exige que el monto se parezca al configurado (de la mitad para
+// arriba) para que un gasto chico que comparte la palabra —ej. "menos 20
+// terreno"— no apague el aviso de un pago de S/500.
+function buscarPendientePorGasto(descripcion, monto) {
+  const desc = normalizeText(descripcion);
+  if (!desc.trim()) return null;
+  const hoy = fechaLabelPeru();
+  const montoNum = Number(monto) || 0;
+
+  for (const r of data.reminders) {
+    const claves = palabrasClaveDe(r.label);
+    if (!claves.some((k) => desc.includes(k))) continue;
+    if (r.monto > 0 && montoNum < r.monto * FRACCION_MONTO_MINIMA) continue;
+    const vence = cicloMarcable(r, hoy);
+    if (vence) return { reminder: r, vence };
+  }
+  return null;
+}
+
+// Vuelve a dejar un pago como no pagado (por si se marcó por error). Ojo:
+// solo reabre el aviso; el gasto que haya quedado en la caja se corrige
+// aparte desde Movimientos.
+function desmarcarPagado(id) {
+  const r = data.reminders.find((x) => x.id === id);
+  if (!r) throw new Error("Recordatorio inexistente: " + id);
+  r.lastPaidCycle = null;
+  if (r.tipo === "unica") r.activo = true;
+  save();
+  return r;
+}
+
 const MAX_PAGOS_MARCADOS = 100;
 
 // "info" queda guardado como historial de qué pasó cada vez que se marcó
@@ -239,7 +296,10 @@ function marcarPagado(id, info) {
   const r = data.reminders.find((x) => x.id === id);
   if (!r) throw new Error("Recordatorio inexistente: " + id);
   const hoy = fechaLabelPeru();
-  const due = ultimaVentanaAbierta(r, hoy);
+  // "info.vence" llega cuando el pago se marca solo desde el grupo y puede
+  // ser un ciclo adelantado (que todavía no abrió su ventana); si no viene,
+  // se usa el ciclo abierto de siempre.
+  const due = (info && info.vence) || ultimaVentanaAbierta(r, hoy);
   if (r.tipo === "unica") {
     r.activo = false; // pago único: no vuelve a aparecer
   } else if (due) {
@@ -256,6 +316,7 @@ function marcarPagado(id, info) {
       monto: Number(info.monto) || 0,
       registrado: !!info.registrado,
       gastoExistente: info.gastoExistente || null,
+      origen: info.origen === "grupo" ? "grupo" : "panel",
     });
     if (data.pagosMarcados.length > MAX_PAGOS_MARCADOS) {
       data.pagosMarcados.splice(0, data.pagosMarcados.length - MAX_PAGOS_MARCADOS);
@@ -265,9 +326,11 @@ function marcarPagado(id, info) {
   save();
 }
 
-// Historial para el panel: lo más reciente primero.
-function getHistorialPagos() {
-  return data.pagosMarcados.slice().reverse();
+// Historial para el panel: lo más reciente primero. Con "id" devuelve solo
+// el de ese pago (para ver cuándo se pagó cada uno).
+function getHistorialPagos(id) {
+  const lista = id ? data.pagosMarcados.filter((p) => p.id === id) : data.pagosMarcados;
+  return lista.slice().reverse();
 }
 
 function setActivo(id, activo) {
@@ -462,8 +525,10 @@ module.exports = {
   getAll,
   getById,
   buscarGastoDelPago,
+  buscarPendientePorGasto,
   getHistorialPagos,
   marcarPagado,
+  desmarcarPagado,
   setActivo,
   addReminder,
   editReminder,

@@ -463,10 +463,28 @@ function responderConsultaFinanciera(rawText) {
 // totales se ven en vivo en el panel. Los únicos mensajes que la caja
 // chica manda al grupo son el cierre diario de las 3am, el "buenos días"
 // de las 7am y el resumen semanal del domingo.
+// Devuelve los avisos que hay que mandar al grupo (hoy solo los de pagos
+// pendientes que se marcaron solos); el que llama se encarga de enviarlos.
 function handleCashboxEntries(entradas) {
+  const avisos = [];
   entradas.forEach((entrada) => {
     if (entrada.type === "gasto") {
       cashbox.addGasto(entrada.monto, entrada.descripcion);
+      // Si ese gasto corresponde a un pago pendiente, se marca solo: así da
+      // igual anotarlo acá o tocar "Ya pagué" en el panel, los dos lados
+      // quedan sincronizados.
+      const encontrado = reminders.buscarPendientePorGasto(entrada.descripcion, entrada.monto);
+      if (encontrado) {
+        reminders.marcarPagado(encontrado.reminder.id, {
+          monto: entrada.monto,
+          registrado: false, // el gasto ya quedó registrado en la línea de arriba
+          origen: "grupo",
+          vence: encontrado.vence,
+        });
+        avisos.push(
+          `✅ También marqué "${encontrado.reminder.label}" como pagado.\nNo te vuelvo a avisar hasta el próximo vencimiento.`
+        );
+      }
     } else if (entrada.type === "caja") {
       cashbox.setCaja(entrada.monto);
     } else if (entrada.type === "ana_guardo") {
@@ -486,6 +504,7 @@ function handleCashboxEntries(entradas) {
       cashbox.addGanancia(entrada.monto, entrada.descripcion);
     }
   });
+  return avisos;
 }
 
 // ---------- Estado y conexión ----------
@@ -908,7 +927,14 @@ async function startBot() {
 
       const entradas = parseCashboxMessage(rawText);
       if (entradas.length > 0) {
-        handleCashboxEntries(entradas);
+        const avisos = handleCashboxEntries(entradas);
+        for (const aviso of avisos) {
+          try {
+            await enviarMensaje(sock, chatId, { text: aviso });
+          } catch (err) {
+            console.error("Error al avisar que se marcó un pago:", err.message);
+          }
+        }
       }
     }
   });

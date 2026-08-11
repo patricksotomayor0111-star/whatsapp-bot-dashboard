@@ -322,6 +322,43 @@ async function renderReminders() {
     });
     acciones.appendChild(btnToggle);
 
+    // Si ya está pagado este ciclo, se puede deshacer (por si se marcó por
+    // error, o el bot lo marcó solo desde el grupo y no correspondía).
+    if (r.activo && !pendiente) {
+      const btnUndo = document.createElement("button");
+      btnUndo.className = "w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 active:scale-90 transition-all";
+      btnUndo.title = "Marcar como NO pagado";
+      btnUndo.innerHTML = '<i class="fa-solid fa-rotate-left"></i>';
+      btnUndo.addEventListener("click", async () => {
+        if (!confirm(`¿Volver a marcar "${r.label}" como pendiente?\n\nEl gasto que haya quedado en la caja no se borra: eso se corrige desde Movimientos.`)) return;
+        await fetch(`/api/reminders/${encodeURIComponent(r.id)}/desmarcar`, { method: "POST" });
+        renderReminders();
+      });
+      acciones.appendChild(btnUndo);
+    }
+
+    const historialContainer = document.createElement("div");
+    historialContainer.className = "hidden space-y-1.5 mt-3 pt-3 border-t border-slate-100";
+
+    const btnHistorial = document.createElement("button");
+    btnHistorial.className = "w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 active:scale-90 transition-all";
+    btnHistorial.title = "Ver historial de pagos";
+    btnHistorial.innerHTML = '<i class="fa-solid fa-clock-rotate-left"></i>';
+    let historialCargado = false;
+    btnHistorial.addEventListener("click", async () => {
+      const estabaOculto = historialContainer.classList.contains("hidden");
+      if (estabaOculto) {
+        historialContainer.classList.remove("hidden");
+        if (!historialCargado) {
+          await renderHistorialDePago(historialContainer, r.id);
+          historialCargado = true;
+        }
+      } else {
+        historialContainer.classList.add("hidden");
+      }
+    });
+    acciones.appendChild(btnHistorial);
+
     const btnDel = document.createElement("button");
     btnDel.className = "w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-red-50 hover:text-brand-red active:scale-90 transition-all";
     btnDel.title = "Eliminar";
@@ -335,6 +372,7 @@ async function renderReminders() {
 
     card.appendChild(top);
     top.appendChild(acciones);
+    card.appendChild(historialContainer);
     remindersList.appendChild(card);
   });
 
@@ -397,6 +435,13 @@ addReminderBtn.addEventListener("click", async () => {
 const historialPagosList = document.getElementById("historialPagosList");
 const historialPagosEmpty = document.getElementById("historialPagosEmpty");
 
+// Qué pasó con el gasto de ese pago, según por dónde se marcó.
+function textoDetallePago(p) {
+  if (p.origen === "grupo") return "lo escribiste en el grupo y marqué el pendiente solo";
+  if (p.registrado) return "se registró en la caja (te lo habías olvidado)";
+  return `ya estaba registrado${p.gastoExistente ? ` como "${p.gastoExistente}"` : ""}`;
+}
+
 async function renderHistorialPagos() {
   let data;
   try {
@@ -420,13 +465,51 @@ async function renderHistorialPagos() {
 
     const detalle = document.createElement("p");
     detalle.className = "text-xs mt-0.5 " + (p.registrado ? "text-emerald-700" : "text-slate-400");
-    detalle.textContent = p.registrado
-      ? `${fmtFecha(p.fecha)} ${p.hora} · se registró en la caja (te lo habías olvidado)`
-      : `${fmtFecha(p.fecha)} ${p.hora} · ya estaba registrado${p.gastoExistente ? ` como "${p.gastoExistente}"` : ""}`;
+    detalle.textContent = `${fmtFecha(p.fecha)} ${p.hora} · ${textoDetallePago(p)}`;
 
     card.appendChild(titulo);
     card.appendChild(detalle);
     historialPagosList.appendChild(card);
+  });
+}
+
+// Historial de UN pago (se despliega dentro de su propia tarjeta): cada vez
+// que se pagó, con fecha, hora y monto.
+async function renderHistorialDePago(container, id) {
+  let lista;
+  try {
+    const res = await fetch(`/api/reminders/historial?id=${encodeURIComponent(id)}`);
+    const data = await res.json();
+    lista = data.historial || [];
+  } catch (err) {
+    container.innerHTML = '<p class="text-xs text-slate-400">No se pudo cargar el historial.</p>';
+    return;
+  }
+
+  container.innerHTML = "";
+  if (lista.length === 0) {
+    const vacio = document.createElement("p");
+    vacio.className = "text-xs text-slate-400 text-center py-2";
+    vacio.textContent = "Todavía no hay pagos registrados de este pendiente.";
+    container.appendChild(vacio);
+    return;
+  }
+
+  lista.forEach((p) => {
+    const row = document.createElement("div");
+    row.className = "rounded-lg px-3 py-2 text-xs bg-slate-50 border border-slate-100";
+
+    const linea1 = document.createElement("p");
+    linea1.className = "font-semibold text-slate-800";
+    linea1.textContent = `${formatSoles(p.monto)} · ${fmtFecha(p.fecha)} ${p.hora}`;
+
+    const linea2 = document.createElement("p");
+    linea2.className = "text-slate-400 break-words";
+    linea2.textContent = textoDetallePago(p);
+
+    row.appendChild(linea1);
+    row.appendChild(linea2);
+    container.appendChild(row);
   });
 }
 
