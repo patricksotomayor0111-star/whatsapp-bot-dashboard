@@ -24,3 +24,4 @@ broadcast-images/
 *.log
 excluded-numbers-data.json
 media-triggers-data.json
+pending-time-matches-data.json

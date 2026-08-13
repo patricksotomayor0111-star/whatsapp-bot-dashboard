@@ -17,6 +17,7 @@ const pushSubscriptions = require("./pushSubscriptions");
 const mediaTriggers = require("./mediaTriggers");
 const groupDelays = require("./groupDelays");
 const scheduledBroadcasts = require("./scheduledBroadcasts");
+const pendingTimeMatches = require("./pendingTimeMatches");
 const { dataPath } = require("./dataDir");
 const { sectorSeedByName, specialSeedByName, numberExceptionSeed } = require("./groupSeed");
 const {
@@ -27,6 +28,7 @@ const {
   hasGroupSector,
   setGroupSector,
   getTimeWindowMinutes,
+  getEsperaAutomaticaActiva,
   isGroupSinRemarcarEfectivo,
   isGroupSectorActiveEfectivo,
 } = require("./sectors");
@@ -224,38 +226,77 @@ function getPeruNow() {
   return new Date(utcMs - 5 * 3600000);
 }
 
-// True si ALGUNA interpretación de la hora mencionada (am/pm, o ambas si no
-// se especifica) cae dentro de la ventana configurada, en el FUTURO respecto a ahora.
-function horaEstaEnRango(hour, minute, meridiem, now) {
-  const nowMinutes = now.getHours() * 60 + now.getMinutes();
-  const candidatosHora = [];
-  if (meridiem === "am") {
-    candidatosHora.push(hour % 12);
-  } else if (meridiem === "pm") {
-    candidatosHora.push((hour % 12) + 12);
-  } else {
-    candidatosHora.push(hour % 24);
-    if (hour <= 11) candidatosHora.push(hour + 12);
-  }
-  const maxMinutos = getTimeWindowMinutes();
-  return candidatosHora.some((h) => {
-    const diff = h * 60 + minute - nowMinutes;
-    return diff >= 0 && diff <= maxMinutos;
-  });
-}
-
-// Punto de entrada: true si el mensaje NO tiene ninguna mención de tiempo
-// (la regla no aplica), o si la que tiene cae dentro del rango permitido.
-function tiempoEnRango(text) {
+// A qué hora exacta (timestamp) se refiere el mensaje, sin mirar ninguna
+// ventana todavía. Tres resultados posibles:
+//   - null                  -> no menciona ningún tiempo (la regla no aplica)
+//   - { targetMs: null }    -> menciona una hora, pero ya pasó (sin
+//                              candidato futuro válido hoy)
+//   - { targetMs: <ms> }    -> el momento futuro exacto al que se refiere
+function calcularObjetivoTiempo(text, now) {
   const minutosRelativos = extractRelativeMinutes(text);
   if (minutosRelativos !== null) {
-    return minutosRelativos >= 0 && minutosRelativos <= getTimeWindowMinutes();
+    return { targetMs: now.getTime() + minutosRelativos * 60000 };
   }
   const horaMencionada = extractClockTime(text);
   if (horaMencionada) {
-    return horaEstaEnRango(horaMencionada.hour, horaMencionada.minute, horaMencionada.meridiem, getPeruNow());
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    const candidatosHora = [];
+    if (horaMencionada.meridiem === "am") {
+      candidatosHora.push(horaMencionada.hour % 12);
+    } else if (horaMencionada.meridiem === "pm") {
+      candidatosHora.push((horaMencionada.hour % 12) + 12);
+    } else {
+      candidatosHora.push(horaMencionada.hour % 24);
+      if (horaMencionada.hour <= 11) candidatosHora.push(horaMencionada.hour + 12);
+    }
+    // Si no dice am/pm, hay dos candidatos posibles: se usa el que esté
+    // más cerca en el futuro (el que tiene el diff positivo más chico).
+    let mejorDiff = null;
+    candidatosHora.forEach((h) => {
+      const diff = h * 60 + horaMencionada.minute - nowMinutes;
+      if (diff >= 0 && (mejorDiff === null || diff < mejorDiff)) mejorDiff = diff;
+    });
+    if (mejorDiff === null) return { targetMs: null };
+    return { targetMs: now.getTime() + mejorDiff * 60000 };
   }
-  return true;
+  return null;
+}
+
+// Punto de entrada del filtro de tiempo, ahora con ventana POR SECTOR y
+// espera automática. Devuelve:
+//   { enVentana: true,  esperaMs: null }  -> responde ya (sin mención de
+//                                            tiempo, o ya cae en la ventana)
+//   { enVentana: false, esperaMs: null }  -> no responde nunca (mención de
+//                                            tiempo ya pasada, sin futuro)
+//   { enVentana: false, esperaMs: N }     -> fuera de la ventana por ahora;
+//                                            si la espera automática está
+//                                            activa, se puede reintentar en
+//                                            N ms (cuando entre a la ventana)
+function evaluarVentanaTiempo(text, sectorId, now = getPeruNow()) {
+  const objetivo = calcularObjetivoTiempo(text, now);
+  if (objetivo === null) return { enVentana: true, esperaMs: null };
+  if (objetivo.targetMs === null) return { enVentana: false, esperaMs: null };
+  const ventanaMs = getTimeWindowMinutes(sectorId) * 60000;
+  const esperaMs = objetivo.targetMs - ventanaMs - now.getTime();
+  if (esperaMs <= 0) return { enVentana: true, esperaMs: null };
+  return { enVentana: false, esperaMs };
+}
+
+// Versión mínima de un mensaje, suficiente para que Baileys pueda citarlo
+// ({ quoted: ... }) sin depender del objeto original de WhatsApp — se usa
+// para los pedidos que quedan en espera (pendingTimeMatches.js), porque ese
+// objeto original puede dejar de existir (reconexión, reinicio) antes de
+// que llegue el momento de marcar.
+function construirQuotedStub(msg, chatId, senderJid, rawText) {
+  return {
+    key: {
+      remoteJid: chatId,
+      id: msg.key.id,
+      fromMe: false,
+      participant: msg.key.participant || senderJid,
+    },
+    message: { conversation: rawText || "" },
+  };
 }
 
 // ---------- Grupos que este bot ignora por completo ----------
@@ -899,11 +940,30 @@ async function startBot() {
       if (!match) continue;
 
       // Si el mensaje menciona una hora o una cantidad de minutos fuera de
-      // la ventana configurada (0 a N minutos), no responde — aplica por
-      // igual a especiales, excepciones y keywords normales.
-      if (!tiempoEnRango(text)) continue;
+      // la ventana del sector, no responde todavía. Si la espera automática
+      // está activa (panel principal), el pedido queda guardado para
+      // marcarse solo cuando el tiempo restante entre en la ventana — sin
+      // que el local tenga que volver a escribir.
+      const sectorIdParaVentana = getGroupSector(chatId);
+      const ventana = evaluarVentanaTiempo(text, sectorIdParaVentana);
+      if (!ventana.enVentana) {
+        if (ventana.esperaMs !== null && getEsperaAutomaticaActiva()) {
+          pendingTimeMatches.add({
+            chatId,
+            groupName: grupoActual?.name || chatId,
+            senderNumber,
+            rawText,
+            keyword: match.keyword,
+            matchIndex: match.index,
+            matchLength: match.length,
+            quotedStub: construirQuotedStub(msg, chatId, senderJid, rawText),
+            targetFireMs: Date.now() + ventana.esperaMs,
+          });
+        }
+        continue;
+      }
 
-      const sectorId = getGroupSector(chatId);
+      const sectorId = sectorIdParaVentana;
       const focusedGroups = getFocusedGroups();
       const enModoEnfoque = focusedGroups.length > 0;
       const sinRemarcar = isGroupSinRemarcarEfectivo(chatId, sectorId);
@@ -918,58 +978,129 @@ async function startBot() {
       if (!isGroupSectorActiveEfectivo(chatId, sectorId)) continue;
       if (!isGroupActive(chatId)) continue;
 
-      const entry = {
+      const marcado = await marcarPedido(sock, {
         chatId,
         groupName: grupoActual?.name || chatId,
         senderNumber,
-        text: rawText || "📷 (foto sin texto)",
+        rawText,
+        keyword: match.keyword,
         matchIndex: match.index,
         matchLength: match.length,
-        keyword: match.keyword,
-        response: defaultResponse,
-        time: new Date().toISOString(),
-        sent: false,
-      };
-      botState.lastActivity = entry;
-
-      // Pequeña espera antes de responder, para que se sienta más natural.
-      // Si el grupo tiene un delay personalizado (panel > Delays por grupo),
-      // ese gana; si no, se usa el global de siempre.
-      const delayMs = groupDelays.getDelay(grupoActual?.name) ?? getResponseDelay();
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
-
-      try {
-        await enviarMensaje(
-          sock,
-          chatId,
-          { text: defaultResponse },
-          sinRemarcar ? {} : { quoted: msg } // el sector Comodín o un grupo marcado como "sin remarcar" no citan el mensaje original
-        );
-        entry.sent = true;
-        botState.history.unshift(entry);
-        if (botState.history.length > MAX_HISTORY) botState.history.length = MAX_HISTORY;
-
-        // Avisa por notificación push (si hay algún dispositivo suscrito)
-        // que el bot acaba de responder, sin bloquear el resto del flujo.
-        pushSubscriptions
-          .notifyAll({
-            title: "🤖 El bot respondió",
-            body: `${entry.groupName}: "${match.keyword}"`,
-          })
-          .catch((err) => console.error("Error al mandar notificación push:", err.message));
-
-        // El bot se apaga solo después de responder: hay que reactivarlo a mano.
-        botState.active = false;
-        break;
-      } catch (err) {
-        console.error("Error al enviar la respuesta:", err.message);
-        entry.error = err.message;
-      }
+        sinRemarcar,
+        quotedMsg: msg,
+      });
+      if (marcado) break;
     }
   });
 
   return sock;
 }
+
+// Manda el "Voy" (citando el mensaje original salvo que el grupo sea "sin
+// remarcar"), lo registra en el historial, avisa por notificación push, y
+// apaga el bot — el mismo flujo sin importar si el pedido se marcó al
+// toque o quedó en espera y se está marcando ahora. Devuelve true si se
+// mandó con éxito.
+async function marcarPedido(
+  sock,
+  { chatId, groupName, senderNumber, rawText, keyword, matchIndex, matchLength, sinRemarcar, quotedMsg }
+) {
+  const entry = {
+    chatId,
+    groupName,
+    senderNumber,
+    text: rawText || "📷 (foto sin texto)",
+    matchIndex,
+    matchLength,
+    keyword,
+    response: defaultResponse,
+    time: new Date().toISOString(),
+    sent: false,
+  };
+  botState.lastActivity = entry;
+
+  // Pequeña espera antes de responder, para que se sienta más natural.
+  // Si el grupo tiene un delay personalizado (panel > Delays por grupo),
+  // ese gana; si no, se usa el global de siempre.
+  const delayMs = groupDelays.getDelay(groupName) ?? getResponseDelay();
+  await new Promise((resolve) => setTimeout(resolve, delayMs));
+
+  try {
+    await enviarMensaje(
+      sock,
+      chatId,
+      { text: defaultResponse },
+      sinRemarcar || !quotedMsg ? {} : { quoted: quotedMsg }
+    );
+    entry.sent = true;
+    botState.history.unshift(entry);
+    if (botState.history.length > MAX_HISTORY) botState.history.length = MAX_HISTORY;
+
+    // Avisa por notificación push (si hay algún dispositivo suscrito)
+    // que el bot acaba de responder, sin bloquear el resto del flujo.
+    pushSubscriptions
+      .notifyAll({
+        title: "🤖 El bot respondió",
+        body: `${entry.groupName}: "${keyword}"`,
+      })
+      .catch((err) => console.error("Error al mandar notificación push:", err.message));
+
+    // El bot se apaga solo después de responder: hay que reactivarlo a mano.
+    botState.active = false;
+    return true;
+  } catch (err) {
+    console.error("Error al enviar la respuesta:", err.message);
+    entry.error = err.message;
+    return false;
+  }
+}
+
+// Revisa cada 30s los pedidos que quedaron en espera por la ventana de
+// tiempo (ver evaluarVentanaTiempo) y marca los que ya llegaron a su hora.
+// Respeta el botón general: si el bot está en pausa, no marca nada — igual
+// que un pedido normal, que tampoco se marcaría con el bot apagado.
+async function checkPendingTimeMatches() {
+  if (!currentSock || !botState.connected || !botState.active) return;
+
+  const due = pendingTimeMatches.getDue(Date.now());
+  for (const p of due) {
+    // Se saca de la cola ANTES de marcar (igual que los mensajes
+    // programados): si falla el envío, no se reintenta solo para no
+    // duplicar si el problema era transitorio.
+    pendingTimeMatches.remove(p.id);
+
+    const sectorId = getGroupSector(p.chatId);
+    const focusedGroups = getFocusedGroups();
+    const enModoEnfoque = focusedGroups.length > 0;
+    // Se revisan de nuevo las condiciones operativas (pudieron cambiar en
+    // los minutos de espera): grupo/sector activos, modo enfoque. El
+    // número bloqueado y la palabra clave NO se vuelven a revisar, porque
+    // ya se decidieron con el mensaje original.
+    if (enModoEnfoque && !focusedGroups.includes(p.chatId)) continue;
+    if (!isGroupSectorActiveEfectivo(p.chatId, sectorId)) continue;
+    if (!isGroupActive(p.chatId)) continue;
+
+    const sinRemarcar = isGroupSinRemarcarEfectivo(p.chatId, sectorId);
+    const marcado = await marcarPedido(currentSock, {
+      chatId: p.chatId,
+      groupName: p.groupName,
+      senderNumber: p.senderNumber,
+      rawText: p.rawText,
+      keyword: p.keyword,
+      matchIndex: p.matchIndex,
+      matchLength: p.matchLength,
+      sinRemarcar,
+      quotedMsg: p.quotedStub,
+    });
+    // Igual que el flujo normal: un pedido marcado apaga el bot, así que
+    // el resto de la cola espera al próximo tick (si se reactiva antes).
+    if (marcado) break;
+  }
+}
+
+setInterval(() => {
+  checkPendingTimeMatches().catch((err) => console.error("Error en checkPendingTimeMatches:", err.message));
+}, 30000);
 
 function extractText(msg) {
   // Si el chat tiene mensajes que desaparecen (o es "ver una vez"), el texto

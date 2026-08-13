@@ -394,14 +394,13 @@
           </div>
         </section>
 
-        <!-- Ventana de tiempo -->
+        <!-- Ventana de tiempo por sector -->
         <section>
-          <p class="eyebrow text-slate-600"><i class="fa-solid fa-hourglass-half"></i> VENTANA DE TIEMPO</p>
-          <p class="text-xs text-slate-400 mt-1 mb-2">Si el mensaje menciona una hora o minutos, el bot solo responde si cae entre 0 y este máximo de minutos desde ahora.</p>
-          <div class="flex gap-2">
-            <select id="timeWindowSelect" class="flex-1 min-w-0 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-green/40"></select>
-            <button id="saveTimeWindowBtn" class="shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold bg-blue-500 text-white active:scale-95 transition-all">Guardar</button>
-          </div>
+          <p class="eyebrow text-slate-600"><i class="fa-solid fa-hourglass-half"></i> VENTANA DE TIEMPO POR SECTOR</p>
+          <p class="text-xs text-slate-400 mt-1 mb-2">
+            Si el pedido menciona una hora o minutos dentro de esta ventana, se marca al toque. Si está más lejos, queda en espera y se marca solo cuando entre (según el interruptor de la tarjeta principal ⏳).
+          </p>
+          <div id="timeWindowBySectorList" class="space-y-2"></div>
         </section>
 
         <!-- Delays personalizados por grupo -->
@@ -537,6 +536,22 @@
         <p class="mt-2 pt-2 border-t border-rose-100 text-xs text-slate-500">
           Respuesta: <b class="text-slate-700">Automática</b> | Se apaga solo al responder
         </p>
+      </section>
+
+      <!-- Tarjeta: Espera automática de pedidos -->
+      <section class="card fade-in bg-white border border-slate-100 py-3" style="animation-delay:.11s">
+        <div class="flex items-center justify-between gap-3">
+          <div class="flex-1 min-w-0">
+            <p class="text-[15px] font-bold text-slate-800">⏳ Espera automática</p>
+            <p class="mt-0.5 text-xs text-slate-500">
+              Pedidos fuera de ventana en espera: <b id="pendingTimeCount" class="text-slate-700">0</b>
+            </p>
+          </div>
+          <button id="esperaAutomaticaToggle" class="btn-capsule bg-brand-green text-white shrink-0">
+            <span id="esperaAutomaticaLabel">Activada</span>
+          </button>
+        </div>
+        <div id="pendingTimeList" class="mt-2 pt-2 border-t border-slate-100 space-y-1.5 hidden"></div>
       </section>
 
       <!-- Tarjeta: Calidad de conexión -->

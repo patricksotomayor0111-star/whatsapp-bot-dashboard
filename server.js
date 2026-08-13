@@ -9,6 +9,7 @@ const excludedNumbers = require("./excludedNumbers");
 const pendingQuotes = require("./pendingQuotes");
 const pushSubscriptions = require("./pushSubscriptions");
 const mediaTriggers = require("./mediaTriggers");
+const pendingTimeMatches = require("./pendingTimeMatches");
 const groupDelays = require("./groupDelays");
 const scheduledBroadcasts = require("./scheduledBroadcasts");
 const multer = require("multer");
@@ -224,18 +225,43 @@ app.post("/api/config/delay", (req, res) => {
   }
 });
 
-// Ventana de tiempo (0 a N minutos) configurable para el filtro de horarios
+// Ventana de tiempo (0 a N minutos), una por sector: si el pedido menciona
+// una hora o minutos dentro de la ventana de su sector, se marca al toque.
+// Si está fuera, y la espera automática está activa, se guarda para
+// marcarse solo cuando el tiempo restante entre en la ventana.
 app.get("/api/config/timewindow", (req, res) => {
-  res.json({ minutes: sectors.getTimeWindowMinutes() });
+  res.json({
+    porSector: sectors.getTimeWindowMinutesMap(),
+    esperaAutomaticaActiva: sectors.getEsperaAutomaticaActiva(),
+  });
 });
 
 app.post("/api/config/timewindow", (req, res) => {
   try {
-    sectors.setTimeWindowMinutes(req.body.minutes);
-    res.json({ ok: true, minutes: sectors.getTimeWindowMinutes() });
+    sectors.setTimeWindowMinutes(req.body.sectorId, req.body.minutes);
+    res.json({ ok: true, porSector: sectors.getTimeWindowMinutesMap() });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+});
+
+// Interruptor del panel principal: apaga la espera automática cuando hay
+// mucho pedido (marca al toque si está en ventana, no responde si no).
+app.post("/api/config/espera-automatica", (req, res) => {
+  sectors.setEsperaAutomaticaActiva(req.body.active);
+  res.json({ ok: true, active: sectors.getEsperaAutomaticaActiva() });
+});
+
+// Pedidos que quedaron en espera por la ventana de tiempo, a la vista del
+// panel principal. Se pueden cancelar a mano si el dispatcher decide no
+// esperar más ese pedido puntual.
+app.get("/api/pending-time-matches", (req, res) => {
+  res.json({ pendientes: pendingTimeMatches.getAll() });
+});
+
+app.post("/api/pending-time-matches/:id/cancel", (req, res) => {
+  pendingTimeMatches.remove(Number(req.params.id));
+  res.json({ ok: true });
 });
 
 // Keywords agregadas desde el panel (además de las de keywords.js)

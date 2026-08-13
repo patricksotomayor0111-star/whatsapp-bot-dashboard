@@ -43,8 +43,12 @@ const historyCount = document.getElementById("historyCount");
 const delaySelect = document.getElementById("delaySelect");
 const saveDelayBtn = document.getElementById("saveDelayBtn");
 
-const timeWindowSelect = document.getElementById("timeWindowSelect");
-const saveTimeWindowBtn = document.getElementById("saveTimeWindowBtn");
+const timeWindowBySectorList = document.getElementById("timeWindowBySectorList");
+
+const esperaAutomaticaToggle = document.getElementById("esperaAutomaticaToggle");
+const esperaAutomaticaLabel = document.getElementById("esperaAutomaticaLabel");
+const pendingTimeCount = document.getElementById("pendingTimeCount");
+const pendingTimeList = document.getElementById("pendingTimeList");
 
 const moveGroupSelect = document.getElementById("moveGroupSelect");
 const moveSectorSelect = document.getElementById("moveSectorSelect");
@@ -738,46 +742,151 @@ saveDelayBtn.addEventListener("click", async () => {
   }
 });
 
-// ---------- Ventana de tiempo (0 a N minutos) ----------
-let currentTimeWindowMinutes = 15;
+// ---------- Ventana de tiempo por sector (0 a 60 minutos) ----------
+let timeWindowPorSector = {};
 
-function renderTimeWindowOptions() {
-  timeWindowSelect.innerHTML = "";
-  for (let min = 0; min <= 15; min++) {
-    const opt = document.createElement("option");
-    opt.value = min;
-    opt.textContent = min === 1 ? "1 minuto" : `${min} minutos`;
-    if (min === currentTimeWindowMinutes) opt.selected = true;
-    timeWindowSelect.appendChild(opt);
-  }
+function renderTimeWindowBySector() {
+  timeWindowBySectorList.innerHTML = "";
+  sectorDefs.forEach((sector) => {
+    const fila = document.createElement("div");
+    fila.className = "flex items-center gap-2 bg-white rounded-xl px-3 py-2 border border-slate-200";
+
+    const label = document.createElement("span");
+    label.className = "flex-1 min-w-0 text-sm text-slate-600 truncate";
+    label.textContent = sector.label;
+
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = 0;
+    input.max = 60;
+    input.value = timeWindowPorSector[sector.id] ?? 15;
+    input.className = "w-16 shrink-0 bg-slate-50 rounded-lg px-2 py-1 text-sm border border-slate-200 text-center";
+
+    const guardar = document.createElement("button");
+    guardar.textContent = "Guardar";
+    guardar.className = "shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold bg-blue-500 text-white active:scale-95 transition-all";
+    guardar.addEventListener("click", async () => {
+      try {
+        const res = await fetch("/api/config/timewindow", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sectorId: sector.id, minutes: parseInt(input.value, 10) }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          timeWindowPorSector = data.porSector;
+          input.value = timeWindowPorSector[sector.id];
+        } else {
+          alert(data.error || "No se pudo guardar");
+        }
+      } catch (err) {
+        console.error("No se pudo cambiar la ventana de tiempo:", err);
+      }
+    });
+
+    fila.appendChild(label);
+    fila.appendChild(input);
+    fila.appendChild(guardar);
+    timeWindowBySectorList.appendChild(fila);
+  });
 }
 
 async function fetchTimeWindow() {
   try {
     const res = await fetch("/api/config/timewindow");
     const data = await res.json();
-    currentTimeWindowMinutes = data.minutes;
+    timeWindowPorSector = data.porSector || {};
   } catch (err) {
     console.error("No se pudo obtener la ventana de tiempo:", err);
   }
-  renderTimeWindowOptions();
+  renderTimeWindowBySector();
 }
 
-saveTimeWindowBtn.addEventListener("click", async () => {
-  const minutes = parseInt(timeWindowSelect.value, 10);
+// ---------- Espera automática + pedidos en espera (tarjeta principal) ----------
+let esperaAutomaticaActiva = true;
+
+function updateEsperaAutomaticaUI() {
+  if (esperaAutomaticaActiva) {
+    esperaAutomaticaLabel.textContent = "Activada";
+    esperaAutomaticaToggle.classList.remove("bg-slate-300");
+    esperaAutomaticaToggle.classList.add("bg-brand-green");
+  } else {
+    esperaAutomaticaLabel.textContent = "Desactivada";
+    esperaAutomaticaToggle.classList.remove("bg-brand-green");
+    esperaAutomaticaToggle.classList.add("bg-slate-300");
+  }
+}
+
+async function fetchEsperaAutomatica() {
   try {
-    const res = await fetch("/api/config/timewindow", {
+    const res = await fetch("/api/config/timewindow");
+    const data = await res.json();
+    esperaAutomaticaActiva = Boolean(data.esperaAutomaticaActiva);
+  } catch (err) {
+    console.error("No se pudo obtener el estado de espera automática:", err);
+  }
+  updateEsperaAutomaticaUI();
+}
+
+esperaAutomaticaToggle.addEventListener("click", async () => {
+  const nuevoEstado = !esperaAutomaticaActiva;
+  try {
+    const res = await fetch("/api/config/espera-automatica", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ minutes }),
+      body: JSON.stringify({ active: nuevoEstado }),
     });
     const data = await res.json();
-    currentTimeWindowMinutes = data.minutes;
-    renderTimeWindowOptions();
+    esperaAutomaticaActiva = Boolean(data.active);
   } catch (err) {
-    console.error("No se pudo cambiar la ventana de tiempo:", err);
+    console.error("No se pudo cambiar la espera automática:", err);
   }
+  updateEsperaAutomaticaUI();
 });
+
+function renderPendingTimeMatches(pendientes) {
+  pendingTimeCount.textContent = pendientes.length;
+  pendingTimeList.innerHTML = "";
+  if (pendientes.length === 0) {
+    pendingTimeList.classList.add("hidden");
+    return;
+  }
+  pendingTimeList.classList.remove("hidden");
+
+  pendientes.forEach((p) => {
+    const hora = new Date(p.targetFireMs);
+    const horaTexto = `${String(hora.getHours()).padStart(2, "0")}:${String(hora.getMinutes()).padStart(2, "0")}`;
+
+    const fila = document.createElement("div");
+    fila.className = "flex items-center justify-between gap-2 text-xs";
+
+    const texto = document.createElement("span");
+    texto.className = "truncate text-slate-500";
+    texto.textContent = `${p.groupName} · se marca ${horaTexto}`;
+
+    const cancelar = document.createElement("button");
+    cancelar.textContent = "Cancelar";
+    cancelar.className = "shrink-0 text-brand-red font-semibold";
+    cancelar.addEventListener("click", async () => {
+      await fetch(`/api/pending-time-matches/${p.id}/cancel`, { method: "POST" });
+      fetchPendingTimeMatches();
+    });
+
+    fila.appendChild(texto);
+    fila.appendChild(cancelar);
+    pendingTimeList.appendChild(fila);
+  });
+}
+
+async function fetchPendingTimeMatches() {
+  try {
+    const res = await fetch("/api/pending-time-matches");
+    const data = await res.json();
+    renderPendingTimeMatches(data.pendientes || []);
+  } catch (err) {
+    console.error("No se pudo obtener los pedidos en espera:", err);
+  }
+}
 
 // ---------- Palabras clave ----------
 let keywordsData = { positive: [], excluded: [], specialByGroup: {} };
@@ -2143,6 +2252,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   setInterval(() => {
     if (isConnected) fetchExceptionsForLocks();
   }, 30000);
+  // Espera automática (tarjeta principal) + pedidos en espera.
+  fetchEsperaAutomatica();
+  fetchPendingTimeMatches();
+  setInterval(() => {
+    if (isConnected) fetchPendingTimeMatches();
+  }, 20000);
   // Calidad de conexión (3 pings reales al servidor cada 12s).
   medirConexion();
   setInterval(medirConexion, 12000);

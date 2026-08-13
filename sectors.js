@@ -31,8 +31,19 @@ function loadData() {
       groupActive: parsed.groupActive || {},
       focusedGroups: parsed.focusedGroups || [],
       responseDelayMs: parsed.responseDelayMs || DEFAULT_DELAY_MS,
-      timeWindowMinutes:
-        parsed.timeWindowMinutes !== undefined ? parsed.timeWindowMinutes : DEFAULT_TIME_WINDOW_MINUTES,
+      // timeWindowMinutes (un solo número para todos los sectores) es el
+      // formato viejo; se migra una sola vez a timeWindowBySector, ver
+      // migrarTimeWindowPorSector() más abajo.
+      timeWindowMinutesLegacy: parsed.timeWindowMinutes,
+      timeWindowBySector: parsed.timeWindowBySector || null,
+      timeWindowMigrado: Boolean(parsed.timeWindowMigrado),
+      // Cuando está prendido, un pedido cuya hora mencionada cae FUERA de la
+      // ventana no se rechaza para siempre: se guarda en espera y se marca
+      // solo cuando el tiempo restante entre en la ventana (pendingTimeMatches.js).
+      // Apagado, vuelve al comportamiento de siempre (dentro de la ventana
+      // marca al toque, fuera de la ventana no responde nunca).
+      esperaAutomaticaActiva:
+        parsed.esperaAutomaticaActiva !== undefined ? Boolean(parsed.esperaAutomaticaActiva) : true,
       groupRemarcarOverride: parsed.groupRemarcarOverride || {},
       groupNoRemarcar: parsed.groupNoRemarcar || {}, // legado, se migra una sola vez
       otrosInactivoPorDefectoMigrado: Boolean(parsed.otrosInactivoPorDefectoMigrado),
@@ -46,7 +57,10 @@ function loadData() {
       groupActive: {},
       focusedGroups: [],
       responseDelayMs: DEFAULT_DELAY_MS,
-      timeWindowMinutes: DEFAULT_TIME_WINDOW_MINUTES,
+      timeWindowMinutesLegacy: undefined,
+      timeWindowBySector: null,
+      timeWindowMigrado: false,
+      esperaAutomaticaActiva: true,
       groupRemarcarOverride: {},
       groupNoRemarcar: {},
       otrosInactivoPorDefectoMigrado: false,
@@ -244,17 +258,62 @@ function migrarGroupNoRemarcarAOverride() {
   save();
 }
 
-// ---------- Ventana de tiempo (0 a N minutos) ----------
-function getTimeWindowMinutes() {
-  return data.timeWindowMinutes;
+// ---------- Ventana de tiempo (0 a N minutos, una por sector) ----------
+const MAX_TIME_WINDOW_MINUTES = 60;
+// Al migrar el valor único de antes, La Angostura arranca con su propia
+// ventana más amplia (pedido explícito): ahí SÍ vale "en 20 minutos" al
+// toque, sin esperar, a diferencia del resto de sectores.
+const VENTANA_LA_ANGOSTURA_INICIAL = 20;
+const SECTOR_LA_ANGOSTURA = "la_angostura";
+
+function getTimeWindowMinutes(sectorId) {
+  if (data.timeWindowBySector && Object.prototype.hasOwnProperty.call(data.timeWindowBySector, sectorId)) {
+    return data.timeWindowBySector[sectorId];
+  }
+  return DEFAULT_TIME_WINDOW_MINUTES;
 }
 
-function setTimeWindowMinutes(minutes) {
+function setTimeWindowMinutes(sectorId, minutes) {
+  if (!SECTOR_IDS.includes(sectorId)) throw new Error("Sector inválido: " + sectorId);
   const value = Number(minutes);
-  if (!Number.isInteger(value) || value < 0 || value > 15) {
-    throw new Error("La ventana de tiempo debe ser un número entero entre 0 y 15");
+  if (!Number.isInteger(value) || value < 0 || value > MAX_TIME_WINDOW_MINUTES) {
+    throw new Error(`La ventana de tiempo debe ser un número entero entre 0 y ${MAX_TIME_WINDOW_MINUTES}`);
   }
-  data.timeWindowMinutes = value;
+  data.timeWindowBySector[sectorId] = value;
+  save();
+}
+
+function getTimeWindowMinutesMap() {
+  const map = {};
+  SECTOR_IDS.forEach((id) => {
+    map[id] = getTimeWindowMinutes(id);
+  });
+  return map;
+}
+
+// ---------- Espera automática (interruptor del panel principal) ----------
+function getEsperaAutomaticaActiva() {
+  return data.esperaAutomaticaActiva;
+}
+
+function setEsperaAutomaticaActiva(active) {
+  data.esperaAutomaticaActiva = Boolean(active);
+  save();
+}
+
+// Migración única: el número global de antes pasa a ser el valor inicial de
+// TODOS los sectores, excepto La Angostura que arranca en 20 (a propósito,
+// no viene del valor viejo). Corre una sola vez por instalación.
+function migrarTimeWindowPorSector() {
+  if (data.timeWindowMigrado) return;
+  const base =
+    data.timeWindowMinutesLegacy !== undefined ? data.timeWindowMinutesLegacy : DEFAULT_TIME_WINDOW_MINUTES;
+  data.timeWindowBySector = {};
+  SECTOR_IDS.forEach((id) => {
+    data.timeWindowBySector[id] = id === SECTOR_LA_ANGOSTURA ? VENTANA_LA_ANGOSTURA_INICIAL : base;
+  });
+  delete data.timeWindowMinutesLegacy;
+  data.timeWindowMigrado = true;
   save();
 }
 
@@ -281,6 +340,7 @@ function migrarOtrosInactivoPorDefecto() {
 
 migrarOtrosInactivoPorDefecto();
 migrarGroupNoRemarcarAOverride();
+migrarTimeWindowPorSector();
 
 module.exports = {
   SECTOR_DEFS,
@@ -305,6 +365,9 @@ module.exports = {
   setResponseDelay,
   getTimeWindowMinutes,
   setTimeWindowMinutes,
+  getTimeWindowMinutesMap,
+  getEsperaAutomaticaActiva,
+  setEsperaAutomaticaActiva,
   getGroupRemarcarOverride,
   setGroupRemarcarOverride,
   isGroupSinRemarcarEfectivo,
