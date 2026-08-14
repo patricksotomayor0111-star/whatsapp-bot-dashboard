@@ -39,12 +39,12 @@ function leerArchivo(nombre) {
 }
 
 // Las fotos de los mensajes programados van en base64 para que el respaldo
-// sea un solo archivo.
+// sea un solo archivo. Son lo más pesado que lleva (una foto de WhatsApp
+// puede ser 1-2 MB, y en base64 crece un tercio más).
 //
 // Solo se copian las que algún mensaje esté usando de verdad
-// (b.imagenArchivo). En la carpeta quedan fotos huérfanas de mensajes ya
-// borrados: incluirlas hacía un respaldo de 2,6 MB cuando lo que sirve
-// pesa unos pocos KB.
+// (b.imagenArchivo): si se borra un mensaje programado y su foto queda en
+// la carpeta, esa sobra no tiene por qué viajar en cada respaldo.
 function leerImagenes(broadcastsData) {
   const enUso = new Set(
     (broadcastsData?.broadcasts || []).map((b) => b.imagenArchivo).filter(Boolean)
