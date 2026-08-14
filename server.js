@@ -1,6 +1,6 @@
 const express = require("express");
 const path = require("path");
-const { startBot, botState, logoutBot, getSock } = require("./bot");
+const { startBot, botState, logoutBot, getSock, setBotActivo } = require("./bot");
 const quoteConfig = require("./quoteConfig");
 const sectors = require("./sectors");
 const dynamicKeywords = require("./dynamicKeywords");
@@ -190,8 +190,10 @@ app.post("/api/focus/:groupId", (req, res) => {
 
 // Pausa o reanuda las respuestas automáticas sin desconectar WhatsApp
 app.post("/api/bot/active", (req, res) => {
-  botState.active = Boolean(req.body.active);
-  res.json({ active: botState.active });
+  // Va por setBotActivo (y no tocando botState.active directo) porque al
+  // activar hay que anotar el momento: los mensajes escritos antes de eso
+  // no se marcan.
+  res.json({ active: setBotActivo(req.body.active) });
 });
 
 // Cierra la sesión de WhatsApp vinculada, para volver a mostrar un QR nuevo
@@ -233,7 +235,20 @@ app.get("/api/config/timewindow", (req, res) => {
   res.json({
     porSector: sectors.getTimeWindowMinutesMap(),
     esperaAutomaticaActiva: sectors.getEsperaAutomaticaActiva(),
+    antiguedadMaximaMin: sectors.getAntiguedadMaximaMin(),
   });
+});
+
+// Cuántos minutos de antigüedad tolera un mensaje. Aparte de esto, el bot
+// nunca marca lo escrito ANTES de que lo activaras (eso no se configura:
+// es la regla de "si lo apagué, ese pedido ya lo está viendo alguien").
+app.post("/api/config/antiguedad", (req, res) => {
+  try {
+    sectors.setAntiguedadMaximaMin(req.body.minutos);
+    res.json({ ok: true, antiguedadMaximaMin: sectors.getAntiguedadMaximaMin() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 app.post("/api/config/timewindow", (req, res) => {

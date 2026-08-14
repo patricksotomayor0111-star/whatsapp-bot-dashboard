@@ -394,6 +394,25 @@
           </div>
         </section>
 
+        <!-- Antigüedad máxima de un mensaje -->
+        <section>
+          <p class="eyebrow text-slate-600"><i class="fa-solid fa-clock-rotate-left"></i> MENSAJES ATRASADOS</p>
+          <p class="text-xs text-slate-400 mt-1 mb-2">
+            WhatsApp a veces retiene mensajes y los entrega juntos al reconectar. El bot descarta los que ya tengan más de estos minutos, para no marcar un pedido que otro ya tomó.
+          </p>
+          <div class="flex items-center gap-2 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200">
+            <span class="text-slate-500 shrink-0">Descartar si pasaron</span>
+            <input id="antiguedadInput" type="number" min="1" max="60"
+              class="w-16 min-w-0 bg-slate-50 rounded-lg px-2 py-1 text-sm border border-slate-200 text-center" />
+            <span class="text-slate-500 shrink-0">min</span>
+            <button id="saveAntiguedadBtn" class="ml-auto shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold bg-blue-500 text-white active:scale-95 transition-all">Guardar</button>
+          </div>
+          <p id="antiguedadStatus" class="text-xs mt-2"></p>
+          <p class="text-[11px] text-slate-400 mt-1">
+            Aparte de esto, el bot <b>nunca marca lo que se escribió antes de que lo actives</b>.
+          </p>
+        </section>
+
         <!-- Ventana de tiempo por sector -->
         <section>
           <p class="eyebrow text-slate-600"><i class="fa-solid fa-hourglass-half"></i> VENTANA DE TIEMPO POR SECTOR</p>

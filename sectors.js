@@ -19,6 +19,10 @@ const SECTOR_SIN_REMARCAR = "comodin"; // en este sector el bot responde sin cit
 
 const DEFAULT_DELAY_MS = 300;
 const DEFAULT_TIME_WINDOW_MINUTES = 10;
+// Antes eran 5 minutos fijos en el código. Se baja a 2 y se hace editable:
+// 5 minutos era demasiado para un pedido de delivery (en ese rato otro
+// motorizado ya lo pudo tomar y el bot marcaba sobre algo resuelto).
+const DEFAULT_ANTIGUEDAD_MAX_MIN = 2;
 
 function loadData() {
   try {
@@ -44,6 +48,10 @@ function loadData() {
       // marca al toque, fuera de la ventana no responde nunca).
       esperaAutomaticaActiva:
         parsed.esperaAutomaticaActiva !== undefined ? Boolean(parsed.esperaAutomaticaActiva) : true,
+      // Cuántos minutos de antigüedad tolera un mensaje antes de darlo por
+      // viejo (WhatsApp a veces entrega mensajes retenidos al reconectar).
+      antiguedadMaximaMin:
+        parsed.antiguedadMaximaMin !== undefined ? parsed.antiguedadMaximaMin : DEFAULT_ANTIGUEDAD_MAX_MIN,
       groupRemarcarOverride: parsed.groupRemarcarOverride || {},
       groupNoRemarcar: parsed.groupNoRemarcar || {}, // legado, se migra una sola vez
       otrosInactivoPorDefectoMigrado: Boolean(parsed.otrosInactivoPorDefectoMigrado),
@@ -61,6 +69,7 @@ function loadData() {
       timeWindowBySector: null,
       timeWindowMigrado: false,
       esperaAutomaticaActiva: true,
+      antiguedadMaximaMin: DEFAULT_ANTIGUEDAD_MAX_MIN,
       groupRemarcarOverride: {},
       groupNoRemarcar: {},
       otrosInactivoPorDefectoMigrado: false,
@@ -301,6 +310,20 @@ function setEsperaAutomaticaActiva(active) {
   save();
 }
 
+// ---------- Antigüedad máxima de un mensaje ----------
+function getAntiguedadMaximaMin() {
+  return data.antiguedadMaximaMin;
+}
+
+function setAntiguedadMaximaMin(minutos) {
+  const value = Number(minutos);
+  if (!Number.isInteger(value) || value < 1 || value > 60) {
+    throw new Error("La antigüedad máxima debe ser un número entero entre 1 y 60 minutos");
+  }
+  data.antiguedadMaximaMin = value;
+  save();
+}
+
 // Migración única: el número global de antes pasa a ser el valor inicial de
 // TODOS los sectores, excepto La Angostura que arranca en 20 (a propósito,
 // no viene del valor viejo). Corre una sola vez por instalación.
@@ -368,6 +391,8 @@ module.exports = {
   getTimeWindowMinutesMap,
   getEsperaAutomaticaActiva,
   setEsperaAutomaticaActiva,
+  getAntiguedadMaximaMin,
+  setAntiguedadMaximaMin,
   getGroupRemarcarOverride,
   setGroupRemarcarOverride,
   isGroupSinRemarcarEfectivo,

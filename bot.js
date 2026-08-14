@@ -29,6 +29,7 @@ const {
   setGroupSector,
   getTimeWindowMinutes,
   getEsperaAutomaticaActiva,
+  getAntiguedadMaximaMin,
   isGroupSinRemarcarEfectivo,
   isGroupSectorActiveEfectivo,
 } = require("./sectors");
@@ -177,14 +178,54 @@ function buscarVenirTypo(text, grupoActual) {
   return null;
 }
 
+// ---------- Comparación tolerante a letras comidas ----------
+// En los grupos de "solo autorizados" el que manda los pedidos ya sabe que
+// hay un bot y a veces recorta letras a propósito para que no lo detecte
+// ("recojo de client" sin la e, "pendient"). Acá se compara palabra por
+// palabra aceptando esos recortes.
+//
+// Se puede ser generoso SIN riesgo porque en esos grupos el bot ignora a
+// todos menos al número autorizado (ver GRUPOS_SOLO_AUTORIZADOS): un falso
+// positivo solo podría venir de esa misma persona.
+function palabraSeParece(palabraMensaje, palabraFrase) {
+  if (palabraMensaje === palabraFrase) return true;
+
+  // Recortes por el final: "clie" por "cliente", "pendient" por
+  // "pendiente". Se exige un mínimo de letras para no confundir palabras
+  // cortas entre sí ("de" no debe valer por "delivery").
+  const minPrefijo = Math.min(4, palabraFrase.length);
+  if (palabraMensaje.length >= minPrefijo && palabraFrase.startsWith(palabraMensaje)) return true;
+  if (palabraFrase.length >= minPrefijo && palabraMensaje.startsWith(palabraFrase)) return true;
+
+  // Letras cambiadas o faltantes en el medio: "cliemte", "clinte".
+  const tolerancia = palabraFrase.length >= 7 ? 2 : 1;
+  return editDistanceAcotada(palabraMensaje, palabraFrase, tolerancia) <= tolerancia;
+}
+
+function matchPorPalabrasFlexible(text, frase) {
+  const palabrasFrase = getSignificantWords(frase);
+  if (palabrasFrase.length === 0) return null;
+  const palabrasMensaje = text.split(/[^a-z0-9]+/).filter(Boolean);
+  if (palabrasMensaje.length === 0) return null;
+
+  const estanTodas = palabrasFrase.every((pf) => palabrasMensaje.some((pm) => palabraSeParece(pm, pf)));
+  if (!estanTodas) return null;
+  return { keyword: frase, index: 0, length: 0 };
+}
+
 // Un número que está en la lista global de excluidos puede tener frases de
 // excepción para UN grupo puntual: si las escribe ahí, sí responde (pero
 // sigue bloqueado en cualquier otro grupo). A diferencia de las especiales,
 // esto SÍ respeta que el sector/grupo estén activos.
-function buscarExcepcionNumero(text, chatId, senderNumber) {
+//
+// En los grupos de solo autorizados se usa la comparación tolerante; en el
+// resto se mantiene la exacta de siempre, para no aflojar el filtro en
+// grupos donde escribe cualquiera.
+function buscarExcepcionNumero(text, chatId, senderNumber, nombreGrupo) {
   const excepciones = numberExceptions.getExceptions(chatId, senderNumber).filter((e) => e.active);
+  const flexible = esGrupoSoloAutorizados(nombreGrupo);
   for (const { phrase } of excepciones) {
-    const m = matchPorPalabras(text, phrase);
+    const m = flexible ? matchPorPalabrasFlexible(text, phrase) : matchPorPalabras(text, phrase);
     if (m) return m;
   }
   return null;
@@ -637,14 +678,50 @@ function yaFueProcesado(id) {
 // sin depender del "type" del evento: los mensajes que escribe el propio
 // dueño desde su teléfono NO siempre llegan como "notify", así que
 // filtrar por type dejaba fuera justo los de la caja chica.
-const ANTIGUEDAD_MAXIMA_MS = 5 * 60 * 1000; // 5 minutos
-function esMensajeViejo(msg) {
+// messageTimestamp puede venir como número o como Long ({low, high}).
+// Devuelve los milisegundos en que se escribió el mensaje, o null si no
+// se pudo saber.
+function fechaDelMensajeMs(msg) {
   const raw = msg?.messageTimestamp;
-  if (raw === undefined || raw === null) return false; // sin fecha: se procesa igual
-  // messageTimestamp puede venir como número o como Long ({low, high}).
-  const segundos = typeof raw === "number" ? raw : typeof raw.toNumber === "function" ? raw.toNumber() : Number(raw.low ?? raw);
-  if (!Number.isFinite(segundos) || segundos <= 0) return false;
-  return Date.now() - segundos * 1000 > ANTIGUEDAD_MAXIMA_MS;
+  if (raw === undefined || raw === null) return null;
+  const segundos =
+    typeof raw === "number" ? raw : typeof raw.toNumber === "function" ? raw.toNumber() : Number(raw.low ?? raw);
+  if (!Number.isFinite(segundos) || segundos <= 0) return null;
+  return segundos * 1000;
+}
+
+function esMensajeViejo(msg) {
+  const escritoMs = fechaDelMensajeMs(msg);
+  if (escritoMs === null) return false; // sin fecha: se procesa igual
+  return Date.now() - escritoMs > getAntiguedadMaximaMin() * 60000;
+}
+
+// ---------- Corte por momento de activación ----------
+// Momento en que se prendió el bot por última vez. Si el bot estaba
+// apagado es porque ese pedido ya lo estaba atendiendo alguien; al
+// reactivarlo se quiere ganar lo que el restaurante mande DE AHÍ EN
+// ADELANTE, no lo que quedó escrito antes.
+//
+// Hace falta además de esMensajeViejo() porque WhatsApp a veces retiene
+// mensajes y los entrega juntos al reconectar: un mensaje escrito con el
+// bot apagado podía llegar segundos después de activarlo y marcarse.
+let activadoEnMs = 0;
+
+function setBotActivo(valor) {
+  const nuevo = Boolean(valor);
+  if (nuevo && !botState.active) activadoEnMs = Date.now();
+  botState.active = nuevo;
+  return botState.active;
+}
+
+function esAnteriorALaActivacion(msg) {
+  if (!activadoEnMs) return false;
+  const escritoMs = fechaDelMensajeMs(msg);
+  if (escritoMs === null) return false; // sin fecha: no se puede descartar
+  // El timestamp viene truncado a segundos, así que se compara contra el
+  // segundo en que se activó (si no, un mensaje escrito en el mismo
+  // segundo que el clic quedaría afuera por milisegundos).
+  return escritoMs < Math.floor(activadoEnMs / 1000) * 1000;
 }
 
 // Manda un mensaje y deja anotado su ID como "ya procesado", para que
@@ -929,6 +1006,9 @@ async function startBot() {
       }
 
       if (!botState.active) continue;
+      // Escrito antes de que prendieras el bot: no se marca (ver
+      // esAnteriorALaActivacion).
+      if (esAnteriorALaActivacion(msg)) continue;
 
       const text = normalizeText(rawText);
       const esImagenTrigger = mediaTriggers.isEnabled("imagen", grupoActual?.name) && tieneImagen(msg);
@@ -959,7 +1039,7 @@ async function startBot() {
         // Número bloqueado globalmente: ya ni las keywords especiales lo
         // saltan. Solo puede responder si hay una excepción activa para
         // este número+grupo+frase. Si no, sigue bloqueado sin más vueltas.
-        match = buscarExcepcionNumero(text, chatId, senderNumber);
+        match = buscarExcepcionNumero(text, chatId, senderNumber, grupoActual?.name);
         if (!match) continue;
       } else {
         // Número normal: las keywords especiales de ESTE grupo se revisan
@@ -1099,7 +1179,7 @@ async function marcarPedido(
       .catch((err) => console.error("Error al mandar notificación push:", err.message));
 
     // El bot se apaga solo después de responder: hay que reactivarlo a mano.
-    botState.active = false;
+    setBotActivo(false);
     return true;
   } catch (err) {
     console.error("Error al enviar la respuesta:", err.message);
@@ -1230,4 +1310,4 @@ setInterval(() => {
   checkScheduledBroadcasts().catch((err) => console.error("Error en checkScheduledBroadcasts:", err.message));
 }, 30000);
 
-module.exports = { startBot, botState, logoutBot, getSock };
+module.exports = { startBot, botState, logoutBot, getSock, setBotActivo };

@@ -44,6 +44,9 @@ const delaySelect = document.getElementById("delaySelect");
 const saveDelayBtn = document.getElementById("saveDelayBtn");
 
 const timeWindowBySectorList = document.getElementById("timeWindowBySectorList");
+const antiguedadInput = document.getElementById("antiguedadInput");
+const saveAntiguedadBtn = document.getElementById("saveAntiguedadBtn");
+const antiguedadStatus = document.getElementById("antiguedadStatus");
 
 const statusCard = document.getElementById("statusCard");
 const esperaAutomaticaToggle = document.getElementById("esperaAutomaticaToggle");
@@ -816,11 +819,37 @@ async function fetchTimeWindow() {
     const res = await fetch("/api/config/timewindow");
     const data = await res.json();
     timeWindowPorSector = data.porSector || {};
+    if (data.antiguedadMaximaMin !== undefined) antiguedadInput.value = data.antiguedadMaximaMin;
   } catch (err) {
     console.error("No se pudo obtener la ventana de tiempo:", err);
   }
   renderTimeWindowBySector();
 }
+
+saveAntiguedadBtn.addEventListener("click", async () => {
+  try {
+    const res = await fetch("/api/config/antiguedad", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ minutos: parseInt(antiguedadInput.value, 10) }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      antiguedadInput.value = data.antiguedadMaximaMin;
+      antiguedadStatus.textContent = `Guardado ✓ Se descartan los mensajes de más de ${data.antiguedadMaximaMin} min.`;
+      antiguedadStatus.className = "text-xs mt-2 text-brand-green";
+    } else {
+      antiguedadStatus.textContent = data.error || "No se pudo guardar";
+      antiguedadStatus.className = "text-xs mt-2 text-brand-red";
+    }
+  } catch (err) {
+    antiguedadStatus.textContent = "No se pudo guardar";
+    antiguedadStatus.className = "text-xs mt-2 text-brand-red";
+  }
+  setTimeout(() => {
+    antiguedadStatus.textContent = "";
+  }, 3000);
+});
 
 // ---------- Espera automática + pedidos en espera (tarjeta principal) ----------
 let esperaAutomaticaActiva = true;
