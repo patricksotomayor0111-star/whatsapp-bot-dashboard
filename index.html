@@ -86,7 +86,7 @@
         <a href="#" id="openCategoryMedia" class="drawer-link"><i class="fa-solid fa-microphone w-5 text-brand-green"></i> Pedidos sin texto</a>
         <a href="#" id="openCategoryGroups" class="drawer-link"><i class="fa-solid fa-map-location-dot w-5 text-brand-green"></i> Grupos y sectores</a>
         <a href="#" id="openCategoryTiming" class="drawer-link"><i class="fa-solid fa-clock w-5 text-brand-green"></i> Tiempos de respuesta</a>
-        <a href="#" id="openCategoryGeneral" class="drawer-link"><i class="fa-solid fa-bell w-5 text-brand-green"></i> Notificaciones</a>
+        <a href="#" id="openCategoryGeneral" class="drawer-link"><i class="fa-solid fa-bell w-5 text-brand-green"></i> Notificaciones y respaldo</a>
         <a href="#" id="openCategoryBroadcasts" class="drawer-link"><i class="fa-solid fa-bullhorn w-5 text-brand-green"></i> Mensajes programados</a>
         <a href="#" id="logoutBtn" class="drawer-link text-brand-red"><i class="fa-solid fa-right-from-bracket w-5 text-brand-red"></i> Cerrar sesión</a>
       </nav>
@@ -442,7 +442,7 @@
     <!-- Categoría: 🔔 Notificaciones -->
     <div id="categoryGeneral" class="fixed inset-0 bg-brand-bg z-50 hidden flex-col">
       <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-white">
-        <span class="font-bold text-slate-900">🔔 Notificaciones</span>
+        <span class="font-bold text-slate-900">🔔 Notificaciones y respaldo</span>
         <button class="category-close-btn w-9 h-9 rounded-xl flex items-center justify-center hover:bg-slate-100 active:scale-90 transition-all">
           <i class="fa-solid fa-xmark text-lg text-slate-500"></i>
         </button>
@@ -455,6 +455,31 @@
           <p class="text-xs text-slate-400 mt-1 mb-2">Te avisa con una notificación en tu celular cada vez que el bot responde un mensaje, aunque tengas la pantalla bloqueada.</p>
           <button id="togglePushBtn" class="w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-amber-500 text-white active:scale-95 transition-all">🔔 Activar notificaciones</button>
           <p id="pushStatus" class="text-xs text-slate-400 mt-2"></p>
+        </section>
+
+        <!-- Respaldo de la configuración -->
+        <section>
+          <p class="eyebrow text-blue-600"><i class="fa-solid fa-shield-halved"></i> RESPALDO</p>
+          <p class="text-xs text-slate-400 mt-1 mb-2">
+            Toda tu configuración (sectores, grupos, números ignorados, frases, mensajes programados) vive solo en el disco de Railway. Descarga una copia cada tanto y guárdala en tu celular o Drive.
+          </p>
+          <a href="/api/backup" download class="block w-full text-center rounded-xl px-4 py-2.5 text-sm font-semibold bg-blue-500 text-white active:scale-95 transition-all">
+            <i class="fa-solid fa-download"></i> Descargar respaldo
+          </a>
+          <p class="text-[11px] text-slate-400 mt-2">
+            No incluye la sesión de WhatsApp a propósito: son tus credenciales, y si el archivo se filtrara alguien podría entrar a tu cuenta. El QR se vuelve a escanear y listo.
+          </p>
+
+          <div class="mt-4 pt-3 border-t border-slate-200">
+            <p class="text-xs font-semibold text-slate-500 mb-1">Restaurar desde un respaldo</p>
+            <p class="text-xs text-slate-400 mb-2">Reemplaza la configuración actual por la del archivo. Primero te muestro qué trae para que confirmes.</p>
+            <input id="backupFileInput" type="file" accept=".json,application/json" class="w-full text-xs" />
+            <div id="backupPreview" class="hidden mt-2 rounded-xl bg-amber-50 border border-amber-200 p-3">
+              <p id="backupPreviewText" class="text-xs text-amber-800 whitespace-pre-line"></p>
+              <button id="backupRestoreBtn" class="w-full mt-2 rounded-xl px-4 py-2 text-sm font-semibold bg-brand-red text-white active:scale-95 transition-all">Restaurar (reemplaza lo actual)</button>
+            </div>
+            <p id="backupStatus" class="text-xs mt-2 whitespace-pre-line"></p>
+          </div>
         </section>
 
       </div>

@@ -14,10 +14,13 @@ const financeGoals = require("./financeGoals");
 const productionGoals = require("./productionGoals");
 const scheduledExpenses = require("./scheduledExpenses");
 const tasks = require("./tasks");
+const backup = require("./backup");
 const ExcelJS = require("exceljs");
 
 const app = express();
-app.use(express.json());
+// El límite por defecto de Express son 100kb, que no alcanza para restaurar
+// un respaldo (lleva todo el historial de la caja chica).
+app.use(express.json({ limit: "25mb" }));
 
 // Solo se exponen estos archivos del panel (no todo el proyecto, para no
 // dejar accesible el código del bot ni la sesión de WhatsApp).
@@ -105,6 +108,48 @@ app.post("/api/admin/import-finance-data", (req, res) => {
     escritos.push(nombre);
   });
   res.json({ ok: true, escritos, aviso: "Reinicia este servicio para que tome los datos importados." });
+});
+
+// ---------- Respaldo de los datos ----------
+// Es el respaldo más importante de los dos: acá vive el historial de plata,
+// que no se puede rehacer de memoria. NO incluye la sesión de WhatsApp
+// (ver backup.js: son credenciales, el QR se vuelve a escanear).
+app.get("/api/backup", (req, res) => {
+  const datos = backup.crear();
+  const fecha = new Date().toISOString().slice(0, 10);
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="respaldo-finanzas-${fecha}.json"`);
+  res.send(JSON.stringify(datos, null, 2));
+});
+
+app.post("/api/backup/preview", (req, res) => {
+  try {
+    const datos = req.body?.backup;
+    if (!datos || datos.marca !== backup.MARCA) {
+      return res.status(400).json({ error: "Ese archivo no es un respaldo de este bot." });
+    }
+    if (datos.app !== backup.APP) {
+      return res.status(400).json({ error: `Ese respaldo es de "${datos.app}", no de finanzas.` });
+    }
+    res.json({ ok: true, resumen: backup.resumir(datos) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/backup/restore", (req, res) => {
+  try {
+    const resultado = backup.restaurar(req.body?.backup);
+    // Los módulos leen su archivo una sola vez al arrancar, así que lo
+    // recién escrito en disco no se aplica hasta reiniciar el servicio.
+    res.json({
+      ok: true,
+      ...resultado,
+      aviso: "Reinicia el servicio en Railway para que tome los datos restaurados.",
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 // Precios de productos anotados en el grupo "Precios general de productos".

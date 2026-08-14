@@ -12,10 +12,14 @@ const mediaTriggers = require("./mediaTriggers");
 const pendingTimeMatches = require("./pendingTimeMatches");
 const groupDelays = require("./groupDelays");
 const scheduledBroadcasts = require("./scheduledBroadcasts");
+const backup = require("./backup");
 const multer = require("multer");
 
 const app = express();
-app.use(express.json());
+// El límite por defecto de Express son 100kb, que no alcanza para restaurar
+// un respaldo (lleva la configuración entera y las fotos de los mensajes
+// programados en base64).
+app.use(express.json({ limit: "25mb" }));
 
 // Sube la foto de un mensaje programado a memoria (se guarda a disco desde
 // la ruta, vía scheduledBroadcasts.setImagen); 5MB alcanza de sobra para
@@ -222,6 +226,50 @@ app.post("/api/config/delay", (req, res) => {
   try {
     sectors.setResponseDelay(req.body.delayMs);
     res.json({ ok: true, delayMs: sectors.getResponseDelay() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ---------- Respaldo de la configuración ----------
+// Descarga todo lo configurable en un solo archivo, para poder recuperarlo
+// si el disco de Railway falla. NO incluye la sesión de WhatsApp (ver
+// backup.js: son credenciales, el QR se vuelve a escanear).
+app.get("/api/backup", (req, res) => {
+  const datos = backup.crear();
+  const fecha = new Date().toISOString().slice(0, 10);
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="respaldo-delivery-${fecha}.json"`);
+  res.send(JSON.stringify(datos, null, 2));
+});
+
+// Mira qué trae un respaldo SIN restaurarlo, para poder confirmarlo antes
+// de pisar la configuración actual.
+app.post("/api/backup/preview", (req, res) => {
+  try {
+    const datos = req.body?.backup;
+    if (!datos || datos.marca !== backup.MARCA) {
+      return res.status(400).json({ error: "Ese archivo no es un respaldo de este bot." });
+    }
+    if (datos.app !== backup.APP) {
+      return res.status(400).json({ error: `Ese respaldo es de "${datos.app}", no del bot de delivery.` });
+    }
+    res.json({ ok: true, resumen: backup.resumir(datos) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/backup/restore", (req, res) => {
+  try {
+    const resultado = backup.restaurar(req.body?.backup);
+    // Los módulos leen su archivo una sola vez al arrancar, así que lo
+    // recién escrito en disco no se aplica hasta reiniciar el servicio.
+    res.json({
+      ok: true,
+      ...resultado,
+      aviso: "Reinicia el servicio en Railway para que el bot tome la configuración restaurada.",
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

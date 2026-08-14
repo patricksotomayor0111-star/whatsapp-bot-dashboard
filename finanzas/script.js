@@ -2648,6 +2648,84 @@ priceImportBtn.addEventListener("click", async () => {
   }
 });
 
+// ---------- Respaldo de los datos ----------
+// La descarga es un <a href="/api/backup" download>, no hace falta JS.
+// Acá va solo la restauración, que sí necesita confirmación: primero se
+// lee el archivo y se muestra qué trae, y recién ahí se pisan los datos.
+const backupFileInput = document.getElementById("backupFileInput");
+const backupPreview = document.getElementById("backupPreview");
+const backupPreviewText = document.getElementById("backupPreviewText");
+const backupRestoreBtn = document.getElementById("backupRestoreBtn");
+const backupStatus = document.getElementById("backupStatus");
+
+let backupPendiente = null;
+
+function mostrarEstadoBackup(texto, esError) {
+  backupStatus.textContent = texto;
+  backupStatus.className = `text-xs mt-2 whitespace-pre-line ${esError ? "text-brand-red" : "text-brand-green"}`;
+}
+
+backupFileInput.addEventListener("change", async () => {
+  backupPreview.classList.add("hidden");
+  backupPendiente = null;
+  backupStatus.textContent = "";
+
+  const archivo = backupFileInput.files?.[0];
+  if (!archivo) return;
+
+  try {
+    const contenido = JSON.parse(await archivo.text());
+    const res = await fetch("/api/backup/preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ backup: contenido }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      mostrarEstadoBackup(data.error || "No se pudo leer el respaldo", true);
+      return;
+    }
+    const r = data.resumen;
+    const fecha = r.fecha ? new Date(r.fecha).toLocaleString("es-PE") : "sin fecha";
+    backupPreviewText.textContent =
+      `Respaldo del ${fecha}\n` +
+      `· ${r.diasCerrados} días de caja cerrados\n` +
+      `· ${r.movimientos} movimientos\n` +
+      `· ${r.precios} precios de productos\n` +
+      `· ${r.archivos} archivos de datos`;
+    backupPendiente = contenido;
+    backupPreview.classList.remove("hidden");
+  } catch (err) {
+    mostrarEstadoBackup("Ese archivo no es un respaldo válido.", true);
+  }
+});
+
+backupRestoreBtn.addEventListener("click", async () => {
+  if (!backupPendiente) return;
+  if (!confirm("Esto REEMPLAZA tus datos actuales por los del respaldo. ¿Seguro?")) return;
+
+  backupRestoreBtn.disabled = true;
+  try {
+    const res = await fetch("/api/backup/restore", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ backup: backupPendiente }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      backupPreview.classList.add("hidden");
+      backupFileInput.value = "";
+      backupPendiente = null;
+      mostrarEstadoBackup(`Restaurado ✓ (${data.restaurados.length} archivos)\n⚠️ ${data.aviso}`, false);
+    } else {
+      mostrarEstadoBackup(data.error || "No se pudo restaurar", true);
+    }
+  } catch (err) {
+    mostrarEstadoBackup("No se pudo restaurar", true);
+  }
+  backupRestoreBtn.disabled = false;
+});
+
 // ---------- Inicialización ----------
 document.addEventListener("DOMContentLoaded", () => {
   updateBotUI();

@@ -2253,6 +2253,85 @@ addBroadcastBtn.addEventListener("click", async () => {
   }
 });
 
+// ---------- Respaldo de la configuración ----------
+// La descarga es un <a href="/api/backup" download>, no hace falta JS.
+// Acá va solo la restauración, que sí necesita confirmación: primero se
+// lee el archivo y se muestra qué trae, y recién ahí se pisa lo actual.
+const backupFileInput = document.getElementById("backupFileInput");
+const backupPreview = document.getElementById("backupPreview");
+const backupPreviewText = document.getElementById("backupPreviewText");
+const backupRestoreBtn = document.getElementById("backupRestoreBtn");
+const backupStatus = document.getElementById("backupStatus");
+
+let backupPendiente = null;
+
+function mostrarEstadoBackup(texto, esError) {
+  backupStatus.textContent = texto;
+  backupStatus.className = `text-xs mt-2 whitespace-pre-line ${esError ? "text-brand-red" : "text-brand-green"}`;
+}
+
+backupFileInput.addEventListener("change", async () => {
+  backupPreview.classList.add("hidden");
+  backupPendiente = null;
+  backupStatus.textContent = "";
+
+  const archivo = backupFileInput.files?.[0];
+  if (!archivo) return;
+
+  try {
+    const contenido = JSON.parse(await archivo.text());
+    const res = await fetch("/api/backup/preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ backup: contenido }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      mostrarEstadoBackup(data.error || "No se pudo leer el respaldo", true);
+      return;
+    }
+    const r = data.resumen;
+    const fecha = r.fecha ? new Date(r.fecha).toLocaleString("es-PE") : "sin fecha";
+    backupPreviewText.textContent =
+      `Respaldo del ${fecha}\n` +
+      `· ${r.grupos} grupos con sector asignado\n` +
+      `· ${r.numerosIgnorados} números ignorados\n` +
+      `· ${r.mensajesProgramados} mensajes programados\n` +
+      `· ${r.archivos} archivos de configuración` +
+      (r.imagenes ? `\n· ${r.imagenes} fotos` : "");
+    backupPendiente = contenido;
+    backupPreview.classList.remove("hidden");
+  } catch (err) {
+    mostrarEstadoBackup("Ese archivo no es un respaldo válido.", true);
+  }
+});
+
+backupRestoreBtn.addEventListener("click", async () => {
+  if (!backupPendiente) return;
+  if (!confirm("Esto REEMPLAZA tu configuración actual por la del respaldo. ¿Seguro?")) return;
+
+  backupRestoreBtn.disabled = true;
+  try {
+    const res = await fetch("/api/backup/restore", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ backup: backupPendiente }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      backupPreview.classList.add("hidden");
+      backupFileInput.value = "";
+      backupPendiente = null;
+      mostrarEstadoBackup(`Restaurado ✓ (${data.restaurados.length} archivos)\n⚠️ ${data.aviso}`, false);
+    } else {
+      mostrarEstadoBackup(data.error || "No se pudo restaurar", true);
+    }
+  } catch (err) {
+    mostrarEstadoBackup("No se pudo restaurar", true);
+  }
+  backupRestoreBtn.disabled = false;
+});
+
 // ---------- Categorías de Opciones (ahora directas desde el menú ☰) ----------
 // Cada categoría carga sus propios datos recién cuando se abre. Las funciones
 // ya existen todas; esto solo cambia desde dónde y cuándo se llaman.
