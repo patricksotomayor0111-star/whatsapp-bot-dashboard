@@ -39,20 +39,27 @@ function leerArchivo(nombre) {
 }
 
 // Las fotos de los mensajes programados van en base64 para que el respaldo
-// sea un solo archivo. Hoy suelen ser pocas y chicas.
-function leerImagenes() {
+// sea un solo archivo.
+//
+// Solo se copian las que algún mensaje esté usando de verdad
+// (b.imagenArchivo). En la carpeta quedan fotos huérfanas de mensajes ya
+// borrados: incluirlas hacía un respaldo de 2,6 MB cuando lo que sirve
+// pesa unos pocos KB.
+function leerImagenes(broadcastsData) {
+  const enUso = new Set(
+    (broadcastsData?.broadcasts || []).map((b) => b.imagenArchivo).filter(Boolean)
+  );
+  if (enUso.size === 0) return {};
+
   const imagenes = {};
   const carpeta = dataPath(CARPETA_IMAGENES);
-  try {
-    fs.readdirSync(carpeta).forEach((nombre) => {
-      const completo = path.join(carpeta, nombre);
-      if (fs.statSync(completo).isFile()) {
-        imagenes[nombre] = fs.readFileSync(completo).toString("base64");
-      }
-    });
-  } catch (err) {
-    // no hay carpeta de imágenes: no es un error
-  }
+  enUso.forEach((nombre) => {
+    try {
+      imagenes[nombre] = fs.readFileSync(path.join(carpeta, nombre)).toString("base64");
+    } catch (err) {
+      // la foto ya no está en disco: el mensaje queda sin ella, no es fatal
+    }
+  });
   return imagenes;
 }
 
@@ -68,7 +75,7 @@ function crear() {
     version: 1,
     fecha: new Date().toISOString(),
     archivos,
-    imagenes: leerImagenes(),
+    imagenes: leerImagenes(archivos["scheduled-broadcasts-data.json"]),
   };
 }
 
