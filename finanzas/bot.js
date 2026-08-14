@@ -21,6 +21,8 @@ const referenceAccounts = require("./referenceAccounts");
 const financeGoals = require("./financeGoals");
 const budgetCategories = require("./budgetCategories");
 const queryIntents = require("./queryIntents");
+const productPrices = require("./productPrices");
+const { responderConsultaPrecio } = require("./priceQueries");
 const { dataPath } = require("./dataDir");
 
 const SESSION_PATH = dataPath("session");
@@ -33,6 +35,11 @@ function normalizeText(str) {
 }
 
 const CASHBOX_GROUP_NAME = "GANANCIAS";
+// Grupo donde se anotan a mano los precios de productos y se consultan
+// después ("six pack pilsen mas barato"). Igual que el de la caja chica,
+// acá el bot SÍ lee los mensajes propios (fromMe): los precios los escribe
+// el dueño desde su teléfono.
+const PRICES_GROUP_NAME = "PRECIOS GENERAL DE PRODUCTOS";
 
 // ---------- Registro de caja chica ----------
 function parseCashboxLine(rawLine) {
@@ -910,10 +917,42 @@ async function startBot() {
 
       const chatId = msg.key.remoteJid;
       const grupoActual = botState.groups.find((g) => g.id === chatId);
-      if (!grupoActual || grupoActual.name.trim().toUpperCase() !== CASHBOX_GROUP_NAME) continue;
+      if (!grupoActual) continue;
+      const nombreGrupo = grupoActual.name.trim().toUpperCase();
+      const esCajaChica = nombreGrupo === CASHBOX_GROUP_NAME;
+      const esPrecios = nombreGrupo === PRICES_GROUP_NAME;
+      if (!esCajaChica && !esPrecios) continue;
 
       const rawText = extractText(msg).trim();
       if (esEcoDelBot(rawText)) continue; // es una respuesta que mandó el propio bot
+
+      // ---------- Grupo de precios de productos ----------
+      // Dos usos en el mismo grupo, sin ambigüedad: si arranca con un
+      // número es un precio para guardar; si no, puede ser una consulta.
+      if (esPrecios) {
+        const precio = productPrices.parsePriceLine(rawText);
+        if (precio) {
+          productPrices.add(precio.precio, precio.descripcion);
+          try {
+            // Confirma con una reacción en vez de un mensaje, para no
+            // llenar el grupo de respuestas del bot.
+            await sock.sendMessage(chatId, { react: { text: "✅", key: msg.key } });
+          } catch (err) {
+            console.error("No se pudo reaccionar al precio guardado:", err.message);
+          }
+          continue;
+        }
+
+        const respuestaPrecio = responderConsultaPrecio(rawText);
+        if (respuestaPrecio) {
+          try {
+            await enviarMensaje(sock, chatId, { text: respuestaPrecio });
+          } catch (err) {
+            console.error("Error al responder consulta de precios:", err.message);
+          }
+        }
+        continue;
+      }
 
       const respuestaConsulta = responderConsultaFinanciera(rawText);
       if (respuestaConsulta) {

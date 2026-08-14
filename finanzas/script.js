@@ -646,6 +646,8 @@ function showFinanceTab(tabId) {
     fetchAna();
   } else if (tabId === "financeTabConsultas") {
     fetchQueryIntents();
+  } else if (tabId === "financeTabPrecios") {
+    fetchPrices();
   }
 }
 
@@ -2547,6 +2549,103 @@ closeReminders.addEventListener("click", () => {
   remindersOverlay.classList.add("hidden");
   remindersOverlay.classList.remove("flex");
   fetchReminderBadge();
+});
+
+// ---------- Precios de productos ----------
+const priceImportInput = document.getElementById("priceImportInput");
+const priceImportBtn = document.getElementById("priceImportBtn");
+const priceImportStatus = document.getElementById("priceImportStatus");
+const priceSearchInput = document.getElementById("priceSearchInput");
+const priceList = document.getElementById("priceList");
+const priceCount = document.getElementById("priceCount");
+
+function formatearPrecioSoles(n) {
+  return Number.isInteger(n) ? `S/ ${n}` : `S/ ${n.toFixed(2)}`;
+}
+
+function renderPrices(precios) {
+  priceCount.textContent = precios.length;
+  priceList.innerHTML = "";
+
+  if (precios.length === 0) {
+    const p = document.createElement("p");
+    p.className = "text-xs text-slate-400";
+    p.textContent = priceSearchInput.value.trim()
+      ? "Ningún precio con esa búsqueda."
+      : "Todavía no hay precios guardados.";
+    priceList.appendChild(p);
+    return;
+  }
+
+  precios.forEach((item) => {
+    const fila = document.createElement("div");
+    fila.className = "flex items-center gap-2 bg-white rounded-xl px-3 py-2 border border-slate-200 text-sm";
+
+    const precio = document.createElement("span");
+    precio.className = "shrink-0 font-bold text-brand-green";
+    precio.textContent = formatearPrecioSoles(item.precio);
+
+    const desc = document.createElement("span");
+    desc.className = "flex-1 min-w-0 truncate text-slate-600";
+    desc.textContent = item.descripcion;
+    desc.title = item.descripcion;
+
+    const borrar = document.createElement("button");
+    borrar.innerHTML = '<i class="fa-solid fa-xmark text-xs"></i>';
+    borrar.className = "shrink-0 text-slate-400 hover:text-brand-red";
+    borrar.title = "Borrar este precio";
+    borrar.addEventListener("click", async () => {
+      if (!confirm(`¿Borrar "${formatearPrecioSoles(item.precio)} ${item.descripcion}"?`)) return;
+      const res = await fetch(`/api/prices/${item.id}/remove`, { method: "POST" });
+      if (res.ok) fetchPrices();
+    });
+
+    fila.appendChild(precio);
+    fila.appendChild(desc);
+    fila.appendChild(borrar);
+    priceList.appendChild(fila);
+  });
+}
+
+async function fetchPrices() {
+  try {
+    const q = priceSearchInput.value.trim();
+    const res = await fetch(`/api/prices${q ? `?q=${encodeURIComponent(q)}` : ""}`);
+    const data = await res.json();
+    renderPrices(data.precios || []);
+  } catch (err) {
+    console.error("No se pudo cargar los precios:", err);
+  }
+}
+
+priceSearchInput.addEventListener("input", () => fetchPrices());
+
+priceImportBtn.addEventListener("click", async () => {
+  const texto = priceImportInput.value.trim();
+  if (!texto) return;
+  try {
+    const res = await fetch("/api/prices/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ texto }),
+    });
+    const data = await res.json();
+    // Se avisa cuántas líneas no se entendieron (y cuáles), así se pueden
+    // corregir en vez de darlas por cargadas.
+    let msg = `Se cargaron ${data.agregados} precio${data.agregados === 1 ? "" : "s"} ✓`;
+    if (data.ignoradas?.length) {
+      msg += `\nNo se entendieron ${data.ignoradas.length}: ${data.ignoradas.slice(0, 3).join(" | ")}`;
+    }
+    priceImportStatus.textContent = msg;
+    priceImportStatus.className = `text-xs mt-2 whitespace-pre-line ${
+      data.ignoradas?.length ? "text-brand-orange" : "text-brand-green"
+    }`;
+    if (data.agregados > 0) priceImportInput.value = "";
+    renderPrices(data.precios || []);
+  } catch (err) {
+    priceImportStatus.textContent = "No se pudieron cargar los precios.";
+    priceImportStatus.className = "text-xs mt-2 text-brand-red";
+  }
 });
 
 // ---------- Inicialización ----------

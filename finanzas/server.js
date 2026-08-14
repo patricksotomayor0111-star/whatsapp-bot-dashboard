@@ -5,6 +5,7 @@ const cashbox = require("./cashbox");
 const pushSubscriptions = require("./pushSubscriptions");
 const budgetCategories = require("./budgetCategories");
 const queryIntents = require("./queryIntents");
+const productPrices = require("./productPrices");
 const reminders = require("./reminders");
 const debts = require("./debts");
 const shortfalls = require("./shortfalls");
@@ -104,6 +105,26 @@ app.post("/api/admin/import-finance-data", (req, res) => {
     escritos.push(nombre);
   });
   res.json({ ok: true, escritos, aviso: "Reinicia este servicio para que tome los datos importados." });
+});
+
+// Precios de productos anotados en el grupo "Precios general de productos".
+// El bot los va guardando solo; estas rutas son para verlos, borrar alguno
+// mal cargado, y pegar de una el historial viejo que WhatsApp nunca le
+// entregó al bot.
+app.get("/api/prices", (req, res) => {
+  const q = String(req.query.q || "").trim();
+  res.json({ precios: q ? productPrices.buscar(q) : productPrices.getAll() });
+});
+
+app.post("/api/prices/import", (req, res) => {
+  const resultado = productPrices.addBulk(req.body?.texto);
+  res.json({ ok: true, ...resultado, precios: productPrices.getAll() });
+});
+
+app.post("/api/prices/:id/remove", (req, res) => {
+  const ok = productPrices.remove(req.params.id);
+  if (!ok) return res.status(404).json({ error: "Ese precio ya no existe." });
+  res.json({ ok: true, precios: productPrices.getAll() });
 });
 
 app.get("/api/cashbox/today", (req, res) => {

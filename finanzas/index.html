@@ -96,7 +96,7 @@
       <section class="card fade-in bg-rose-50 border border-rose-100 py-3">
         <p class="text-[15px] font-bold text-slate-800" id="botStatusText">Bot ⛔ Desconectado</p>
         <p class="mt-2 pt-2 border-t border-rose-100 text-xs text-slate-500">
-          Este bot solo escucha el grupo <b class="text-slate-700">GANANCIAS</b>: registra la caja chica y responde consultas.
+          Este bot solo escucha dos grupos: <b class="text-slate-700">GANANCIAS</b> (caja chica y consultas) y <b class="text-slate-700">Precios general de productos</b> (precios que anotas y consultas de precios).
         </p>
       </section>
 
@@ -112,6 +112,7 @@
         <button data-finance-tab="financeTabPresupuesto" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Presupuesto</button>
         <button data-finance-tab="financeTabAna" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Ana</button>
         <button data-finance-tab="financeTabConsultas" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Consultas</button>
+        <button data-finance-tab="financeTabPrecios" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Precios</button>
       </div>
       <div class="flex-1 overflow-y-auto px-5 py-5">
 
@@ -443,6 +444,33 @@
         <div id="financeTabConsultas" class="finance-tab-panel hidden space-y-4">
           <p class="text-xs text-slate-400">Preguntas que el bot reconoce en el grupo GANANCIAS. Puedes agregar/quitar frases que las disparan, y editar el texto de la respuesta (usa las palabras entre llaves, como {monto}, para que el bot ponga el dato real).</p>
           <div id="queryIntentsList" class="space-y-3"></div>
+        </div>
+
+        <!-- Tab: Precios de productos -->
+        <div id="financeTabPrecios" class="finance-tab-panel hidden space-y-4">
+          <p class="text-xs text-slate-400">
+            Precios que anotas en el grupo <b>Precios general de productos</b>. Escribes el precio primero y el bot lo guarda solo (te pone ✅). Después preguntas ahí mismo, por ejemplo <i>"six pack pilsen mas barato"</i>.
+          </p>
+
+          <section>
+            <p class="eyebrow text-brand-green"><i class="fa-solid fa-file-import"></i> CARGAR PRECIOS VIEJOS</p>
+            <p class="text-xs text-slate-400 mt-1 mb-2">WhatsApp no le entrega al bot los mensajes de antes. Pega acá los que ya tenías escritos (uno por línea, tal cual) y quedan cargados.</p>
+            <textarea id="priceImportInput" rows="5" placeholder="6.00 grapas 5k unidades artesco sm x Huánuco&#10;28 six pack Pilsen lata Salvatore" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-green/40"></textarea>
+            <button id="priceImportBtn" class="w-full mt-2 rounded-xl px-4 py-2.5 text-sm font-semibold bg-brand-green text-white active:scale-95 transition-all">Cargar precios</button>
+            <p id="priceImportStatus" class="text-xs mt-2"></p>
+          </section>
+
+          <section>
+            <div class="flex items-center justify-between mb-1">
+              <p class="eyebrow text-brand-green"><i class="fa-solid fa-tags"></i> PRECIOS GUARDADOS</p>
+              <span id="priceCount" class="text-xs font-semibold text-slate-400">0</span>
+            </div>
+            <div class="relative mb-2">
+              <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+              <input id="priceSearchInput" type="text" placeholder="Buscar producto o lugar..." class="w-full bg-white rounded-xl py-2 pl-8 pr-3 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-green/40" />
+            </div>
+            <div id="priceList" class="space-y-1.5"></div>
+          </section>
         </div>
 
       </div>

@@ -14,3 +14,4 @@ tasks-data.json
 push-data.json
 .env
 *.log
+product-prices-data.json
