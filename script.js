@@ -2253,6 +2253,98 @@ addBroadcastBtn.addEventListener("click", async () => {
   }
 });
 
+// ---------- Buscador para los desplegables de grupos ----------
+// Con 358 grupos, elegir uno en un desplegable es bajar y bajar. Esto le
+// pone un buscador arriba a cualquier <select> de grupos, sin tocar el
+// código que lo llena.
+//
+// Cada sección rearma su propio desplegable cuando refresca (al mover un
+// grupo, al agregar uno a una lista...). Por eso hay un MutationObserver:
+// si las opciones cambian por fuera, se vuelve a tomar la lista completa y
+// se reaplica el filtro que estaba puesto. Sin eso, el buscador quedaría
+// mostrando una lista vieja.
+function hacerSelectBuscable(select, placeholder = "Buscar grupo...") {
+  if (!select || select.dataset.buscable) return;
+  select.dataset.buscable = "1";
+
+  const caja = document.createElement("div");
+  caja.className = "relative mb-1.5";
+  const lupa = document.createElement("i");
+  lupa.className = "fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs";
+  const input = document.createElement("input");
+  input.type = "text";
+  input.placeholder = placeholder;
+  input.className =
+    "w-full bg-white rounded-xl py-2 pl-8 pr-3 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-green/40";
+  caja.appendChild(lupa);
+  caja.appendChild(input);
+
+  // Algunos desplegables viven dentro de una fila (select + botón "+").
+  // Ahí el buscador va ARRIBA de toda la fila: si se mete dentro, se
+  // reparte el ancho con el botón y los tres quedan apretados.
+  const contenedor = select.parentNode;
+  const enFila = contenedor && getComputedStyle(contenedor).display === "flex";
+  const anclaje = enFila ? contenedor : select;
+  anclaje.parentNode.insertBefore(caja, anclaje);
+
+  let todas = [];
+
+  const tomarLista = () => {
+    todas = Array.from(select.options).map((o) => ({ value: o.value, text: o.textContent }));
+  };
+
+  const observar = () => observador.observe(select, { childList: true });
+
+  function aplicar() {
+    const q = input.value.trim().toLowerCase();
+    const seleccion = select.value;
+
+    // Se corta la observación mientras repintamos. El callback del
+    // MutationObserver es asíncrono, así que una bandera booleana NO
+    // alcanza: para cuando corre, ya habría vuelto a false y se tomaría
+    // nuestro propio repintado como un cambio externo (bucle infinito, y
+    // además la lista "completa" pasaría a ser la ya filtrada).
+    observador.disconnect();
+    select.innerHTML = "";
+    todas.forEach((o) => {
+      // La opción vacía ("— Selecciona un grupo —") no se filtra nunca.
+      if (q && o.value && !o.text.toLowerCase().includes(q)) return;
+      const opt = document.createElement("option");
+      opt.value = o.value;
+      opt.textContent = o.text;
+      select.appendChild(opt);
+    });
+    observador.takeRecords(); // descarta lo que generamos nosotros
+    observar();
+
+    if (seleccion && Array.from(select.options).some((o) => o.value === seleccion)) {
+      select.value = seleccion;
+    }
+  }
+
+  const observador = new MutationObserver(() => {
+    tomarLista();
+    if (input.value.trim()) aplicar();
+  });
+
+  tomarLista();
+  observar();
+  input.addEventListener("input", aplicar);
+}
+
+function activarBuscadoresDeGrupos() {
+  [
+    "probarGrupoSelect",
+    "specialGroupSelect",
+    "exceptionGroupSelect",
+    "moveGroupSelect",
+    "noRemarcarGroupSelect",
+    "quoteGroupSelect",
+    "groupDelayGroupSelect",
+  ].forEach((id) => hacerSelectBuscable(document.getElementById(id)));
+  document.querySelectorAll(".media-group-select").forEach((s) => hacerSelectBuscable(s));
+}
+
 // ---------- Probar una frase (diagnóstico) ----------
 // Solo explica qué haría el bot con esa frase. No manda nada a WhatsApp.
 // Si no la detecta ofrece agregarla como frase especial del grupo, pero
@@ -2594,6 +2686,7 @@ async function medirConexion() {
 
 document.addEventListener("DOMContentLoaded", async () => {
   updateBotUI();
+  activarBuscadoresDeGrupos();
   await fetchSectors();
   renderSectors();
   pollStatus();
