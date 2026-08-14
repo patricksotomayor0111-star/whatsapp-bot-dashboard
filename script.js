@@ -1896,6 +1896,9 @@ const newBroadcastImagen = document.getElementById("newBroadcastImagen");
 const newBroadcastImagenPreview = document.getElementById("newBroadcastImagenPreview");
 const removeBroadcastImagenBtn = document.getElementById("removeBroadcastImagenBtn");
 const newBroadcastGroups = document.getElementById("newBroadcastGroups");
+const broadcastGroupSearch = document.getElementById("broadcastGroupSearch");
+const broadcastGroupsSelected = document.getElementById("broadcastGroupsSelected");
+const broadcastGroupsClearBtn = document.getElementById("broadcastGroupsClearBtn");
 const newBroadcastHorariosList = document.getElementById("newBroadcastHorariosList");
 const newBroadcastHorarioInput = document.getElementById("newBroadcastHorarioInput");
 const addBroadcastHorarioBtn = document.getElementById("addBroadcastHorarioBtn");
@@ -1907,7 +1910,36 @@ let broadcastHorarios = [];
 let editingBroadcastId = null;
 let quitarImagenExistente = false;
 
+// Los grupos elegidos viven acá y NO en los checkboxes del DOM: con el
+// buscador, un grupo ya marcado puede quedar fuera del filtro y su
+// checkbox deja de existir. Si se leyera del DOM al guardar (como antes),
+// esos grupos se perderían sin aviso.
+let broadcastGruposElegidos = new Set();
+
+function renderBroadcastGroupsResumen() {
+  const total = broadcastGruposElegidos.size;
+  broadcastGroupsClearBtn.classList.toggle("hidden", total === 0);
+  if (total === 0) {
+    broadcastGroupsSelected.textContent = "Ninguno seleccionado";
+    broadcastGroupsSelected.className = "text-[11px] text-slate-400 mb-1";
+    return;
+  }
+  // Se listan por nombre para poder confirmar la selección aunque el
+  // buscador los tenga ocultos en ese momento.
+  const nombres = groupsData
+    .filter((g) => broadcastGruposElegidos.has(g.id))
+    .map((g) => g.name);
+  broadcastGroupsSelected.textContent = `${total} seleccionado${total === 1 ? "" : "s"}: ${nombres.join(", ")}`;
+  broadcastGroupsSelected.className = "text-[11px] text-brand-green font-semibold mb-1";
+}
+
 function renderBroadcastGroupsChecklist(seleccionados) {
+  if (seleccionados !== undefined) {
+    broadcastGruposElegidos = new Set(seleccionados || []);
+    broadcastGroupSearch.value = "";
+  }
+  renderBroadcastGroupsResumen();
+
   newBroadcastGroups.innerHTML = "";
   if (groupsData.length === 0) {
     const p = document.createElement("p");
@@ -1916,14 +1948,33 @@ function renderBroadcastGroupsChecklist(seleccionados) {
     newBroadcastGroups.appendChild(p);
     return;
   }
-  groupsData.forEach((g) => {
+
+  const filtro = broadcastGroupSearch.value.trim().toLowerCase();
+  const visibles = filtro
+    ? groupsData.filter((g) => g.name.toLowerCase().includes(filtro))
+    : groupsData;
+
+  if (visibles.length === 0) {
+    const p = document.createElement("p");
+    p.className = "text-xs text-slate-400";
+    p.textContent = `Ningún grupo con "${broadcastGroupSearch.value.trim()}".`;
+    newBroadcastGroups.appendChild(p);
+    return;
+  }
+
+  visibles.forEach((g) => {
     const label = document.createElement("label");
     label.className = "flex items-center gap-2 text-sm text-slate-700 py-0.5";
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.value = g.id;
-    checkbox.checked = (seleccionados || []).includes(g.id);
+    checkbox.checked = broadcastGruposElegidos.has(g.id);
     checkbox.className = "shrink-0";
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) broadcastGruposElegidos.add(g.id);
+      else broadcastGruposElegidos.delete(g.id);
+      renderBroadcastGroupsResumen();
+    });
     const span = document.createElement("span");
     span.className = "truncate";
     span.textContent = g.name;
@@ -1932,6 +1983,15 @@ function renderBroadcastGroupsChecklist(seleccionados) {
     newBroadcastGroups.appendChild(label);
   });
 }
+
+// Al escribir se repinta la lista filtrada, sin tocar lo ya elegido
+// (por eso se llama sin argumento).
+broadcastGroupSearch.addEventListener("input", () => renderBroadcastGroupsChecklist());
+
+broadcastGroupsClearBtn.addEventListener("click", () => {
+  broadcastGruposElegidos.clear();
+  renderBroadcastGroupsChecklist();
+});
 
 function renderBroadcastHorariosChips() {
   newBroadcastHorariosList.innerHTML = "";
@@ -2103,7 +2163,9 @@ async function fetchBroadcasts() {
 addBroadcastBtn.addEventListener("click", async () => {
   const nombre = newBroadcastNombre.value.trim();
   const texto = newBroadcastTexto.value.trim();
-  const groupIds = Array.from(newBroadcastGroups.querySelectorAll("input[type=checkbox]:checked")).map((c) => c.value);
+  // Se lee del Set y NO de los checkboxes: con el buscador puesto, los
+  // grupos elegidos que no coinciden con el filtro no están en el DOM.
+  const groupIds = Array.from(broadcastGruposElegidos);
   if (!nombre) {
     alert("Ponle un nombre al mensaje programado.");
     return;
