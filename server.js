@@ -1,6 +1,6 @@
 const express = require("express");
 const path = require("path");
-const { startBot, botState, logoutBot, getSock, setBotActivo } = require("./bot");
+const { startBot, botState, logoutBot, getSock, setBotActivo, probarFrase } = require("./bot");
 const quoteConfig = require("./quoteConfig");
 const sectors = require("./sectors");
 const dynamicKeywords = require("./dynamicKeywords");
@@ -226,6 +226,17 @@ app.post("/api/config/delay", (req, res) => {
   try {
     sectors.setResponseDelay(req.body.delayMs);
     res.json({ ok: true, delayMs: sectors.getResponseDelay() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Prueba qué haría el bot con una frase, sin mandar nada a WhatsApp: sirve
+// para ver por qué no detectó un pedido y decidir si hace falta agregarle
+// una frase especial a ese grupo. Solo diagnostica, no cambia nada.
+app.post("/api/probar-frase", (req, res) => {
+  try {
+    res.json(probarFrase(req.body?.texto, req.body?.groupId));
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

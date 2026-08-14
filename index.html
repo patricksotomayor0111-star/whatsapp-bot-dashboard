@@ -118,6 +118,23 @@
       </div>
       <div class="flex-1 overflow-y-auto px-5 py-5 space-y-6">
 
+        <!-- Probar una frase (diagnóstico) -->
+        <section>
+          <p class="eyebrow text-violet-600"><i class="fa-solid fa-flask"></i> PROBAR UNA FRASE</p>
+          <p class="text-xs text-slate-400 mt-1 mb-2">
+            Pega una frase que el bot no detectó y te explico por qué. No manda nada a WhatsApp ni cambia nada.
+          </p>
+          <select id="probarGrupoSelect" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-violet-400/40 mb-2">
+            <option value="">— ¿En qué grupo? —</option>
+          </select>
+          <textarea id="probarTextoInput" rows="2" placeholder="Ej: ya puede venir a recojer el pedido"
+            class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-violet-400/40"></textarea>
+          <button id="probarFraseBtn" class="w-full mt-2 rounded-xl px-4 py-2.5 text-sm font-semibold bg-violet-600 text-white active:scale-95 transition-all">
+            Probar
+          </button>
+          <div id="probarResultado" class="hidden mt-2 rounded-xl border p-3 text-xs"></div>
+        </section>
+
         <!-- Keywords globales -->
         <section>
           <p class="eyebrow text-brand-green"><i class="fa-solid fa-circle-check"></i> KEYWORDS GLOBALES</p>

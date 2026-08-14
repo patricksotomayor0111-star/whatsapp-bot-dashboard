@@ -2253,6 +2253,138 @@ addBroadcastBtn.addEventListener("click", async () => {
   }
 });
 
+// ---------- Probar una frase (diagnóstico) ----------
+// Solo explica qué haría el bot con esa frase. No manda nada a WhatsApp.
+// Si no la detecta ofrece agregarla como frase especial del grupo, pero
+// eso es un clic aparte: la herramienta por sí sola no cambia nada.
+const probarGrupoSelect = document.getElementById("probarGrupoSelect");
+const probarTextoInput = document.getElementById("probarTextoInput");
+const probarFraseBtn = document.getElementById("probarFraseBtn");
+const probarResultado = document.getElementById("probarResultado");
+
+function poblarProbarGrupos() {
+  const seleccionActual = probarGrupoSelect.value;
+  probarGrupoSelect.innerHTML = '<option value="">— ¿En qué grupo? —</option>';
+  groupsData.forEach((g) => {
+    const opt = document.createElement("option");
+    opt.value = g.id;
+    opt.textContent = g.name;
+    probarGrupoSelect.appendChild(opt);
+  });
+  if (seleccionActual) probarGrupoSelect.value = seleccionActual;
+}
+
+function renderProbarResultado(data, groupId, frase) {
+  probarResultado.innerHTML = "";
+  probarResultado.className = `mt-2 rounded-xl border p-3 text-xs ${
+    data.detecta ? "bg-green-50 border-green-200" : "bg-rose-50 border-rose-200"
+  }`;
+
+  const titulo = document.createElement("p");
+  titulo.className = `font-bold ${data.detecta ? "text-green-800" : "text-rose-800"}`;
+  titulo.textContent = data.detecta
+    ? `✅ Sí respondería "${data.respuesta}"`
+    : "❌ No respondería";
+  probarResultado.appendChild(titulo);
+
+  const sub = document.createElement("p");
+  sub.className = "mt-1 text-slate-600";
+  if (data.detecta) {
+    sub.textContent =
+      `Detectó: "${data.keyword}"` + (data.sinRemarcar ? " · responde sin citar" : " · citando el mensaje");
+  } else {
+    sub.textContent = data.contexto || "Ninguna palabra clave coincide con esa frase.";
+  }
+  probarResultado.appendChild(sub);
+
+  if (data.pasos?.length) {
+    const lista = document.createElement("div");
+    lista.className = "mt-2 pt-2 border-t border-slate-200 space-y-0.5 text-slate-500";
+    data.pasos.forEach((p) => {
+      const fila = document.createElement("p");
+      fila.textContent = `· ${p.nombre}: ${p.detalle}`;
+      lista.appendChild(fila);
+    });
+    probarResultado.appendChild(lista);
+  }
+
+  if (data.advertencias?.length) {
+    const av = document.createElement("div");
+    av.className = "mt-2 pt-2 border-t border-slate-200 space-y-0.5 text-amber-700";
+    data.advertencias.forEach((a) => {
+      const fila = document.createElement("p");
+      fila.textContent = `⚠️ ${a}`;
+      av.appendChild(fila);
+    });
+    probarResultado.appendChild(av);
+  }
+
+  // El arreglo queda a un clic, pero lo decide el usuario.
+  if (!data.detecta && !data.contexto) {
+    const agregar = document.createElement("button");
+    agregar.className =
+      "w-full mt-2 rounded-xl px-3 py-2 text-xs font-semibold bg-brand-orange text-white active:scale-95 transition-all";
+    agregar.textContent = "Agregar esta frase a este grupo";
+    agregar.addEventListener("click", async () => {
+      agregar.disabled = true;
+      try {
+        const res = await fetch(`/api/keywords/special/${encodeURIComponent(groupId)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phrase: frase }),
+        });
+        const r = await res.json();
+        if (res.ok) {
+          agregar.textContent = "Agregada ✓ — vuelve a probar para confirmar";
+          agregar.className = "w-full mt-2 rounded-xl px-3 py-2 text-xs font-semibold bg-brand-green text-white";
+          fetchKeywords();
+        } else {
+          agregar.textContent = r.error || "No se pudo agregar";
+          agregar.disabled = false;
+        }
+      } catch (err) {
+        agregar.textContent = "No se pudo agregar";
+        agregar.disabled = false;
+      }
+    });
+    probarResultado.appendChild(agregar);
+  }
+
+  probarResultado.classList.remove("hidden");
+}
+
+probarFraseBtn.addEventListener("click", async () => {
+  const groupId = probarGrupoSelect.value;
+  const texto = probarTextoInput.value.trim();
+  if (!groupId || !texto) {
+    probarResultado.className = "mt-2 rounded-xl border p-3 text-xs bg-amber-50 border-amber-200 text-amber-800";
+    probarResultado.textContent = "Elige el grupo y escribe la frase.";
+    probarResultado.classList.remove("hidden");
+    return;
+  }
+  probarFraseBtn.disabled = true;
+  try {
+    const res = await fetch("/api/probar-frase", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ texto, groupId }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      renderProbarResultado(data, groupId, texto);
+    } else {
+      probarResultado.className = "mt-2 rounded-xl border p-3 text-xs bg-rose-50 border-rose-200 text-rose-800";
+      probarResultado.textContent = data.error || "No se pudo probar";
+      probarResultado.classList.remove("hidden");
+    }
+  } catch (err) {
+    probarResultado.className = "mt-2 rounded-xl border p-3 text-xs bg-rose-50 border-rose-200 text-rose-800";
+    probarResultado.textContent = "No se pudo probar";
+    probarResultado.classList.remove("hidden");
+  }
+  probarFraseBtn.disabled = false;
+});
+
 // ---------- Respaldo de la configuración ----------
 // La descarga es un <a href="/api/backup" download>, no hace falta JS.
 // Acá va solo la restauración, que sí necesita confirmación: primero se
@@ -2341,6 +2473,7 @@ const categoryLoaders = {
     exceptionKeywordInput.value = "";
     renderSpecialKeywords(); // repinta lo que ya tenías guardado (localStorage)
     fetchKeywords();
+    poblarProbarGrupos();
     populateExceptionGroupSelect();
     fetchExceptionsOverview();
   },

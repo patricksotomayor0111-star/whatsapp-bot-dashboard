@@ -213,6 +213,82 @@ function matchPorPalabrasFlexible(text, frase) {
   return { keyword: frase, index: 0, length: 0 };
 }
 
+// ---------- Detección: qué activa al bot, y por qué ----------
+// Revisa en orden todas las formas en que un mensaje puede activar al bot,
+// y va anotando qué se probó con qué resultado.
+//
+// Devuelve las dos cosas a la vez a propósito:
+//   - match : lo que usa el bot para decidir si responde.
+//   - pasos : lo que usa el panel ("Probar frase") para explicar por qué NO
+//             respondió.
+// Así la explicación no puede mentir: sale del mismo código que decide.
+// Si se agrega una forma nueva de detectar, va acá y queda explicada sola.
+//
+// Se usa exec() (no find()) para saber en qué posición del texto aparece la
+// palabra clave y poder resaltarla en el historial.
+function buscarEnMatchers(text, matchers) {
+  for (const m of matchers) {
+    const result = m.regex.exec(text);
+    if (result) return { keyword: m.keyword, index: result.index, length: result[0].length };
+  }
+  return null;
+}
+
+function analizarDeteccion(text, chatId, senderNumber, grupoActual, opciones = {}) {
+  const { bloqueadoGlobal, esImagenTrigger, esContactoTrigger, esAudioTrigger } = opciones;
+  const pasos = [];
+  const anotar = (nombre, detalle) => pasos.push({ nombre, detalle });
+  let match = null;
+
+  if (bloqueadoGlobal) {
+    // Número bloqueado globalmente (o grupo de solo autorizados): ya ni las
+    // keywords especiales lo saltan. Solo puede responder si hay una
+    // excepción activa para este número+grupo+frase.
+    const motivo = esGrupoSoloAutorizados(grupoActual?.name)
+      ? "Este grupo solo responde a números autorizados"
+      : "Este número está en la lista de ignorados";
+    match = buscarExcepcionNumero(text, chatId, senderNumber, grupoActual?.name);
+    anotar("Frases autorizadas para este número", match ? `coincide "${match.keyword}"` : "ninguna coincide");
+    return { match, pasos, contexto: motivo };
+  }
+
+  match = buscarKeywordEspecial(text, chatId);
+  anotar("Frases especiales de este grupo", match ? `coincide "${match.keyword}"` : "ninguna coincide");
+
+  if (!match && esImagenTrigger) match = { keyword: "(foto)", index: 0, length: 0 };
+  if (!match && esContactoTrigger) match = { keyword: "(contacto)", index: 0, length: 0 };
+  if (!match && esAudioTrigger) match = { keyword: "(nota de voz)", index: 0, length: 0 };
+
+  if (!match) {
+    // Las keywords globales agregadas desde el panel no se fijan en las
+    // palabras excluidas (pero sí las que ya venían en keywords.js).
+    match = buscarEnMatchers(text, getExtraPositiveMatchers());
+    anotar("Keywords globales del panel", match ? `coincide "${match.keyword}"` : "ninguna coincide");
+
+    if (!match) {
+      const exclusion = getExcludedMatchers().find(({ regex }) => regex.test(text));
+      if (exclusion) {
+        anotar("Palabras excluidas", `encontré "${exclusion.keyword}", que bloquea las keywords base`);
+      } else {
+        anotar("Palabras excluidas", "ninguna");
+        match = buscarEnMatchers(text, getBasePositiveMatchers());
+        anotar("Keywords base", match ? `coincide "${match.keyword}"` : "ninguna coincide");
+
+        if (!match) {
+          match = buscarVenirTypo(text, grupoActual);
+          const aplica = VENIR_FUZZY_GROUPS.has((grupoActual?.name || "").trim().toUpperCase());
+          anotar(
+            '"venir" mal escrito',
+            !aplica ? "no aplica en este grupo" : match ? `coincide "${match.keyword}"` : "no se parece"
+          );
+        }
+      }
+    }
+  }
+
+  return { match, pasos, contexto: null };
+}
+
 // Un número que está en la lista global de excluidos puede tener frases de
 // excepción para UN grupo puntual: si las escribe ahí, sí responde (pero
 // sigue bloqueado en cualquier otro grupo). A diferencia de las especiales,
@@ -1023,52 +1099,12 @@ async function startBot() {
       // copiados de otro chat, no un pedido directo.
       if (esMensajeReenviado(msg)) continue;
 
-      // Se usa exec() (no find()) para saber en qué posición del texto
-      // aparece la palabra clave y poder resaltarla en el historial.
-      const buscarMatch = (matchers) => {
-        for (const m of matchers) {
-          const result = m.regex.exec(text);
-          if (result) return { keyword: m.keyword, index: result.index, length: result[0].length };
-        }
-        return null;
-      };
-
-      let match = null;
-
-      if (bloqueadoGlobal) {
-        // Número bloqueado globalmente: ya ni las keywords especiales lo
-        // saltan. Solo puede responder si hay una excepción activa para
-        // este número+grupo+frase. Si no, sigue bloqueado sin más vueltas.
-        match = buscarExcepcionNumero(text, chatId, senderNumber, grupoActual?.name);
-        if (!match) continue;
-      } else {
-        // Número normal: las keywords especiales de ESTE grupo se revisan
-        // primero y se saltan las palabras excluidas, pero YA NO se saltan
-        // que el sector/grupo estén apagados (eso se revisa más abajo,
-        // igual que para el resto).
-        match = buscarKeywordEspecial(text, chatId);
-        if (!match && esImagenTrigger) {
-          match = { keyword: "(foto)", index: 0, length: 0 };
-        }
-        if (!match && esContactoTrigger) {
-          match = { keyword: "(contacto)", index: 0, length: 0 };
-        }
-        if (!match && esAudioTrigger) {
-          match = { keyword: "(nota de voz)", index: 0, length: 0 };
-        }
-        if (!match) {
-          // Las keywords globales agregadas desde el panel tampoco respetan
-          // las exclusiones (pero sí las que ya venían en keywords.js).
-          match = buscarMatch(getExtraPositiveMatchers());
-          if (!match) {
-            const tieneExclusion = getExcludedMatchers().some(({ regex }) => regex.test(text));
-            if (!tieneExclusion) {
-              match = buscarMatch(getBasePositiveMatchers());
-              if (!match) match = buscarVenirTypo(text, grupoActual);
-            }
-          }
-        }
-      }
+      const { match } = analizarDeteccion(text, chatId, senderNumber, grupoActual, {
+        bloqueadoGlobal,
+        esImagenTrigger,
+        esContactoTrigger,
+        esAudioTrigger,
+      });
 
       if (!match) continue;
 
@@ -1310,4 +1346,70 @@ setInterval(() => {
   checkScheduledBroadcasts().catch((err) => console.error("Error en checkScheduledBroadcasts:", err.message));
 }, 30000);
 
-module.exports = { startBot, botState, logoutBot, getSock, setBotActivo };
+// ---------- "Probar frase" del panel ----------
+// Simula qué haría el bot con una frase escrita a mano en un grupo, para
+// poder ver POR QUÉ no respondió y decidir si hace falta agregarle una
+// frase especial a ese restaurante.
+//
+// A propósito separa dos cosas:
+//   - detecta      : si la frase activa al bot (lo que se está probando).
+//   - advertencias : si además hay algo apagado (sector, grupo, el bot).
+// Si se mezclaran, como el bot se apaga solo tras cada respuesta, toda
+// prueba diría "el bot está apagado" y nunca se llegaría a lo de la frase.
+function probarFrase(textoCrudo, chatId) {
+  const grupoActual = botState.groups.find((g) => g.id === chatId);
+  if (!grupoActual) throw new Error("No encuentro ese grupo. ¿El bot sigue adentro?");
+
+  const rawText = String(textoCrudo || "").trim();
+  if (!rawText) throw new Error("Escribe la frase que quieres probar.");
+  const text = normalizeText(rawText);
+
+  const nombreGrupo = grupoActual.name;
+  const ignorado = IGNORED_GROUP_NAMES.has(nombreGrupo.trim().toUpperCase());
+  // Se prueba como si llegara de un número normal (el caso de cualquier
+  // restaurante); lo que sí se respeta es si el grupo es de solo autorizados.
+  const bloqueadoGlobal = esGrupoSoloAutorizados(nombreGrupo);
+
+  const { match, pasos, contexto } = ignorado
+    ? { match: null, pasos: [], contexto: "El bot ignora este grupo por completo" }
+    : analizarDeteccion(text, chatId, "", grupoActual, { bloqueadoGlobal });
+
+  const sectorId = getGroupSector(chatId);
+  const sinRemarcar = isGroupSinRemarcarEfectivo(chatId, sectorId);
+  const focusedGroups = getFocusedGroups();
+
+  const advertencias = [];
+  if (!botState.active) advertencias.push("El bot está apagado ahora mismo (se prende desde la tarjeta principal).");
+  if (focusedGroups.length > 0 && !focusedGroups.includes(chatId)) {
+    advertencias.push("El modo enfoque está activo y este grupo no está enfocado.");
+  }
+  if (!isGroupSectorActiveEfectivo(chatId, sectorId)) advertencias.push("El sector de este grupo está apagado.");
+  if (!isGroupActive(chatId)) advertencias.push("Este grupo está marcado como inactivo.");
+
+  // La ventana de tiempo solo cuenta si la frase menciona una hora.
+  const ventana = evaluarVentanaTiempo(text, sectorId);
+  if (match && !ventana.enVentana) {
+    if (ventana.esperaMs === null) {
+      advertencias.push("La hora que menciona ya pasó, así que no se marcaría.");
+    } else {
+      const min = Math.round(ventana.esperaMs / 60000);
+      advertencias.push(
+        `La hora que menciona está fuera de la ventana del sector: quedaría en espera ${min} min` +
+          (getEsperaAutomaticaActiva() ? "." : ", pero la espera automática está apagada, así que no se marcaría.")
+      );
+    }
+  }
+
+  return {
+    grupo: nombreGrupo,
+    detecta: Boolean(match),
+    keyword: match?.keyword || null,
+    pasos,
+    contexto,
+    advertencias,
+    sinRemarcar,
+    respuesta: defaultResponse,
+  };
+}
+
+module.exports = { startBot, botState, logoutBot, getSock, setBotActivo, probarFrase };
