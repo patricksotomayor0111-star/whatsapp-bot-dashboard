@@ -45,10 +45,13 @@ const saveDelayBtn = document.getElementById("saveDelayBtn");
 
 const timeWindowBySectorList = document.getElementById("timeWindowBySectorList");
 
+const statusCard = document.getElementById("statusCard");
 const esperaAutomaticaToggle = document.getElementById("esperaAutomaticaToggle");
 const esperaAutomaticaLabel = document.getElementById("esperaAutomaticaLabel");
 const pendingTimeCount = document.getElementById("pendingTimeCount");
 const pendingTimeList = document.getElementById("pendingTimeList");
+const pendingTimeToggleBtn = document.getElementById("pendingTimeToggleBtn");
+const pendingTimeChevron = document.getElementById("pendingTimeChevron");
 
 const moveGroupSelect = document.getElementById("moveGroupSelect");
 const moveSectorSelect = document.getElementById("moveSectorSelect");
@@ -410,6 +413,20 @@ restoreBtn.addEventListener("click", async () => {
 });
 
 // ---------- Estado real del bot ----------
+// La tarjeta ahora es una sola (bot + espera + conexión), así que también
+// se le cambia el color de fondo: verde cuando el bot está activo, rojo
+// cuando no, para saberlo de un vistazo sin leer.
+function pintarStatusCard(activo) {
+  statusCard.classList.toggle("bg-emerald-50", activo);
+  statusCard.classList.toggle("border-emerald-100", activo);
+  statusCard.classList.toggle("bg-rose-50", !activo);
+  statusCard.classList.toggle("border-rose-100", !activo);
+  statusCard.querySelectorAll(".border-t").forEach((sep) => {
+    sep.classList.toggle("border-emerald-100", activo);
+    sep.classList.toggle("border-rose-100", !activo);
+  });
+}
+
 function updateBotUI() {
   if (!isConnected) {
     botStatusText.textContent = "Bot ⛔ Desconectado";
@@ -418,6 +435,7 @@ function updateBotUI() {
     botToggleBtn.classList.remove("bg-brand-green");
     botToggleBtn.classList.add("bg-brand-red", "opacity-50");
     qrCard.classList.remove("hidden");
+    pintarStatusCard(false);
   } else if (isActive) {
     botStatusText.textContent = "Bot ✅ Activo";
     botToggleLabel.textContent = "Desactivar";
@@ -425,6 +443,7 @@ function updateBotUI() {
     botToggleBtn.classList.remove("bg-brand-red", "opacity-50");
     botToggleBtn.classList.add("bg-brand-green");
     qrCard.classList.add("hidden");
+    pintarStatusCard(true);
   } else {
     botStatusText.textContent = "Bot ⛔ Inactivo";
     botToggleLabel.textContent = "Activar";
@@ -432,6 +451,7 @@ function updateBotUI() {
     botToggleBtn.classList.remove("bg-brand-green", "opacity-50");
     botToggleBtn.classList.add("bg-brand-red");
     qrCard.classList.add("hidden");
+    pintarStatusCard(false);
   }
 }
 
@@ -844,25 +864,52 @@ esperaAutomaticaToggle.addEventListener("click", async () => {
   updateEsperaAutomaticaUI();
 });
 
+// La lista de pedidos en espera arranca plegada (la tarjeta es compacta a
+// propósito): se despliega tocando "⏳ Espera automática".
+let pendingTimeAbierto = false;
+
+function aplicarVisibilidadPendientes(hayPendientes) {
+  pendingTimeChevron.classList.toggle("hidden", !hayPendientes);
+  pendingTimeChevron.classList.toggle("fa-chevron-up", pendingTimeAbierto);
+  pendingTimeChevron.classList.toggle("fa-chevron-down", !pendingTimeAbierto);
+  pendingTimeList.classList.toggle("hidden", !hayPendientes || !pendingTimeAbierto);
+}
+
+pendingTimeToggleBtn.addEventListener("click", () => {
+  pendingTimeAbierto = !pendingTimeAbierto;
+  aplicarVisibilidadPendientes(pendingTimeList.children.length > 0);
+});
+
 function renderPendingTimeMatches(pendientes) {
   pendingTimeCount.textContent = pendientes.length;
+  // Resalta el contador solo cuando hay algo esperando, para que se note
+  // sin ocupar más espacio.
+  pendingTimeCount.className = `shrink-0 text-xs font-bold ${
+    pendientes.length > 0 ? "text-brand-orange" : "text-slate-400"
+  }`;
   pendingTimeList.innerHTML = "";
   if (pendientes.length === 0) {
-    pendingTimeList.classList.add("hidden");
+    pendingTimeAbierto = false;
+    aplicarVisibilidadPendientes(false);
     return;
   }
-  pendingTimeList.classList.remove("hidden");
 
   pendientes.forEach((p) => {
     const hora = new Date(p.targetFireMs);
     const horaTexto = `${String(hora.getHours()).padStart(2, "0")}:${String(hora.getMinutes()).padStart(2, "0")}`;
 
     const fila = document.createElement("div");
-    fila.className = "flex items-center justify-between gap-2 text-xs";
+    fila.className = "flex items-center gap-2 text-xs";
 
+    // El nombre del grupo se recorta si no entra, pero la hora NO: es el
+    // dato que importa (a qué hora se va a marcar ese pedido).
     const texto = document.createElement("span");
-    texto.className = "truncate text-slate-500";
-    texto.textContent = `${p.groupName} · se marca ${horaTexto}`;
+    texto.className = "flex-1 min-w-0 truncate text-slate-500";
+    texto.textContent = p.groupName;
+
+    const horaMarca = document.createElement("span");
+    horaMarca.className = "shrink-0 font-semibold text-slate-600";
+    horaMarca.textContent = horaTexto;
 
     const cancelar = document.createElement("button");
     cancelar.textContent = "Cancelar";
@@ -873,9 +920,12 @@ function renderPendingTimeMatches(pendientes) {
     });
 
     fila.appendChild(texto);
+    fila.appendChild(horaMarca);
     fila.appendChild(cancelar);
     pendingTimeList.appendChild(fila);
   });
+
+  aplicarVisibilidadPendientes(true);
 }
 
 async function fetchPendingTimeMatches() {
@@ -2215,7 +2265,8 @@ function calcularPuntajeConexion(latencias, fallos, totalPings, effectiveType) {
 }
 
 function pintarConexion(score) {
-  connectionScore.textContent = `${score.toFixed(1)} / 10`;
+  // Sin "/ 10": la tarjeta es compacta y el número solo ya se entiende.
+  connectionScore.textContent = score.toFixed(1);
   let color;
   if (score >= 7) color = "#22C55E"; // verde: excelente/buena
   else if (score >= 5) color = "#EAB308"; // amarillo: regular

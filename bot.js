@@ -198,7 +198,38 @@ function buscarExcepcionNumero(text, chatId, senderNumber) {
 
 // "en 20 minutos", "en 20 min", "en 20min", "en 20 m", "en 20",
 // "20 minutos", "20 min", "20min" (sin "en" pero con unidad explícita)
+// Cantidades escritas con letras ("media hora", "dos horas"), que en los
+// pedidos aparecen tanto como los números.
+const CANTIDADES_ESCRITAS = {
+  media: 0.5,
+  un: 1,
+  una: 1,
+  uno: 1,
+  dos: 2,
+  tres: 3,
+  cuatro: 4,
+  cinco: 5,
+  seis: 6,
+};
+
 function extractRelativeMinutes(text) {
+  // Las HORAS se revisan primero a propósito: si no, "en 2 horas" caía en
+  // el patrón de minutos de abajo (que acepta el número suelto) y se leía
+  // como 2 MINUTOS, así que el bot marcaba al toque un pedido que era para
+  // dentro de 2 horas — justo al revés de lo que se quiere.
+  const horas = text.match(
+    /\b(?:en\s+)?(\d{1,2}|media|una?|uno|dos|tres|cuatro|cinco|seis)\s*h(?:ora)?s?\b/i
+  );
+  if (horas) {
+    const escrito = horas[1].toLowerCase();
+    const valor = CANTIDADES_ESCRITAS[escrito] ?? parseInt(escrito, 10);
+    if (Number.isFinite(valor)) {
+      // "una hora y media", "2 horas y media"
+      const yMedia = /\by\s+media\b/i.test(text);
+      return Math.round(valor * 60) + (yMedia ? 30 : 0);
+    }
+  }
+
   let m = text.match(/\ben\s*(\d{1,3})\s*(?:min(?:uto)?s?\.?|m)?\b/i);
   if (m) return parseInt(m[1], 10);
   m = text.match(/\b(\d{1,3})\s*min(?:uto)?s?\.?\b/i);
@@ -210,12 +241,34 @@ function extractRelativeMinutes(text) {
 // "11h15", "11 y 15", "11:15 pm"
 function extractClockTime(text) {
   const m = text.match(/\b(\d{1,2})(?:\s*:\s*|\s*\.\s*|\s*h\s*|\s+y\s+)(\d{2})(?:\s*(a\.?\s*m\.?|p\.?\s*m\.?))?\b/i);
-  if (!m) return null;
-  const hour = parseInt(m[1], 10);
-  const minute = parseInt(m[2], 10);
-  if (hour > 23 || minute > 59) return null;
-  const meridiem = m[3] ? m[3].toLowerCase().replace(/[.\s]/g, "") : null; // "am", "pm" o null
-  return { hour, minute, meridiem };
+  if (m) {
+    const hour = parseInt(m[1], 10);
+    const minute = parseInt(m[2], 10);
+    if (hour > 23 || minute > 59) return null;
+    const meridiem = m[3] ? m[3].toLowerCase().replace(/[.\s]/g, "") : null; // "am", "pm" o null
+    return { hour, minute, meridiem };
+  }
+
+  // Hora en punto con am/pm y SIN minutos: "6pm", "6 pm", "6 p.m.".
+  // Antes esto no se detectaba, así que un pedido para las 6pm se marcaba
+  // al toque en vez de esperar.
+  const conMeridiem = text.match(/\b(\d{1,2})\s*(a\.?\s*m\.?|p\.?\s*m\.?)\b/i);
+  if (conMeridiem) {
+    const hour = parseInt(conMeridiem[1], 10);
+    if (hour >= 1 && hour <= 12) {
+      return { hour, minute: 0, meridiem: conMeridiem[2].toLowerCase().replace(/[.\s]/g, "") };
+    }
+  }
+
+  // "a las 6", "a la 1" (sin minutos ni am/pm). Se exige el "a la(s)" para
+  // no confundir cualquier número suelto del mensaje con una hora.
+  const aLas = text.match(/\ba\s+las?\s+(\d{1,2})\b/i);
+  if (aLas) {
+    const hour = parseInt(aLas[1], 10);
+    if (hour <= 23) return { hour, minute: 0, meridiem: null };
+  }
+
+  return null;
 }
 
 // Hora actual en Perú (UTC-5, sin horario de verano), sin importar en qué
