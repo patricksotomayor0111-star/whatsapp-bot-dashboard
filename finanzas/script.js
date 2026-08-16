@@ -96,6 +96,7 @@ async function pollStatus() {
     if (isConnected) {
       qrHint.textContent = "";
       lastRenderedQr = null;
+      if (vinculacionPedida) fetchChatConfig(); // acaba de conectar: ya hay grupos
       vinculacionPedida = false;
     } else if (data.qr && data.qr !== lastRenderedQr) {
       lastRenderedQr = data.qr;
@@ -208,6 +209,54 @@ togglePushBtn.addEventListener("click", async () => {
     console.error("No se pudo activar las notificaciones:", err);
     pushStatus.textContent = "No se pudo activar. Probá de nuevo.";
   }
+});
+
+// ---------- Dónde escucha el bot de esta cuenta ----------
+const chatConfigCard = document.getElementById("chatConfigCard");
+const chatCajaSelect = document.getElementById("chatCajaSelect");
+const chatConfigHint = document.getElementById("chatConfigHint");
+
+async function fetchChatConfig() {
+  let data;
+  try {
+    data = await (await fetch("/api/bot/chats")).json();
+  } catch (err) {
+    return;
+  }
+
+  const chats = data.chats || [];
+  // Sin WhatsApp vinculado todavía no hay chats que ofrecer: no tiene
+  // sentido mostrar un desplegable vacío.
+  chatConfigCard.classList.toggle("hidden", chats.length === 0);
+  if (chats.length === 0) return;
+
+  chatCajaSelect.innerHTML = "";
+  const sinElegir = document.createElement("option");
+  sinElegir.value = "";
+  sinElegir.textContent = "— Grupo llamado GANANCIAS (por defecto) —";
+  chatCajaSelect.appendChild(sinElegir);
+
+  chats.forEach((c) => {
+    const opt = document.createElement("option");
+    opt.value = c.id;
+    opt.textContent = c.nombre;
+    chatCajaSelect.appendChild(opt);
+  });
+  chatCajaSelect.value = data.chatCaja || "";
+
+  const elegido = chats.find((c) => c.id === data.chatCaja);
+  chatConfigHint.textContent = elegido
+    ? `Escribe en "${elegido.nombre}" y se registra solo.`
+    : "Ahora mismo el bot busca un grupo llamado GANANCIAS. Puedes elegir otro chat acá.";
+}
+
+chatCajaSelect.addEventListener("change", async () => {
+  await fetch("/api/bot/chats", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chatCaja: chatCajaSelect.value || null }),
+  });
+  fetchChatConfig();
 });
 
 // ---------- Cuentas de usuario (solo el dueño) ----------
@@ -3293,6 +3342,7 @@ backupRestoreBtn.addEventListener("click", async () => {
 // ---------- Inicialización ----------
 document.addEventListener("DOMContentLoaded", () => {
   fetchSesion();
+  fetchChatConfig();
   updateBotUI();
   pollStatus();
   setInterval(pollStatus, 3000);

@@ -1,6 +1,6 @@
 const express = require("express");
 const path = require("path");
-const { startBot, startBotsGuardados, estadoDe, logoutBot, getSock, avisarAlGrupo } = require("./bot");
+const { startBot, startBotsGuardados, estadoDe, logoutBot, getSock, avisarAlGrupo, chatsDisponibles } = require("./bot");
 const cashbox = require("./cashbox");
 const pushSubscriptions = require("./pushSubscriptions");
 const budgetCategories = require("./budgetCategories");
@@ -19,6 +19,7 @@ const backup = require("./backup");
 const auth = require("./auth");
 const users = require("./users");
 const contexto = require("./contexto");
+const chatConfig = require("./chatConfig");
 
 // Crea la cuenta del dueño y le pasa los datos que hoy están sueltos en el
 // volumen. Se hace al arrancar, antes de atender cualquier pedido.
@@ -189,6 +190,19 @@ app.get("/api/status", (req, res) => {
   // bot se crea al pedirlo por primera vez, que es cuando esa cuenta
   // entra al panel a vincular su WhatsApp.
   res.json(estadoDe(req.userId));
+});
+
+// Dónde escucha el bot de esta cuenta. La lista de chats solo tiene
+// contenido después de vincular WhatsApp: antes el servidor no sabe qué
+// grupos tiene esa persona.
+app.get("/api/bot/chats", (req, res) => {
+  res.json({ chats: chatsDisponibles(req.userId), ...chatConfig.getConfig() });
+});
+
+app.post("/api/bot/chats", (req, res) => {
+  if (req.body?.chatCaja !== undefined) chatConfig.setChatCaja(req.body.chatCaja);
+  if (req.body?.chatPrecios !== undefined) chatConfig.setChatPrecios(req.body.chatPrecios);
+  res.json({ ok: true, ...chatConfig.getConfig() });
 });
 
 // Arranca (o revive) el bot de esta cuenta para que genere su QR.

@@ -26,6 +26,34 @@ const { responderConsultaPrecio } = require("./priceQueries");
 const { dataPath, userDataPath } = require("./dataDir");
 const contexto = require("./contexto");
 const users = require("./users");
+const chatConfig = require("./chatConfig");
+
+// El número propio de la cuenta, para reconocer el chat de "mensajes
+// contigo mismo". Baileys lo entrega con un sufijo de dispositivo
+// (":12@s.whatsapp.net") que hay que sacar para poder comparar.
+function jidPropio(bot) {
+  const id = bot.sock?.user?.id;
+  if (!id) return null;
+  return id.split(":")[0].split("@")[0] + "@s.whatsapp.net";
+}
+
+// ¿Este chat es el que la cuenta eligió para X uso? Si no eligió ninguno,
+// se cae al grupo con el nombre de siempre, para no romperle nada a quien
+// ya lo tenía configurado así.
+function esChatElegido(bot, chatId, grupoActual, elegido, nombrePorDefecto) {
+  if (elegido === chatConfig.YO_MISMO) return chatId === jidPropio(bot);
+  if (elegido) return chatId === elegido;
+  return Boolean(grupoActual) && grupoActual.name.trim().toUpperCase() === nombrePorDefecto;
+}
+
+// El chat al que el bot le escribe a esta cuenta (avisos y resúmenes).
+function chatDeCaja(bot) {
+  const { chatCaja } = chatConfig.getConfig();
+  if (chatCaja === chatConfig.YO_MISMO) return jidPropio(bot);
+  if (chatCaja) return chatCaja;
+  const grupo = bot.groups.find((g) => g.name.trim().toUpperCase() === CASHBOX_GROUP_NAME);
+  return grupo ? grupo.id : null;
+}
 
 // Quita tildes/acentos ("móvil" -> "movil") para que dé igual si el
 // mensaje o la frase configurada los llevan o no.
@@ -667,8 +695,8 @@ async function checkCashboxSchedule(bot) {
   const hoyLabel = businessDay.businessDayLabel();
   if (cashbox.getLastClosedDay() === hoyLabel) return;
 
-  const grupo = bot.groups.find((g) => g.name.trim().toUpperCase() === CASHBOX_GROUP_NAME);
-  if (!grupo) return;
+  const chatId = chatDeCaja(bot);
+  if (!chatId) return;
 
   // La meta de producción que estuvo vigente el día que se está cerrando
   // se calcula ANTES de cerrar (closeDay agrega el cierre de hoy, lo que
@@ -702,7 +730,7 @@ async function checkCashboxSchedule(bot) {
   }
 
   try {
-    await enviarMensaje(bot, grupo.id, { text: textoDia });
+    await enviarMensaje(bot, chatId, { text: textoDia });
   } catch (err) {
     console.error("Error al mandar el cierre diario de caja chica:", err.message);
   }
@@ -729,7 +757,7 @@ async function checkCashboxSchedule(bot) {
       `✅ Total ganancias de la semana: ${formatSoles(resumenSemana.ganancias)}\n` +
       `📉 Total gastos de la semana: ${formatSoles(resumenSemana.gastos)}`;
     try {
-      await enviarMensaje(bot, grupo.id, { text: textoSemana });
+      await enviarMensaje(bot, chatId, { text: textoSemana });
     } catch (err) {
       console.error("Error al mandar el resumen semanal de caja chica:", err.message);
     }
@@ -749,8 +777,8 @@ async function checkMorningSchedule(bot) {
   const hoyLabel = businessDay.businessDayLabel();
   if (bot.lastMorningMessageLabel === hoyLabel) return;
 
-  const grupo = bot.groups.find((g) => g.name.trim().toUpperCase() === CASHBOX_GROUP_NAME);
-  if (!grupo) return;
+  const chatId = chatDeCaja(bot);
+  if (!chatId) return;
 
   bot.lastMorningMessageLabel = hoyLabel;
 
@@ -780,7 +808,7 @@ async function checkMorningSchedule(bot) {
       : `⚠️ Todavía no tienes margen para gastar de más: te faltan ${formatSoles(Math.abs(margen))} para cubrir tus compromisos y tu ahorro.`;
 
   try {
-    await enviarMensaje(bot, grupo.id, { text: texto });
+    await enviarMensaje(bot, chatId, { text: texto });
   } catch (err) {
     console.error("Error al mandar el mensaje de buenos días:", err.message);
   }
@@ -968,11 +996,12 @@ async function procesarMensajes(bot, messages) {
       if (esMensajeViejo(msg)) continue;
 
       const chatId = msg.key.remoteJid;
+      // Ya no se exige que sea un grupo: una cuenta puede elegir anotar en
+      // sus propios mensajes, que es lo más cómodo si trabaja sola.
       const grupoActual = bot.groups.find((g) => g.id === chatId);
-      if (!grupoActual) continue;
-      const nombreGrupo = grupoActual.name.trim().toUpperCase();
-      const esCajaChica = nombreGrupo === CASHBOX_GROUP_NAME;
-      const esPrecios = nombreGrupo === PRICES_GROUP_NAME;
+      const { chatCaja, chatPrecios } = chatConfig.getConfig();
+      const esCajaChica = esChatElegido(bot, chatId, grupoActual, chatCaja, CASHBOX_GROUP_NAME);
+      const esPrecios = esChatElegido(bot, chatId, grupoActual, chatPrecios, PRICES_GROUP_NAME);
       if (!esCajaChica && !esPrecios) continue;
 
       const rawText = extractText(msg).trim();
@@ -1046,9 +1075,9 @@ function getSock(userId) {
 async function avisarAlGrupo(userId, texto) {
   const bot = botDe(userId);
   if (!bot.sock || !bot.connected) return false;
-  const grupo = bot.groups.find((g) => g.name.trim().toUpperCase() === CASHBOX_GROUP_NAME);
-  if (!grupo) return false;
-  await enviarMensaje(bot, grupo.id, { text: texto });
+  const chatId = chatDeCaja(bot);
+  if (!chatId) return false;
+  await enviarMensaje(bot, chatId, { text: texto });
   return true;
 }
 
@@ -1070,4 +1099,14 @@ function startBotsGuardados() {
   });
 }
 
-module.exports = { startBot, startBotsGuardados, estadoDe, logoutBot, getSock, avisarAlGrupo };
+// Chats entre los que la cuenta puede elegir: sus propios mensajes y sus
+// grupos. Solo hay lista después de vincular WhatsApp.
+function chatsDisponibles(userId) {
+  const bot = botDe(userId);
+  const propio = jidPropio(bot);
+  const lista = propio ? [{ id: chatConfig.YO_MISMO, nombre: "📝 Mis propios mensajes", esYo: true }] : [];
+  bot.groups.forEach((g) => lista.push({ id: g.id, nombre: g.name, esYo: false }));
+  return lista;
+}
+
+module.exports = { startBot, startBotsGuardados, estadoDe, logoutBot, getSock, avisarAlGrupo, chatsDisponibles };
