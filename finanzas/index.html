@@ -286,6 +286,14 @@
             </div>
           </section>
           <section>
+            <p class="eyebrow text-brand-green"><i class="fa-solid fa-table-cells"></i> CUÁNDO ENTRAN TUS REPARTOS</p>
+            <p class="text-xs text-slate-400 mt-1 mb-2">Mientras más oscura la celda, más cobraste en ese día y hora. Sirve para saber cuándo conviene salir.</p>
+            <div class="card bg-white mt-2 overflow-x-auto">
+              <div id="mapaActividad" class="min-w-[420px]"></div>
+            </div>
+            <div id="mapaActividadResumen" class="grid grid-cols-2 gap-2 mt-2"></div>
+          </section>
+          <section>
             <p class="eyebrow text-brand-green"><i class="fa-solid fa-calendar-days"></i> GANANCIAS VS GASTOS POR MES</p>
             <div class="card bg-white mt-2" style="height: 260px;">
               <canvas id="chartMensual"></canvas>
@@ -402,6 +410,13 @@
         <!-- Tab: Presupuesto -->
         <div id="financeTabPresupuesto" class="finance-tab-panel hidden space-y-4">
           <p class="text-xs text-slate-400">Límites mensuales por categoría de gasto y metas de ahorro (Universidad, Cuzco, Junta, etc.). Se categoriza solo según la descripción del gasto.</p>
+          <section id="rentabilidadCard" class="card bg-white">
+            <p class="eyebrow text-brand-green"><i class="fa-solid fa-sack-dollar"></i> RENTABILIDAD REAL (ESTE MES)</p>
+            <p class="text-xs text-slate-400 mt-1 mb-2">Solo cuentan como costo los gastos marcados como <b>negocio</b> (lo que cuesta hacer los repartos). Los personales no restan de la rentabilidad.</p>
+            <div id="rentabilidadDetalle" class="space-y-1 text-sm"></div>
+            <div id="rentabilidadPorReparto" class="grid grid-cols-3 gap-2 mt-3"></div>
+          </section>
+
           <div id="budgetList" class="space-y-2"></div>
           <details>
             <summary class="text-xs font-bold text-emerald-700 cursor-pointer">+ Agregar categoría nueva</summary>

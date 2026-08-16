@@ -1185,6 +1185,8 @@ const localNuevoAliases = document.getElementById("localNuevoAliases");
 const addLocalBtn = document.getElementById("addLocalBtn");
 
 let mesLocalesSeleccionado = null;
+let costoPorRepartoActual = 0;
+let netoPromedioActual = 0;
 
 function tarjetaResumen(valor, etiqueta) {
   const card = document.createElement("div");
@@ -1203,6 +1205,7 @@ function tarjetaResumen(valor, etiqueta) {
 function renderLocales(data) {
   const ranking = data.ranking || [];
   const conPedidos = ranking.filter((l) => l.pedidos > 0);
+  costoPorRepartoActual = data.costoPorReparto || 0;
 
   // Resumen de arriba: lo que dejaron los repartos del mes elegido.
   const totalMes = conPedidos.reduce((s, l) => s + l.total, 0);
@@ -1211,6 +1214,7 @@ function renderLocales(data) {
   localesResumen.appendChild(tarjetaResumen(formatSoles(totalMes), "cobrado"));
   localesResumen.appendChild(tarjetaResumen(String(pedidosMes), "repartos"));
   localesResumen.appendChild(tarjetaResumen(pedidosMes ? formatSoles(totalMes / pedidosMes) : formatSoles(0), "por reparto"));
+  netoPromedioActual = pedidosMes ? totalMes / pedidosMes - costoPorRepartoActual : 0;
 
   localesList.innerHTML = "";
   localesEmpty.classList.toggle("hidden", ranking.length > 0);
@@ -1242,6 +1246,23 @@ function renderLocales(data) {
     top.appendChild(info);
     top.appendChild(total);
     card.appendChild(top);
+
+    // Lo que queda después de descontar lo que cuesta hacer el reparto.
+    // Solo tiene sentido mostrarlo si hay un costo calculado (es decir, si
+    // hay gastos marcados como del negocio).
+    if (l.pedidos > 0 && costoPorRepartoActual > 0) {
+      const limpio = document.createElement("p");
+      // Rojo si el reparto sale perdiendo, ámbar si deja menos que tu
+      // promedio, verde si está por encima.
+      const color =
+        l.netoPorReparto <= 0 ? "text-rose-600" : l.netoPorReparto < netoPromedioActual ? "text-amber-600" : "text-emerald-700";
+      limpio.className = "text-xs font-semibold mt-1 " + color;
+      limpio.textContent =
+        l.netoPorReparto <= 0
+          ? `⚠️ Pierdes ${formatSoles(Math.abs(l.netoPorReparto))} en cada reparto de este local`
+          : `Te deja ${formatSoles(l.netoPorReparto)} limpio por reparto (${formatSoles(l.netoTotal)} en total)`;
+      card.appendChild(limpio);
+    }
 
     // Aviso de local que dejó de dar trabajo (mira todo el historial, no
     // solo el mes elegido).
@@ -1665,6 +1686,7 @@ async function fetchGraficos() {
     renderChartHistoria(historyData.cierres || [], historyData.hoy);
     renderChartMensual(historyData.cierres || [], historyData.hoy);
     renderChartProduccion(productionData.hoy);
+    renderMapaActividad();
   } catch (err) {
     console.error("No se pudo obtener los datos para los gráficos:", err);
   }
@@ -1770,6 +1792,96 @@ function renderChartHistoria(cierres, hoy) {
 }
 
 const MESES_CORTO = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+const DIAS_CORTO = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+
+// Mapa de calor de cuándo entran los repartos. Solo se dibujan las horas
+// en las que realmente hubo actividad, para que en el celular no queden
+// 24 columnas casi todas vacías.
+async function renderMapaActividad() {
+  const contenedor = document.getElementById("mapaActividad");
+  const resumen = document.getElementById("mapaActividadResumen");
+  let data;
+  try {
+    data = await (await fetch("/api/finance/actividad")).json();
+  } catch (err) {
+    console.error("No se pudo obtener la actividad:", err);
+    return;
+  }
+
+  const horasConDatos = data.porHora.filter((h) => h.pedidos > 0).map((h) => h.hora);
+  contenedor.innerHTML = "";
+  resumen.innerHTML = "";
+  if (horasConDatos.length === 0) {
+    contenedor.innerHTML = '<p class="text-xs text-slate-400 text-center py-4">Todavía no hay repartos registrados.</p>';
+    return;
+  }
+
+  const maximo = Math.max(...data.celdas.flat().map((c) => c.total));
+  const tabla = document.createElement("table");
+  tabla.className = "w-full text-[10px] border-separate";
+  tabla.style.borderSpacing = "2px";
+
+  const thead = document.createElement("thead");
+  const filaCabecera = document.createElement("tr");
+  filaCabecera.appendChild(document.createElement("th"));
+  horasConDatos.forEach((h) => {
+    const th = document.createElement("th");
+    th.className = "text-slate-400 font-normal";
+    th.textContent = String(h).padStart(2, "0");
+    filaCabecera.appendChild(th);
+  });
+  thead.appendChild(filaCabecera);
+  tabla.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  // Lunes primero, domingo al final: es como se lee una semana.
+  [1, 2, 3, 4, 5, 6, 0].forEach((dow) => {
+    const fila = document.createElement("tr");
+    const etiqueta = document.createElement("td");
+    etiqueta.className = "text-slate-500 font-semibold pr-1 whitespace-nowrap";
+    etiqueta.textContent = DIAS_CORTO[dow];
+    fila.appendChild(etiqueta);
+
+    horasConDatos.forEach((h) => {
+      const celda = data.celdas[dow][h];
+      const td = document.createElement("td");
+      const intensidad = maximo > 0 ? celda.total / maximo : 0;
+      td.className = "rounded text-center";
+      td.style.height = "22px";
+      td.style.backgroundColor = celda.total > 0 ? `rgba(34, 197, 94, ${0.15 + intensidad * 0.85})` : "#F1F5F9";
+      td.style.color = intensidad > 0.5 ? "#fff" : "#475569";
+      td.textContent = celda.pedidos > 0 ? celda.pedidos : "";
+      td.title = `${DIAS_CORTO[dow]} ${String(h).padStart(2, "0")}:00 — ${celda.pedidos} repartos, ${formatSoles(celda.total)}`;
+      fila.appendChild(td);
+    });
+    tbody.appendChild(fila);
+  });
+  tabla.appendChild(tbody);
+  contenedor.appendChild(tabla);
+
+  const pie = document.createElement("p");
+  pie.className = "text-[10px] text-slate-400 mt-2 text-center";
+  pie.textContent = "El número es la cantidad de repartos de esa hora.";
+  contenedor.appendChild(pie);
+
+  // Mejor y peor día, por promedio de lo cobrado en cada día trabajado.
+  const conDatos = data.porDia.filter((d) => d.veces > 0).sort((a, b) => b.promedio - a.promedio);
+  if (conDatos.length >= 2) {
+    const mejor = conDatos[0];
+    const peor = conDatos[conDatos.length - 1];
+    resumen.appendChild(tarjetaResumen(`${DIAS_CORTO[mejor.dow]} · ${formatSoles(mejor.promedio)}`, "tu mejor día"));
+    resumen.appendChild(tarjetaResumen(`${DIAS_CORTO[peor.dow]} · ${formatSoles(peor.promedio)}`, "tu día más flojo"));
+  }
+  const mejorHora = data.porHora.slice().sort((a, b) => b.total - a.total)[0];
+  if (mejorHora && mejorHora.pedidos > 0) {
+    resumen.appendChild(
+      tarjetaResumen(`${String(mejorHora.hora).padStart(2, "0")}:00`, `tu hora pico · ${mejorHora.pedidos} repartos`)
+    );
+    const totalPedidos = data.porHora.reduce((s, h) => s + h.pedidos, 0);
+    const nocturnos = data.porHora.filter((h) => h.hora >= 19 || h.hora <= 1).reduce((s, h) => s + h.pedidos, 0);
+    resumen.appendChild(tarjetaResumen(`${Math.round((nocturnos / totalPedidos) * 100)}%`, "entra de 7pm a 1am"));
+  }
+}
 
 // Agrupa los cierres diarios (hasta 90 días de historial) por mes, para ver
 // cómo vino cada mes anterior en ganancias/gastos, no solo los últimos 14
@@ -2276,6 +2388,29 @@ function renderBudgetCategories(categorias) {
         await fetchBudgetCategories();
       }
 
+      // Negocio o personal: define si este gasto cuenta como costo de
+      // operar (y por lo tanto pesa en la rentabilidad) o no.
+      const ambitoWrap = document.createElement("div");
+      ambitoWrap.className = "flex items-center gap-1.5 mt-2";
+      const esNegocio = cat.ambito === "negocio";
+
+      const ambitoBtn = document.createElement("button");
+      ambitoBtn.className =
+        "btn-capsule text-xs py-1 px-2.5 " +
+        (esNegocio ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500");
+      ambitoBtn.textContent = esNegocio ? "🛵 Negocio" : "🏠 Personal";
+      ambitoBtn.title = "Cambiar entre gasto del negocio y gasto personal";
+      ambitoBtn.addEventListener("click", async () => {
+        await fetch(`/api/budget/categories/${encodeURIComponent(cat.id)}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ambito: esNegocio ? "personal" : "negocio" }),
+        });
+        await fetchBudgetCategories();
+      });
+      ambitoWrap.appendChild(ambitoBtn);
+      card.appendChild(ambitoWrap);
+
       const keywordsWrap = document.createElement("div");
       keywordsWrap.className = "flex flex-wrap items-center gap-1.5 mt-2";
       (cat.keywords || []).forEach((kw) => {
@@ -2356,11 +2491,54 @@ function renderBudgetCategories(categorias) {
     });
 }
 
+function filaRentabilidad(etiqueta, valor, clase) {
+  const fila = document.createElement("div");
+  fila.className = "flex items-center justify-between gap-2";
+  const l = document.createElement("span");
+  l.className = "text-slate-500 text-xs";
+  l.textContent = etiqueta;
+  const v = document.createElement("span");
+  v.className = "font-semibold " + (clase || "text-slate-800");
+  v.textContent = valor;
+  fila.appendChild(l);
+  fila.appendChild(v);
+  return fila;
+}
+
+function renderRentabilidad(r) {
+  const detalle = document.getElementById("rentabilidadDetalle");
+  const porReparto = document.getElementById("rentabilidadPorReparto");
+  detalle.innerHTML = "";
+  porReparto.innerHTML = "";
+  if (!r) return;
+
+  detalle.appendChild(filaRentabilidad("Cobrado por repartos", formatSoles(r.ingresos), "text-emerald-700"));
+  detalle.appendChild(filaRentabilidad("🛵 Gastos del negocio", "-" + formatSoles(r.gastoNegocio), "text-rose-600"));
+  detalle.appendChild(
+    filaRentabilidad(
+      "Ganancia real del negocio",
+      `${formatSoles(r.gananciaNeta)} (${r.margen}%)`,
+      r.gananciaNeta >= 0 ? "text-emerald-700" : "text-rose-600"
+    )
+  );
+  detalle.appendChild(filaRentabilidad("🏠 Gastos personales (aparte)", formatSoles(r.gastoPersonal), "text-slate-400"));
+
+  porReparto.appendChild(tarjetaResumen(formatSoles(r.cobradoPorReparto), "cobras"));
+  porReparto.appendChild(tarjetaResumen("-" + formatSoles(r.costoPorReparto), "te cuesta"));
+  porReparto.appendChild(tarjetaResumen(formatSoles(r.netoPorReparto), "limpio"));
+
+  const pie = document.createElement("p");
+  pie.className = "text-[10px] text-slate-400 mt-2 text-center col-span-3";
+  pie.textContent = `por cada uno de tus ${r.repartos} repartos del mes`;
+  porReparto.appendChild(pie);
+}
+
 async function fetchBudgetCategories() {
   try {
     const res = await fetch("/api/budget/categories");
     const data = await res.json();
     renderBudgetCategories(data.categorias || []);
+    renderRentabilidad(data.rentabilidad);
   } catch (err) {
     console.error("No se pudo obtener el presupuesto:", err);
   }

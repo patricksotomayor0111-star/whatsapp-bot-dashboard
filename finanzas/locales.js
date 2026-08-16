@@ -119,7 +119,12 @@ function diasEntreLabels(desde, hasta) {
 // en promedio por reparto. "diasSinPedir" mira SIEMPRE el historial
 // completo (no solo el mes elegido), porque sirve para darse cuenta de que
 // un local dejó de dar trabajo.
-function getRanking(movimientos, mes, hoyLabel) {
+// "costoPorReparto" es lo que cuesta hacer UN reparto (combustible,
+// mantenimiento: los gastos marcados como del negocio, repartidos entre
+// todos los repartos del período). Sirve para saber cuánto deja LIMPIO
+// cada local, que es distinto de lo que cobra: un local que paga S/7.40
+// deja mucho menos de lo que parece.
+function getRanking(movimientos, mes, hoyLabel, costoPorReparto = 0) {
   const delMes = gananciasDelMes(movimientos, mes);
   const porLocal = {};
 
@@ -144,13 +149,16 @@ function getRanking(movimientos, mes, hoyLabel) {
     .map((local) => {
       const acumulado = porLocal[local.id] || { total: 0, pedidos: 0 };
       const ultima = ultimaFecha[local.id] || null;
+      const promedio = acumulado.pedidos ? acumulado.total / acumulado.pedidos : 0;
       return {
         id: local.id,
         nombre: local.nombre,
         aliases: local.aliases,
         total: +acumulado.total.toFixed(2),
         pedidos: acumulado.pedidos,
-        promedio: acumulado.pedidos ? +(acumulado.total / acumulado.pedidos).toFixed(2) : 0,
+        promedio: +promedio.toFixed(2),
+        netoPorReparto: acumulado.pedidos ? +(promedio - costoPorReparto).toFixed(2) : 0,
+        netoTotal: +(acumulado.total - costoPorReparto * acumulado.pedidos).toFixed(2),
         ultimaFecha: ultima,
         diasSinPedir: ultima && hoyLabel ? diasEntreLabels(ultima, hoyLabel) : null,
       };

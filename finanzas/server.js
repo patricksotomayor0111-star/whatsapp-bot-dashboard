@@ -458,11 +458,55 @@ app.delete("/api/finance/shortfalls/:index", (req, res) => {
 app.get("/api/finance/locales", (req, res) => {
   const mes = req.query.mes || "";
   const movimientos = cashbox.getMovimientos();
+  // El costo de un reparto sale de los gastos marcados como del negocio,
+  // repartidos entre todos los repartos del mismo período.
+  const rentabilidad = budgetCategories.getRentabilidad(movimientos, mes);
   res.json({
-    ranking: locales.getRanking(movimientos, mes, cashbox.getHoyLabel()),
+    ranking: locales.getRanking(movimientos, mes, cashbox.getHoyLabel(), rentabilidad.costoPorReparto),
+    costoPorReparto: rentabilidad.costoPorReparto,
     sinAsignar: locales.getSinAsignar(movimientos, mes),
     meses: Array.from(new Set(movimientos.map((m) => m.fecha.slice(0, 7)))).sort().reverse(),
   });
+});
+
+// Mapa de cuándo entran los repartos: por día de la semana y por hora.
+// Sirve para decidir a qué hora y qué días conviene salir a trabajar.
+app.get("/api/finance/actividad", (req, res) => {
+  const mes = req.query.mes || "";
+  const repartos = cashbox
+    .getMovimientos()
+    .filter((m) => m.tipo === "ganancia" && (!mes || m.fecha.slice(0, 7) === mes));
+
+  // celdas[diaSemana][hora] = { total, pedidos }
+  const celdas = Array.from({ length: 7 }, () => Array.from({ length: 24 }, () => ({ total: 0, pedidos: 0 })));
+  const diasDistintos = Array.from({ length: 7 }, () => new Set());
+
+  repartos.forEach((m) => {
+    const [y, mo, d] = m.fecha.split("-").map(Number);
+    const dow = new Date(Date.UTC(y, mo - 1, d)).getUTCDay();
+    const hora = parseInt(String(m.hora).split(":")[0], 10);
+    if (!Number.isFinite(hora)) return;
+    celdas[dow][hora].total += m.monto;
+    celdas[dow][hora].pedidos += 1;
+    diasDistintos[dow].add(m.fecha);
+  });
+
+  // Promedio por día trabajado, para comparar días con distinta cantidad
+  // de fechas registradas sin que el que más veces cayó gane siempre.
+  const porDia = celdas.map((horas, dow) => {
+    const total = horas.reduce((s, c) => s + c.total, 0);
+    const pedidos = horas.reduce((s, c) => s + c.pedidos, 0);
+    const veces = diasDistintos[dow].size;
+    return { dow, total: +total.toFixed(2), pedidos, veces, promedio: veces ? +(total / veces).toFixed(2) : 0 };
+  });
+
+  const porHora = Array.from({ length: 24 }, (_, h) => {
+    const total = celdas.reduce((s, dia) => s + dia[h].total, 0);
+    const pedidos = celdas.reduce((s, dia) => s + dia[h].pedidos, 0);
+    return { hora: h, total: +total.toFixed(2), pedidos };
+  });
+
+  res.json({ celdas, porDia, porHora, meses: Array.from(new Set(cashbox.getMovimientos().map((m) => m.fecha.slice(0, 7)))).sort().reverse() });
 });
 
 app.post("/api/finance/locales", (req, res) => {
@@ -618,7 +662,11 @@ app.get("/api/budget/categories", (req, res) => {
   // ?mes=YYYY-MM opcional: para ver el gasto por categoría de un mes
   // anterior en los gráficos, en vez de siempre el mes en curso.
   const mes = req.query.mes || cashbox.getMesActualLabel();
-  res.json({ categorias: budgetCategories.getResumen(cashbox.getMovimientos(), mes) });
+  const movimientos = cashbox.getMovimientos();
+  res.json({
+    categorias: budgetCategories.getResumen(movimientos, mes),
+    rentabilidad: budgetCategories.getRentabilidad(movimientos, mes),
+  });
 });
 
 // Lista los gastos de una categoría (incluye "otros"), para poder verlos

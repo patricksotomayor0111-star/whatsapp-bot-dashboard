@@ -96,7 +96,20 @@ function normalizarKeywords(keywords) {
 
 // Agrega una categoría nueva (id generado a partir del nombre, sin chocar
 // con una existente ni con "otros").
-function addCategoria({ label, keywords, tipo, limiteDefault, metaDefault, saldoInicialDefault }) {
+// Un gasto puede ser del NEGOCIO (combustible, mantenimiento de la moto:
+// lo que cuesta hacer los repartos) o PERSONAL (comida, ahorros, familia).
+// Sin separarlos, la rentabilidad no se puede calcular: los ahorros y los
+// gastos de casa se cuentan como si fueran costo de operar.
+function ambitoValido(ambito) {
+  return ambito === "negocio" ? "negocio" : "personal";
+}
+
+// El ámbito de una categoría; por defecto personal, que es lo más común.
+function getAmbito(cat) {
+  return ambitoValido(cat && cat.ambito);
+}
+
+function addCategoria({ label, keywords, tipo, ambito, limiteDefault, metaDefault, saldoInicialDefault }) {
   const nombre = String(label || "").trim();
   if (!nombre) throw new Error("El nombre de la categoría no puede estar vacío.");
   let id = slugify(nombre);
@@ -109,6 +122,7 @@ function addCategoria({ label, keywords, tipo, limiteDefault, metaDefault, saldo
     label: nombre,
     keywords: normalizarKeywords(keywords),
     tipo: tipo === "meta" ? "meta" : "limite",
+    ambito: ambitoValido(ambito),
   };
   if (cat.tipo === "meta") {
     cat.metaDefault = Number(metaDefault) || 0;
@@ -129,6 +143,7 @@ function editCategoria(id, cambios) {
   if (!cat) return null;
   if (cambios.label !== undefined && String(cambios.label).trim()) cat.label = String(cambios.label).trim();
   if (cambios.keywords !== undefined) cat.keywords = normalizarKeywords(cambios.keywords);
+  if (cambios.ambito !== undefined) cat.ambito = ambitoValido(cambios.ambito);
   save();
   return cat;
 }
@@ -198,6 +213,7 @@ function getResumen(movimientos, mesActualLabel) {
         label: cat.label,
         tipo: "meta",
         keywords: cat.keywords || [],
+        ambito: getAmbito(cat),
         meta,
         saldoInicial,
         pagado,
@@ -212,6 +228,7 @@ function getResumen(movimientos, mesActualLabel) {
       label: cat.label,
       tipo: "limite",
       keywords: cat.keywords || [],
+      ambito: getAmbito(cat),
       limite,
       gastado,
       disponible: limite === null ? null : Math.max(limite - gastado, 0),
@@ -236,9 +253,47 @@ function getMovimientosCategoria(movimientos, catId, mesActualLabel) {
     .reverse();
 }
 
+// Rentabilidad real del mes: separa los gastos que cuestan hacer los
+// repartos (negocio) de los que son de casa o ahorro (personal). Sin esta
+// separación el margen sale absurdo, porque guardar plata para el terreno
+// se cuenta igual que cargar combustible.
+function getRentabilidad(movimientos, mesLabel) {
+  let ingresos = 0;
+  let gastoNegocio = 0;
+  let gastoPersonal = 0;
+  let repartos = 0;
+
+  movimientos.forEach((m) => {
+    if (mesLabel && m.fecha.slice(0, 7) !== mesLabel) return;
+    if (m.tipo === "ganancia") {
+      ingresos += m.monto;
+      repartos += 1;
+      return;
+    }
+    if (m.tipo !== "gasto") return;
+    const def = getCategoriaDef(resolveCategoriaId(m));
+    if (getAmbito(def) === "negocio") gastoNegocio += m.monto;
+    else gastoPersonal += m.monto;
+  });
+
+  const gananciaNeta = ingresos - gastoNegocio;
+  return {
+    ingresos: +ingresos.toFixed(2),
+    gastoNegocio: +gastoNegocio.toFixed(2),
+    gastoPersonal: +gastoPersonal.toFixed(2),
+    gananciaNeta: +gananciaNeta.toFixed(2),
+    margen: ingresos > 0 ? +((gananciaNeta / ingresos) * 100).toFixed(1) : 0,
+    repartos,
+    cobradoPorReparto: repartos ? +(ingresos / repartos).toFixed(2) : 0,
+    costoPorReparto: repartos ? +(gastoNegocio / repartos).toFixed(2) : 0,
+    netoPorReparto: repartos ? +(gananciaNeta / repartos).toFixed(2) : 0,
+  };
+}
+
 module.exports = {
   getAllCategorias,
   getCategoriaDef,
+  getRentabilidad,
   categorize,
   resolveCategoriaId,
   getMovimientosCategoria,
