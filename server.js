@@ -13,6 +13,7 @@ const pendingTimeMatches = require("./pendingTimeMatches");
 const groupDelays = require("./groupDelays");
 const scheduledBroadcasts = require("./scheduledBroadcasts");
 const backup = require("./backup");
+const auth = require("./auth");
 const multer = require("multer");
 
 const app = express();
@@ -30,6 +31,61 @@ const uploadBroadcastImage = multer({
   fileFilter: (req, file, cb) => {
     cb(null, /^image\//.test(file.mimetype));
   },
+});
+
+// ---------- Acceso al panel ----------
+// Todo lo de abajo pide sesión. Lo único abierto es la pantalla de entrada,
+// el endpoint para entrar y los archivos que esa pantalla necesita: sin
+// esto el panel quedaba público, con la configuración del bot, los grupos
+// de clientes y el QR de WhatsApp al alcance de cualquiera.
+// "/api/delivery-quote/request" NO lleva sesión a propósito: la llama la
+// web de Punto Caliente desde su propio servidor, no un navegador con
+// cookie. Ya tiene su propia llave (INTEGRATION_SECRET), así que pedirle
+// sesión solo rompería las cotizaciones sin agregar seguridad.
+const RUTAS_PUBLICAS = new Set([
+  "/login",
+  "/api/login",
+  "/manifest.json",
+  "/icon-192.png",
+  "/icon-512.png",
+  "/sw.js",
+  "/api/delivery-quote/request",
+]);
+
+app.post("/api/login", (req, res) => {
+  if (!auth.estaConfigurado()) {
+    return res.status(503).json({ error: "Falta configurar PANEL_PASSWORD en el servidor." });
+  }
+  if (!auth.passwordCorrecta(req.body?.password)) {
+    return res.status(401).json({ error: "Contraseña incorrecta." });
+  }
+  res.setHeader("Set-Cookie", auth.cookieDeSesion(auth.crearToken()));
+  res.json({ ok: true });
+});
+
+app.post("/api/logout", (req, res) => {
+  res.setHeader("Set-Cookie", auth.cookieVacia());
+  res.json({ ok: true });
+});
+
+app.get("/login", (req, res) => {
+  res.sendFile(path.join(__dirname, "login.html"));
+});
+
+app.use((req, res, next) => {
+  if (RUTAS_PUBLICAS.has(req.path)) return next();
+
+  if (!auth.estaConfigurado()) {
+    // Se prefiere dejar el panel cerrado antes que abierto por descuido.
+    const aviso = "Falta configurar la variable PANEL_PASSWORD en Railway para poder entrar.";
+    return req.path.startsWith("/api/")
+      ? res.status(503).json({ error: aviso })
+      : res.status(503).send(`<h1>Panel bloqueado</h1><p>${aviso}</p>`);
+  }
+
+  if (auth.haySesion(req)) return next();
+
+  return req.path.startsWith("/api/") ? res.status(401).json({ error: "Sesión expirada." }) : res.redirect("/login");
 });
 
 // Solo se exponen estos 3 archivos del panel (no todo el proyecto,

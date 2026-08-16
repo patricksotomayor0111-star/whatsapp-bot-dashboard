@@ -2,6 +2,16 @@
    WhatsApp Bot Dashboard — Lógica principal
    ========================================= */
 
+// Cuando la sesión vence, el servidor responde 401 a todo. Sin esto el
+// panel se quedaría fallando en silencio, así que se vuelve a la pantalla
+// de entrada apenas pasa.
+const fetchOriginal = window.fetch.bind(window);
+window.fetch = async (...args) => {
+  const respuesta = await fetchOriginal(...args);
+  if (respuesta.status === 401) window.location.href = "/login";
+  return respuesta;
+};
+
 // ---------- Referencias del DOM ----------
 const qrCard = document.getElementById("qrCard");
 const qrCanvas = document.getElementById("qrCanvas");

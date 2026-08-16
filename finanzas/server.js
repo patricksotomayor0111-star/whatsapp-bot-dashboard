@@ -16,12 +16,58 @@ const scheduledExpenses = require("./scheduledExpenses");
 const tasks = require("./tasks");
 const locales = require("./locales");
 const backup = require("./backup");
+const auth = require("./auth");
 const ExcelJS = require("exceljs");
 
 const app = express();
 // El límite por defecto de Express son 100kb, que no alcanza para restaurar
 // un respaldo (lleva todo el historial de la caja chica).
 app.use(express.json({ limit: "25mb" }));
+
+// ---------- Acceso al panel ----------
+// Todo lo de abajo pide sesión. Lo único abierto es la pantalla de entrada,
+// el endpoint para entrar y los archivos que esa pantalla necesita para
+// dibujarse (íconos y manifest): sin esto el panel quedaba público, con la
+// información financiera y el QR de WhatsApp al alcance de cualquiera.
+const RUTAS_PUBLICAS = new Set(["/login", "/api/login", "/manifest.json", "/icon-192.png", "/icon-512.png", "/sw.js"]);
+
+app.post("/api/login", (req, res) => {
+  if (!auth.estaConfigurado()) {
+    return res.status(503).json({ error: "Falta configurar PANEL_PASSWORD en el servidor." });
+  }
+  if (!auth.passwordCorrecta(req.body?.password)) {
+    return res.status(401).json({ error: "Contraseña incorrecta." });
+  }
+  res.setHeader("Set-Cookie", auth.cookieDeSesion(auth.crearToken()));
+  res.json({ ok: true });
+});
+
+app.post("/api/logout", (req, res) => {
+  res.setHeader("Set-Cookie", auth.cookieVacia());
+  res.json({ ok: true });
+});
+
+app.get("/login", (req, res) => {
+  res.sendFile(path.join(__dirname, "login.html"));
+});
+
+app.use((req, res, next) => {
+  if (RUTAS_PUBLICAS.has(req.path)) return next();
+
+  if (!auth.estaConfigurado()) {
+    // Se prefiere dejar el panel cerrado antes que abierto por descuido.
+    const aviso = "Falta configurar la variable PANEL_PASSWORD en Railway para poder entrar.";
+    return req.path.startsWith("/api/")
+      ? res.status(503).json({ error: aviso })
+      : res.status(503).send(`<h1>Panel bloqueado</h1><p>${aviso}</p>`);
+  }
+
+  if (auth.haySesion(req)) return next();
+
+  // A la API se le contesta 401 (para que el panel sepa que expiró la
+  // sesión); a una pantalla se la manda a la de entrada.
+  return req.path.startsWith("/api/") ? res.status(401).json({ error: "Sesión expirada." }) : res.redirect("/login");
+});
 
 // Solo se exponen estos archivos del panel (no todo el proyecto, para no
 // dejar accesible el código del bot ni la sesión de WhatsApp).

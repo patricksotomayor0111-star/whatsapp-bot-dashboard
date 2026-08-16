@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0F172A" />
+  <title>Bot Delivery · Entrar</title>
+  <link rel="icon" href="/icon-192.png" />
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-900 flex items-center justify-center px-5">
+  <div class="w-full max-w-[340px]">
+    <div class="text-center mb-6">
+      <div class="w-16 h-16 rounded-2xl bg-green-500/10 flex items-center justify-center mx-auto mb-3 text-3xl">🛵</div>
+      <h1 class="text-white font-bold text-xl">Bot Delivery</h1>
+      <p class="text-slate-400 text-xs mt-1">Ingresa tu contraseña para continuar</p>
+    </div>
+
+    <form id="loginForm" class="space-y-3">
+      <input
+        id="password"
+        type="password"
+        autocomplete="current-password"
+        placeholder="Contraseña"
+        class="w-full bg-slate-800 text-white rounded-xl px-4 py-3 text-sm border border-slate-700 focus:outline-none focus:ring-2 focus:ring-green-500/50 placeholder-slate-500"
+      />
+      <button
+        type="submit"
+        id="entrarBtn"
+        class="w-full rounded-xl px-4 py-3 text-sm font-semibold bg-green-500 text-white active:scale-95 transition-all disabled:opacity-50"
+      >
+        Entrar
+      </button>
+      <p id="error" class="hidden text-center text-xs text-rose-400"></p>
+    </form>
+  </div>
+
+  <script>
+    const form = document.getElementById("loginForm");
+    const passwordInput = document.getElementById("password");
+    const entrarBtn = document.getElementById("entrarBtn");
+    const error = document.getElementById("error");
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      error.classList.add("hidden");
+      entrarBtn.disabled = true;
+      entrarBtn.textContent = "Entrando...";
+      try {
+        const res = await fetch("/api/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password: passwordInput.value }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          window.location.href = "/";
+          return;
+        }
+        error.textContent = data.error || "Contraseña incorrecta.";
+        error.classList.remove("hidden");
+      } catch (err) {
+        error.textContent = "No se pudo conectar con el servidor.";
+        error.classList.remove("hidden");
+      }
+      entrarBtn.disabled = false;
+      entrarBtn.textContent = "Entrar";
+      passwordInput.select();
+    });
+
+    passwordInput.focus();
+  </script>
+</body>
+</html>
