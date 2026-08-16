@@ -79,6 +79,15 @@
       passwordInput.select();
     });
 
+    // La pantalla de entrada también usa el nombre y el logo configurados.
+    fetch("/api/marca")
+      .then((r) => r.json())
+      .then((m) => {
+        document.querySelector("h1").textContent = m.nombre;
+        document.title = m.nombre + " · Entrar";
+      })
+      .catch(() => {});
+
     usuarioInput.focus();
   </script>
 </body>

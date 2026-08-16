@@ -601,6 +601,23 @@
       </div>
       <div class="flex-1 overflow-y-auto px-5 py-5 space-y-6">
         <div id="seccionDueno" class="hidden space-y-6">
+        <section class="pb-4 border-b border-slate-100">
+          <p class="eyebrow text-brand-green"><i class="fa-solid fa-palette"></i> MARCA DE LA APP</p>
+          <p class="text-xs text-slate-400 mt-1 mb-2">El nombre y el logo que ven todos tus clientes. Es tu producto, así que esto no lo edita nadie más.</p>
+          <div class="space-y-2">
+            <div class="flex items-center gap-3">
+              <img id="marcaIconoPreview" src="/icon-192.png" class="w-12 h-12 rounded-xl object-cover border border-slate-200" />
+              <div class="flex-1">
+                <input id="marcaIconoInput" type="file" accept="image/png,image/jpeg" class="w-full text-xs" />
+                <button id="quitarMarcaIconoBtn" class="hidden text-[11px] text-rose-600 mt-1">Volver al logo original</button>
+              </div>
+            </div>
+            <input id="marcaNombre" type="text" placeholder="Nombre de la app" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200" />
+            <input id="marcaDescripcion" type="text" placeholder="Descripción corta" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200" />
+            <button id="guardarMarcaBtn" class="w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-brand-green text-white active:scale-95 transition-all">Guardar marca</button>
+            <p class="text-[11px] text-slate-400">Ojo: a quien ya instaló la app en su celular, el ícono y el nombre del escritorio no le cambian hasta que la reinstale.</p>
+          </div>
+        </section>
         <p class="text-xs text-slate-400">Cada cuenta tiene su propia caja, sus locales, sus metas y sus deudas. Una cuenta nunca ve los datos de otra.</p>
 
         <div id="cuentasList" class="space-y-2"></div>

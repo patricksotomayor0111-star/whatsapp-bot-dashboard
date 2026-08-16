@@ -21,6 +21,7 @@ const users = require("./users");
 const contexto = require("./contexto");
 const chatConfig = require("./chatConfig");
 const custodias = require("./custodias");
+const marca = require("./marca");
 
 // Crea la cuenta del dueño y le pasa los datos que hoy están sueltos en el
 // volumen. Se hace al arrancar, antes de atender cualquier pedido.
@@ -39,6 +40,19 @@ app.use(express.json({ limit: "25mb" }));
 // dibujarse (íconos y manifest): sin esto el panel quedaba público, con la
 // información financiera y el QR de WhatsApp al alcance de cualquiera.
 const RUTAS_PUBLICAS = new Set(["/login", "/api/login", "/manifest.json", "/icon-192.png", "/icon-512.png", "/sw.js"]);
+
+// La marca se puede LEER sin sesión (la pantalla de entrada la necesita
+// para pintarse), pero escribirla no: eso pasa por el candado y queda
+// solo para el dueño. Si se dejara la ruta entera abierta, el pedido no
+// pasaría por el middleware y nadie quedaría identificado.
+const GETS_PUBLICOS = new Set(["/api/marca"]);
+
+// Nombre y logo de la app. Es lo único que NO es por cuenta: es la marca
+// del producto, igual para todos. Se sirve sin sesión porque la pantalla
+// de entrada también la necesita para pintarse.
+app.get("/api/marca", (req, res) => {
+  res.json(marca.getMarca());
+});
 
 app.post("/api/login", (req, res) => {
   if (!auth.estaConfigurado()) {
@@ -80,6 +94,7 @@ app.get("/login", (req, res) => {
 
 app.use((req, res, next) => {
   if (RUTAS_PUBLICAS.has(req.path)) return next();
+  if (req.method === "GET" && GETS_PUBLICOS.has(req.path)) return next();
 
   if (!auth.estaConfigurado()) {
     // Se prefiere dejar el panel cerrado antes que abierto por descuido.
@@ -122,6 +137,26 @@ app.get("/api/sesion", (req, res) => {
 app.post("/api/tutorial-visto", (req, res) => {
   chatConfig.marcarTutorialVisto();
   res.json({ ok: true });
+});
+
+app.post("/api/marca", soloDueno, (req, res) => {
+  try {
+    res.json({ ok: true, marca: marca.setMarca(req.body || {}) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/marca/icono", soloDueno, (req, res) => {
+  try {
+    res.json({ ok: true, marca: marca.setIcono(req.body?.icono) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete("/api/marca/icono", soloDueno, (req, res) => {
+  res.json({ ok: true, marca: marca.quitarIcono() });
 });
 
 app.get("/api/usuarios", soloDueno, (req, res) => {
@@ -179,17 +214,35 @@ app.get("/script.js", (req, res) => {
   res.sendFile(path.join(__dirname, "script.js"));
 });
 app.get("/manifest.json", (req, res) => {
-  res.sendFile(path.join(__dirname, "manifest.json"));
+  // Se arma al vuelo para que refleje el nombre y el logo configurados.
+  const { nombre, descripcion } = marca.getMarca();
+  res.json({
+    name: nombre,
+    short_name: nombre,
+    description: descripcion,
+    start_url: "/",
+    scope: "/",
+    display: "standalone",
+    background_color: "#F8FAFC",
+    theme_color: "#22C55E",
+    orientation: "portrait",
+    icons: [
+      { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any maskable" },
+      { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
+    ],
+  });
 });
 app.get("/sw.js", (req, res) => {
   res.sendFile(path.join(__dirname, "sw.js"));
 });
-app.get("/icon-192.png", (req, res) => {
-  res.sendFile(path.join(__dirname, "icon-192.png"));
-});
-app.get("/icon-512.png", (req, res) => {
-  res.sendFile(path.join(__dirname, "icon-512.png"));
-});
+function servirIcono(nombreArchivo) {
+  return (req, res) => {
+    const propio = marca.getIconoPath();
+    res.sendFile(propio || path.join(__dirname, nombreArchivo));
+  };
+}
+app.get("/icon-192.png", servirIcono("icon-192.png"));
+app.get("/icon-512.png", servirIcono("icon-512.png"));
 
 // Endpoint mínimo para medir la calidad de conexión real del celular/PC
 // que tiene el panel abierto. No hace nada más que responder rápido.

@@ -370,6 +370,77 @@ chatCajaSelect.addEventListener("change", async () => {
   fetchChatConfig();
 });
 
+// ---------- Marca de la app (nombre y logo, iguales para todos) ----------
+const marcaIconoPreview = document.getElementById("marcaIconoPreview");
+const marcaIconoInput = document.getElementById("marcaIconoInput");
+const quitarMarcaIconoBtn = document.getElementById("quitarMarcaIconoBtn");
+const marcaNombre = document.getElementById("marcaNombre");
+const marcaDescripcion = document.getElementById("marcaDescripcion");
+const guardarMarcaBtn = document.getElementById("guardarMarcaBtn");
+
+function aplicarMarca(m) {
+  // El nombre se pinta en la cabecera y en la pestaña del navegador, para
+  // que el cambio se vea sin tener que reinstalar nada.
+  const titulo = document.querySelector("header h1");
+  if (titulo) titulo.textContent = m.nombre;
+  document.title = m.nombre;
+  marcaNombre.value = m.nombre;
+  marcaDescripcion.value = m.descripcion;
+  quitarMarcaIconoBtn.classList.toggle("hidden", !m.tieneIcono);
+  // El "?t" obliga al navegador a volver a pedir el logo en vez de usar
+  // el que tenía guardado.
+  marcaIconoPreview.src = `/icon-192.png?t=${Date.now()}`;
+}
+
+async function fetchMarca() {
+  try {
+    aplicarMarca(await (await fetch("/api/marca")).json());
+  } catch (err) {
+    console.error("No se pudo obtener la marca:", err);
+  }
+}
+
+guardarMarcaBtn.addEventListener("click", async () => {
+  const res = await fetch("/api/marca", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ nombre: marcaNombre.value, descripcion: marcaDescripcion.value }),
+  });
+  const data = await res.json();
+  if (!data.ok) {
+    alert(data.error || "No se pudo guardar.");
+    return;
+  }
+  aplicarMarca(data.marca);
+  alert("Marca actualizada.");
+});
+
+marcaIconoInput.addEventListener("change", async () => {
+  const archivo = marcaIconoInput.files[0];
+  if (!archivo) return;
+  const lector = new FileReader();
+  lector.onload = async () => {
+    const res = await fetch("/api/marca/icono", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ icono: lector.result }),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      alert(data.error || "No se pudo subir el logo.");
+      return;
+    }
+    marcaIconoInput.value = "";
+    aplicarMarca(data.marca);
+  };
+  lector.readAsDataURL(archivo);
+});
+
+quitarMarcaIconoBtn.addEventListener("click", async () => {
+  const data = await (await fetch("/api/marca/icono", { method: "DELETE" })).json();
+  aplicarMarca(data.marca);
+});
+
 // ---------- Cuentas de usuario (solo el dueño) ----------
 const openCuentas = document.getElementById("openCuentas");
 const cuentasOverlay = document.getElementById("cuentasOverlay");
@@ -3582,6 +3653,7 @@ backupRestoreBtn.addEventListener("click", async () => {
 // ---------- Inicialización ----------
 document.addEventListener("DOMContentLoaded", () => {
   fetchSesion();
+  fetchMarca();
   fetchChatConfig();
   updateBotUI();
   pollStatus();
