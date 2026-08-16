@@ -224,12 +224,19 @@ app.post("/api/finance/movements", (req, res) => {
 app.put("/api/finance/movements/:index", (req, res) => {
   const mov = cashbox.editMovimiento(Number(req.params.index), req.body || {});
   if (!mov) return res.status(404).json({ error: "Movimiento no encontrado." });
+  // Si este gasto salió de un faltante, el total de faltantes tiene que
+  // seguir el mismo cambio (si no, quedaría contando el monto viejo).
+  if (mov.id) shortfalls.editPorMovimiento(mov.id, req.body || {});
   res.json({ ok: true, movimiento: mov });
 });
 
 app.delete("/api/finance/movements/:index", (req, res) => {
+  // Se mira el id ANTES de borrarlo, para poder descontar el faltante que
+  // lo haya generado.
+  const movimientoId = cashbox.getMovimientos()[Number(req.params.index)]?.id;
   const ok = cashbox.removeMovimiento(Number(req.params.index));
   if (!ok) return res.status(404).json({ error: "Movimiento no encontrado." });
+  if (movimientoId) shortfalls.removePorMovimiento(movimientoId);
   res.json({ ok: true });
 });
 
@@ -420,22 +427,27 @@ app.post("/api/finance/shortfalls", (req, res) => {
     return res.status(400).json({ error: "Se requiere 'monto' válido." });
   }
   // Igual que "menos X falto" por WhatsApp: resta de la caja como un gasto
-  // normal, además de quedar en el total de faltantes aparte.
-  cashbox.addGasto(montoNum, req.body?.descripcion);
-  shortfalls.addFaltante(montoNum, req.body?.descripcion);
+  // normal, además de quedar en el total de faltantes aparte. Los dos
+  // quedan enlazados por el id del gasto, para poder corregirlos juntos.
+  const movimientoId = cashbox.addGasto(montoNum, req.body?.descripcion);
+  shortfalls.addFaltante(montoNum, req.body?.descripcion, movimientoId);
   res.json({ ok: true });
 });
 
 app.put("/api/finance/shortfalls/:index", (req, res) => {
   const mov = shortfalls.editMovimiento(Number(req.params.index), req.body || {});
   if (!mov) return res.status(404).json({ error: "Movimiento no encontrado." });
+  // El gasto que este faltante dejó en la caja tiene que quedar igual, si no
+  // el efectivo esperado seguiría calculado con el monto viejo.
+  if (mov.movimientoId) cashbox.editMovimientoPorId(mov.movimientoId, req.body || {});
   res.json({ ok: true, movimiento: mov });
 });
 
 app.delete("/api/finance/shortfalls/:index", (req, res) => {
-  const ok = shortfalls.removeMovimiento(Number(req.params.index));
-  if (!ok) return res.status(404).json({ error: "Movimiento no encontrado." });
-  res.json({ ok: true });
+  const mov = shortfalls.removeMovimiento(Number(req.params.index));
+  if (!mov) return res.status(404).json({ error: "Movimiento no encontrado." });
+  if (mov.movimientoId) cashbox.removeMovimientoPorId(mov.movimientoId);
+  res.json({ ok: true, enlazado: !!mov.movimientoId });
 });
 
 // Cuentas de referencia (Yape/Plin/Sip/Efectivo, editable)

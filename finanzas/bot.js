@@ -503,8 +503,10 @@ function handleCashboxEntries(entradas) {
     } else if (entrada.type === "deuda_pago") {
       debts.payDebt(entrada.persona, entrada.monto, entrada.descripcion);
     } else if (entrada.type === "faltante") {
-      cashbox.addGasto(entrada.monto, entrada.descripcion);
-      shortfalls.addFaltante(entrada.monto, entrada.descripcion);
+      // Los dos quedan enlazados por el id del gasto, para poder
+      // corregirlos juntos después desde el panel.
+      const movimientoId = cashbox.addGasto(entrada.monto, entrada.descripcion);
+      shortfalls.addFaltante(entrada.monto, entrada.descripcion, movimientoId);
     } else if (entrada.type === "referencia") {
       referenceAccounts.addEntrada(entrada.cuenta, entrada.monto, entrada.descripcion);
     } else {

@@ -61,18 +61,32 @@ const { peruAhora, fechaLabel, horaLabel, businessDayLabel, diasEnMes: diasEnMes
 // Cada movimiento queda registrado con el DÍA LABORAL (7am-7am, no el
 // calendario) y la hora real (Perú), para que un registro de la madrugada
 // (antes de las 7am) siga agrupado con el día que todavía sigue abierto.
+// Id propio de cada movimiento. Sirve para que otra cosa (hoy los
+// faltantes) pueda apuntar a un movimiento concreto y seguirlo aunque la
+// lista cambie de orden: el índice del arreglo se corre cuando se borra
+// algo, el id no. Los movimientos viejos no tienen id y siguen
+// funcionando igual, solo que sin ese enlace.
+let contadorMovimientos = 0;
+function nuevoMovimientoId() {
+  contadorMovimientos += 1;
+  return `mov_${Date.now()}_${contadorMovimientos}`;
+}
+
 function registrarMovimiento(tipo, monto, descripcion) {
   const ahora = peruAhora();
-  data.movimientos.push({
+  const movimiento = {
+    id: nuevoMovimientoId(),
     fecha: businessDayLabel(),
     hora: horaLabel(ahora),
     tipo,
     monto,
     descripcion: descripcion || "",
-  });
+  };
+  data.movimientos.push(movimiento);
   if (data.movimientos.length > MAX_MOVIMIENTOS) {
     data.movimientos.splice(0, data.movimientos.length - MAX_MOVIMIENTOS);
   }
+  return movimiento;
 }
 
 function addGanancia(monto, descripcion) {
@@ -81,10 +95,13 @@ function addGanancia(monto, descripcion) {
   save();
 }
 
+// Devuelve el id del movimiento creado, para poder enlazarlo después
+// (ej. el gasto que genera un faltante).
 function addGasto(monto, descripcion) {
   data.todayGastos += monto;
-  registrarMovimiento("gasto", monto, descripcion);
+  const movimiento = registrarMovimiento("gasto", monto, descripcion);
   save();
+  return movimiento.id;
 }
 
 // Un conteo de caja ("1050 caja chica") es borrón y cuenta nueva: la plata
@@ -305,12 +322,19 @@ function efectoDelta(tipo, monto, signo) {
 // se quiere registrar algo de un día pasado).
 function addMovimientoManual(tipo, monto, descripcion, fecha, hora) {
   const ahora = peruAhora();
-  const f = fecha || fechaLabel(ahora);
+  // Sin fecha explícita va el DÍA LABORAL, igual que los movimientos que
+  // entran por WhatsApp. Antes usaba la fecha del calendario: de madrugada
+  // (entre las 12 y las 7am, que todavía es el día laboral anterior) las
+  // dos no coincidían y el movimiento quedaba en la lista sin descontarse
+  // nunca de la caja.
+  const f = fecha || businessDayLabel();
   const h = hora || horaLabel(ahora);
-  data.movimientos.push({ fecha: f, hora: h, tipo, monto, descripcion: descripcion || "" });
+  const movimiento = { id: nuevoMovimientoId(), fecha: f, hora: h, tipo, monto, descripcion: descripcion || "" };
+  data.movimientos.push(movimiento);
   const efecto = efectoDelta(tipo, monto, 1);
   ajustarTotalesPorFecha(f, efecto.g, efecto.gs);
   save();
+  return movimiento.id;
 }
 
 // Edita un movimiento existente (por índice en el arreglo que devuelve
@@ -341,6 +365,19 @@ function editMovimiento(indice, cambios) {
 
   save();
   return mov;
+}
+
+// Las dos de abajo son las mismas de arriba pero buscando por id en vez de
+// por índice, para lo que necesita seguir un movimiento concreto aunque la
+// lista se haya movido (ej. el gasto enlazado a un faltante).
+function editMovimientoPorId(id, cambios) {
+  const indice = data.movimientos.findIndex((m) => m.id === id);
+  return indice === -1 ? null : editMovimiento(indice, cambios);
+}
+
+function removeMovimientoPorId(id) {
+  const indice = data.movimientos.findIndex((m) => m.id === id);
+  return indice === -1 ? false : removeMovimiento(indice);
 }
 
 // Elimina un movimiento (por índice) y revierte su efecto de los totales.
@@ -514,4 +551,6 @@ module.exports = {
   addMovimientoManual,
   editMovimiento,
   removeMovimiento,
+  editMovimientoPorId,
+  removeMovimientoPorId,
 };

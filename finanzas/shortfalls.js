@@ -43,7 +43,11 @@ function horaLabel(d) {
 // "Menos X falto": ya se resta de la caja como un gasto normal (eso lo hace
 // quien llama a esto, vía cashbox.addGasto); acá solo se lleva la cuenta
 // aparte de cuánto se ha perdido en total.
-function addFaltante(monto, descripcion) {
+//
+// "movimientoId" es el gasto que quedó en la caja por este faltante, para
+// poder corregirlo o borrarlo junto con él. Los faltantes viejos no lo
+// tienen: en esos, cada lado se sigue corrigiendo por separado.
+function addFaltante(monto, descripcion, movimientoId) {
   const ahora = peruAhora();
   data.total += monto;
   data.movimientos.push({
@@ -51,6 +55,7 @@ function addFaltante(monto, descripcion) {
     hora: horaLabel(ahora),
     monto,
     descripcion: descripcion || "",
+    movimientoId: movimientoId || null,
   });
   save();
 }
@@ -63,9 +68,9 @@ function getMovimientos() {
   return data.movimientos;
 }
 
-// Nota: esto solo corrige el total de faltantes acumulado. El gasto que
-// ese faltante generó en la caja (cashbox.js) es un movimiento aparte y se
-// edita/elimina desde ahí si también hace falta corregirlo.
+// Corrige el total de faltantes. Devuelve el movimiento (con su
+// "movimientoId") para que quien llama arregle también el gasto que quedó
+// en la caja, y los dos lados no se desincronicen.
 function editMovimiento(indice, cambios) {
   const mov = data.movimientos[indice];
   if (!mov) return null;
@@ -79,13 +84,29 @@ function editMovimiento(indice, cambios) {
   return mov;
 }
 
+// Devuelve el faltante que se borró (o null), por el mismo motivo.
 function removeMovimiento(indice) {
   const mov = data.movimientos[indice];
-  if (!mov) return false;
+  if (!mov) return null;
   data.total -= mov.monto;
   data.movimientos.splice(indice, 1);
   save();
-  return true;
+  return mov;
+}
+
+// El camino inverso: borrar el gasto desde Movimientos también tiene que
+// descontar ese faltante del total acumulado.
+function removePorMovimiento(movimientoId) {
+  if (!movimientoId) return null;
+  const indice = data.movimientos.findIndex((m) => m.movimientoId === movimientoId);
+  return indice === -1 ? null : removeMovimiento(indice);
+}
+
+// Y editar el monto del gasto tiene que corregir el faltante.
+function editPorMovimiento(movimientoId, cambios) {
+  if (!movimientoId) return null;
+  const indice = data.movimientos.findIndex((m) => m.movimientoId === movimientoId);
+  return indice === -1 ? null : editMovimiento(indice, cambios);
 }
 
 module.exports = {
@@ -94,4 +115,6 @@ module.exports = {
   getMovimientos,
   editMovimiento,
   removeMovimiento,
+  removePorMovimiento,
+  editPorMovimiento,
 };
