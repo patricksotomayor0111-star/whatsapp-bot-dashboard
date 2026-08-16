@@ -169,6 +169,7 @@ function getProyeccionRestoDeMes() {
 }
 
 module.exports = {
+  SEED_ORIGINAL: SEED,
   getAll,
   addGasto,
   editGasto,

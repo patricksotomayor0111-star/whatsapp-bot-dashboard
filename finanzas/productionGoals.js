@@ -110,4 +110,4 @@ function getProgresoHoy() {
   };
 }
 
-module.exports = { getMeta, getAllMetas, setMeta, removeMeta, getProgresoMes, getProgresoHoy };
+module.exports = { SEED_ORIGINAL: SEED, getMeta, getAllMetas, setMeta, removeMeta, getProgresoMes, getProgresoHoy };

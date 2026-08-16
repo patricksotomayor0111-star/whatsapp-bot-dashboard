@@ -521,6 +521,7 @@ function getPagosMesRestante() {
 }
 
 module.exports = {
+  SEED_ORIGINAL: SEED,
   getPendientes,
   getAll,
   getById,

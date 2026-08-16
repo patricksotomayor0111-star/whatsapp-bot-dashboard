@@ -24,6 +24,7 @@ const chatConfig = require("./chatConfig");
 // Crea la cuenta del dueño y le pasa los datos que hoy están sueltos en el
 // volumen. Se hace al arrancar, antes de atender cualquier pedido.
 users.asegurarDueno();
+require("./limpiarSemillas").limpiar();
 const ExcelJS = require("exceljs");
 
 const app = express();

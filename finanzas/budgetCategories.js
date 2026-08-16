@@ -292,6 +292,7 @@ function getRentabilidad(movimientos, mesLabel) {
 }
 
 module.exports = {
+  SEMILLA_ORIGINAL: CATEGORIAS_SEMILLA,
   getAllCategorias,
   getCategoriaDef,
   getRentabilidad,
