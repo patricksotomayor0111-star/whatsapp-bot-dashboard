@@ -1,7 +1,5 @@
-const fs = require("fs");
-const { dataPath } = require("./dataDir");
+const { crearAlmacen } = require("./almacenPorUsuario");
 
-const DATA_PATH = dataPath("budget-categories-data.json");
 
 // Categorías originales (orden de prioridad: la primera palabra clave que
 // aparezca en la descripción gana, por eso "colegio" va antes que "mia").
@@ -26,10 +24,9 @@ const CATEGORIAS_SEMILLA = [
 ];
 const CATEGORIA_OTROS = { id: "otros", label: "Otros", keywords: [], tipo: "limite", limiteDefault: null };
 
-function loadData() {
+
+const almacen = crearAlmacen("budget-categories-data.json", function (parsed) {
   try {
-    const raw = fs.readFileSync(DATA_PATH, "utf8");
-    const parsed = JSON.parse(raw);
     return {
       categorias: Array.isArray(parsed.categorias) && parsed.categorias.length ? parsed.categorias : CATEGORIAS_SEMILLA.slice(),
       limits: parsed.limits || {},
@@ -38,32 +35,25 @@ function loadData() {
   } catch (err) {
     return { categorias: CATEGORIAS_SEMILLA.slice(), limits: {}, metas: {} };
   }
-}
+});
+const datos = almacen.datos;
+const save = almacen.guardar;
 
-const data = loadData();
-
-function save() {
-  try {
-    fs.writeFileSync(DATA_PATH, JSON.stringify(data, null, 2));
-  } catch (err) {
-    console.error("No se pudo guardar budget-categories-data.json:", err.message);
-  }
-}
 
 function getCategoriaDef(id) {
   if (id === "otros") return CATEGORIA_OTROS;
-  return data.categorias.find((c) => c.id === id) || null;
+  return datos().categorias.find((c) => c.id === id) || null;
 }
 
 function getAllCategorias() {
-  return [...data.categorias, CATEGORIA_OTROS];
+  return [...datos().categorias, CATEGORIA_OTROS];
 }
 
 // Clasifica una descripción en una categoría según la primera palabra
 // clave que matchee (en orden de prioridad). Si ninguna matchea, "Otros".
 function categorize(descripcion) {
   const texto = String(descripcion || "").toLowerCase();
-  for (const cat of data.categorias) {
+  for (const cat of datos().categorias) {
     if (cat.keywords.some((kw) => texto.includes(kw))) return cat.id;
   }
   return "otros";
@@ -74,7 +64,7 @@ function categorize(descripcion) {
 // solo por palabras clave en la descripción.
 function resolveCategoriaId(movimiento) {
   const manual = movimiento.categoriaId;
-  if (manual && (manual === "otros" || data.categorias.some((c) => c.id === manual))) return manual;
+  if (manual && (manual === "otros" || datos().categorias.some((c) => c.id === manual))) return manual;
   return categorize(movimiento.descripcion);
 }
 
@@ -114,7 +104,7 @@ function addCategoria({ label, keywords, tipo, ambito, limiteDefault, metaDefaul
   if (!nombre) throw new Error("El nombre de la categoría no puede estar vacío.");
   let id = slugify(nombre);
   let sufijo = 1;
-  while (id === "otros" || data.categorias.some((c) => c.id === id)) {
+  while (id === "otros" || datos().categorias.some((c) => c.id === id)) {
     id = `${slugify(nombre)}_${sufijo++}`;
   }
   const cat = {
@@ -131,7 +121,7 @@ function addCategoria({ label, keywords, tipo, ambito, limiteDefault, metaDefaul
     cat.limiteDefault =
       limiteDefault === null || limiteDefault === undefined || limiteDefault === "" ? null : Number(limiteDefault);
   }
-  data.categorias.push(cat);
+  datos().categorias.push(cat);
   save();
   return cat;
 }
@@ -139,7 +129,7 @@ function addCategoria({ label, keywords, tipo, ambito, limiteDefault, metaDefaul
 // Edita el nombre y/o las palabras clave de una categoría existente (no
 // cambia su tipo ni su id, para no romper límites/metas ya guardados).
 function editCategoria(id, cambios) {
-  const cat = data.categorias.find((c) => c.id === id);
+  const cat = datos().categorias.find((c) => c.id === id);
   if (!cat) return null;
   if (cambios.label !== undefined && String(cambios.label).trim()) cat.label = String(cambios.label).trim();
   if (cambios.keywords !== undefined) cat.keywords = normalizarKeywords(cambios.keywords);
@@ -152,30 +142,30 @@ function editCategoria(id, cambios) {
 // puede eliminar, es el cajón de sastre por defecto.
 function removeCategoria(id) {
   if (id === "otros") return false;
-  const antes = data.categorias.length;
-  data.categorias = data.categorias.filter((c) => c.id !== id);
-  delete data.limits[id];
-  delete data.metas[id];
+  const antes = datos().categorias.length;
+  datos().categorias = datos().categorias.filter((c) => c.id !== id);
+  delete datos().limits[id];
+  delete datos().metas[id];
   save();
-  return data.categorias.length < antes;
+  return datos().categorias.length < antes;
 }
 
 function getLimit(id) {
-  if (Object.prototype.hasOwnProperty.call(data.limits, id)) return data.limits[id];
+  if (Object.prototype.hasOwnProperty.call(datos().limits, id)) return datos().limits[id];
   const def = getCategoriaDef(id);
   return def ? def.limiteDefault : null;
 }
 
 function setLimit(id, valor) {
   if (!getCategoriaDef(id)) throw new Error("Categoría inválida: " + id);
-  data.limits[id] = valor === null || valor === "" || valor === undefined ? null : Number(valor);
+  datos().limits[id] = valor === null || valor === "" || valor === undefined ? null : Number(valor);
   save();
 }
 
 function getMeta(id) {
   const def = getCategoriaDef(id);
-  if (Object.prototype.hasOwnProperty.call(data.metas, id)) {
-    return { meta: data.metas[id].meta, saldoInicial: data.metas[id].saldoInicial };
+  if (Object.prototype.hasOwnProperty.call(datos().metas, id)) {
+    return { meta: datos().metas[id].meta, saldoInicial: datos().metas[id].saldoInicial };
   }
   return { meta: def?.metaDefault || 0, saldoInicial: def?.saldoInicialDefault || 0 };
 }
@@ -183,7 +173,7 @@ function getMeta(id) {
 function setMeta(id, meta, saldoInicial) {
   const def = getCategoriaDef(id);
   if (!def || def.tipo !== "meta") throw new Error("Categoría inválida o no es de tipo meta: " + id);
-  data.metas[id] = { meta: Number(meta) || 0, saldoInicial: Number(saldoInicial) || 0 };
+  datos().metas[id] = { meta: Number(meta) || 0, saldoInicial: Number(saldoInicial) || 0 };
   save();
 }
 

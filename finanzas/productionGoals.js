@@ -1,8 +1,6 @@
-const fs = require("fs");
-const { dataPath } = require("./dataDir");
+const { crearAlmacen } = require("./almacenPorUsuario");
 const cashbox = require("./cashbox");
 
-const DATA_PATH = dataPath("production-goals-data.json");
 
 // Meta de producción diaria por mes: un mínimo diario base más una
 // cantidad aproximada de días de producción del mes (puede incluir
@@ -11,49 +9,41 @@ const DATA_PATH = dataPath("production-goals-data.json");
 // (S/5,400 de referencia mensual).
 const SEED = { "2026-08": { metaDiariaBase: 200, diasProduccion: 27 } };
 
-function loadData() {
+
+const almacen = crearAlmacen("production-goals-data.json", function (parsed) {
   try {
-    const raw = fs.readFileSync(DATA_PATH, "utf8");
-    const parsed = JSON.parse(raw);
     return { metas: parsed.metas && typeof parsed.metas === "object" ? parsed.metas : { ...SEED } };
   } catch (err) {
     return { metas: { ...SEED } };
   }
-}
+});
+const datos = almacen.datos;
+const save = almacen.guardar;
 
-const data = loadData();
-
-function save() {
-  try {
-    fs.writeFileSync(DATA_PATH, JSON.stringify(data, null, 2));
-  } catch (err) {
-    console.error("No se pudo guardar production-goals-data.json:", err.message);
-  }
-}
 
 function getMeta(mesLabel) {
-  return data.metas[mesLabel] || null;
+  return datos().metas[mesLabel] || null;
 }
 
 function getAllMetas() {
-  return Object.keys(data.metas)
+  return Object.keys(datos().metas)
     .sort()
-    .map((mes) => ({ mes, ...data.metas[mes] }));
+    .map((mes) => ({ mes, ...datos().metas[mes] }));
 }
 
 function setMeta(mesLabel, metaDiariaBase, diasProduccion) {
   if (!/^\d{4}-\d{2}$/.test(String(mesLabel || ""))) throw new Error("Mes inválido (usar YYYY-MM): " + mesLabel);
-  data.metas[mesLabel] = {
+  datos().metas[mesLabel] = {
     metaDiariaBase: Number(metaDiariaBase) || 0,
     diasProduccion: Math.max(Number(diasProduccion) || 1, 1),
   };
   save();
-  return { mes: mesLabel, ...data.metas[mesLabel] };
+  return { mes: mesLabel, ...datos().metas[mesLabel] };
 }
 
 function removeMeta(mesLabel) {
-  const existia = Object.prototype.hasOwnProperty.call(data.metas, mesLabel);
-  delete data.metas[mesLabel];
+  const existia = Object.prototype.hasOwnProperty.call(datos().metas, mesLabel);
+  delete datos().metas[mesLabel];
   if (existia) save();
   return existia;
 }

@@ -17,6 +17,12 @@ const tasks = require("./tasks");
 const locales = require("./locales");
 const backup = require("./backup");
 const auth = require("./auth");
+const users = require("./users");
+const contexto = require("./contexto");
+
+// Crea la cuenta del dueño y le pasa los datos que hoy están sueltos en el
+// volumen. Se hace al arrancar, antes de atender cualquier pedido.
+users.asegurarDueno();
 const ExcelJS = require("exceljs");
 
 const app = express();
@@ -35,10 +41,19 @@ app.post("/api/login", (req, res) => {
   if (!auth.estaConfigurado()) {
     return res.status(503).json({ error: "Falta configurar PANEL_PASSWORD en el servidor." });
   }
-  if (!auth.passwordCorrecta(req.body?.password)) {
-    return res.status(401).json({ error: "Contraseña incorrecta." });
+
+  // Sin usuario se asume el dueño, para que su acceso de siempre (solo la
+  // contraseña) siga funcionando igual que antes de haber varias cuentas.
+  const nombreUsuario = String(req.body?.usuario || "").trim() || users.DUENO_ID;
+  const cuenta = users.getByUsuario(nombreUsuario) || users.getById(nombreUsuario);
+
+  if (!cuenta || cuenta.activo === false || !users.passwordCorrecta(cuenta, req.body?.password)) {
+    // Un solo mensaje para usuario inexistente y contraseña mala: así no
+    // se puede averiguar qué cuentas existen probando nombres.
+    return res.status(401).json({ error: "Usuario o contraseña incorrectos." });
   }
-  res.setHeader("Set-Cookie", auth.cookieDeSesion(auth.crearToken()));
+
+  res.setHeader("Set-Cookie", auth.cookieDeSesion(auth.crearToken(cuenta.id)));
   res.json({ ok: true });
 });
 
@@ -62,11 +77,20 @@ app.use((req, res, next) => {
       : res.status(503).send(`<h1>Panel bloqueado</h1><p>${aviso}</p>`);
   }
 
-  if (auth.haySesion(req)) return next();
+  const userId = auth.usuarioDeSesion(req);
+  const cuenta = userId ? users.getById(userId) : null;
 
-  // A la API se le contesta 401 (para que el panel sepa que expiró la
-  // sesión); a una pantalla se la manda a la de entrada.
-  return req.path.startsWith("/api/") ? res.status(401).json({ error: "Sesión expirada." }) : res.redirect("/login");
+  if (!cuenta || cuenta.activo === false) {
+    // A la API se le contesta 401 (para que el panel sepa que expiró la
+    // sesión); a una pantalla se la manda a la de entrada.
+    return req.path.startsWith("/api/") ? res.status(401).json({ error: "Sesión expirada." }) : res.redirect("/login");
+  }
+
+  // Desde acá y hasta terminar de responder, todo lo que toque datos lo
+  // hace como esta cuenta. Es lo que impide que un pedido lea o escriba
+  // en la información de otra.
+  req.userId = cuenta.id;
+  contexto.correrComo(cuenta.id, next);
 });
 
 // Solo se exponen estos archivos del panel (no todo el proyecto, para no

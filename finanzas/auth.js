@@ -31,19 +31,26 @@ function passwordCorrecta(intento) {
   return estaConfigurado() && igualSeguro(intento || "", PASSWORD);
 }
 
-// El token es "vencimiento.firma": no guarda nada del lado del servidor,
-// así que sigue siendo válido aunque el servicio se reinicie o redespliegue.
-function crearToken() {
+// El token es "usuario.vencimiento.firma": no guarda nada del lado del
+// servidor, así que sigue siendo válido aunque el servicio se reinicie o
+// redespliegue. El usuario va firmado junto con el vencimiento, así nadie
+// puede editarlo para entrar como otra cuenta.
+function crearToken(userId) {
   const vence = Date.now() + DURACION_MS;
-  return `${vence}.${firmar(vence)}`;
+  const cuerpo = `${userId}.${vence}`;
+  return `${cuerpo}.${firmar(cuerpo)}`;
 }
 
-function tokenValido(token) {
-  if (!estaConfigurado() || !token) return false;
-  const [vence, firma] = String(token).split(".");
-  if (!vence || !firma) return false;
-  if (!igualSeguro(firma, firmar(vence))) return false;
-  return Number(vence) > Date.now();
+// Devuelve el id del usuario del token, o null si no sirve.
+function usuarioDeToken(token) {
+  if (!estaConfigurado() || !token) return null;
+  const partes = String(token).split(".");
+  if (partes.length !== 3) return null;
+  const [userId, vence, firma] = partes;
+  if (!userId || !vence || !firma) return null;
+  if (!igualSeguro(firma, firmar(`${userId}.${vence}`))) return null;
+  if (!(Number(vence) > Date.now())) return null;
+  return userId;
 }
 
 function leerCookie(req, nombre) {
@@ -55,8 +62,9 @@ function leerCookie(req, nombre) {
   return null;
 }
 
-function haySesion(req) {
-  return tokenValido(leerCookie(req, COOKIE));
+// El usuario de la sesión de este pedido, o null si no hay o venció.
+function usuarioDeSesion(req) {
+  return usuarioDeToken(leerCookie(req, COOKIE));
 }
 
 function cookieDeSesion(token) {
@@ -75,4 +83,4 @@ function cookieVacia() {
   return `${COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure`;
 }
 
-module.exports = { estaConfigurado, passwordCorrecta, crearToken, haySesion, cookieDeSesion, cookieVacia };
+module.exports = { estaConfigurado, passwordCorrecta, crearToken, usuarioDeSesion, cookieDeSesion, cookieVacia };

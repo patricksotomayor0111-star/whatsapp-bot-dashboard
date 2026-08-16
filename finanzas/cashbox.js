@@ -1,15 +1,12 @@
-const fs = require("fs");
-const { dataPath } = require("./dataDir");
+const { crearAlmacen } = require("./almacenPorUsuario");
 const businessDay = require("./businessDay");
 
-const DATA_PATH = dataPath("cashbox-data.json");
 const MAX_CIERRES = 90; // días de historial de cierres que se conservan
 const MAX_MOVIMIENTOS = 20000; // tope de líneas de detalle (poda de las más viejas)
 
-function loadData() {
+
+const almacen = crearAlmacen("cashbox-data.json", function (parsed) {
   try {
-    const raw = fs.readFileSync(DATA_PATH, "utf8");
-    const parsed = JSON.parse(raw);
     return {
       todayGanancias: parsed.todayGanancias || 0,
       todayGastos: parsed.todayGastos || 0,
@@ -42,17 +39,10 @@ function loadData() {
       anaMovimientos: [],
     };
   }
-}
+});
+const datos = almacen.datos;
+const save = almacen.guardar;
 
-const data = loadData();
-
-function save() {
-  try {
-    fs.writeFileSync(DATA_PATH, JSON.stringify(data, null, 2));
-  } catch (err) {
-    console.error("No se pudo guardar cashbox-data.json:", err.message);
-  }
-}
 
 // Fecha y hora actuales en Perú (UTC-5, sin horario de verano), sin
 // depender de la zona horaria del servidor.
@@ -82,15 +72,15 @@ function registrarMovimiento(tipo, monto, descripcion) {
     monto,
     descripcion: descripcion || "",
   };
-  data.movimientos.push(movimiento);
-  if (data.movimientos.length > MAX_MOVIMIENTOS) {
-    data.movimientos.splice(0, data.movimientos.length - MAX_MOVIMIENTOS);
+  datos().movimientos.push(movimiento);
+  if (datos().movimientos.length > MAX_MOVIMIENTOS) {
+    datos().movimientos.splice(0, datos().movimientos.length - MAX_MOVIMIENTOS);
   }
   return movimiento;
 }
 
 function addGanancia(monto, descripcion) {
-  data.todayGanancias += monto;
+  datos().todayGanancias += monto;
   registrarMovimiento("ganancia", monto, descripcion);
   save();
 }
@@ -98,7 +88,7 @@ function addGanancia(monto, descripcion) {
 // Devuelve el id del movimiento creado, para poder enlazarlo después
 // (ej. el gasto que genera un faltante).
 function addGasto(monto, descripcion) {
-  data.todayGastos += monto;
+  datos().todayGastos += monto;
   const movimiento = registrarMovimiento("gasto", monto, descripcion);
   save();
   return movimiento.id;
@@ -109,23 +99,23 @@ function addGasto(monto, descripcion) {
 // al acumulado semanal (para no perderlo del resumen del domingo) y el día
 // arranca de nuevo desde este conteo.
 function setCaja(monto) {
-  data.weekGanancias += data.todayGanancias;
-  data.weekGastos += data.todayGastos;
-  data.todayGanancias = 0;
-  data.todayGastos = 0;
-  data.cajaInicial = monto;
+  datos().weekGanancias += datos().todayGanancias;
+  datos().weekGastos += datos().todayGastos;
+  datos().todayGanancias = 0;
+  datos().todayGastos = 0;
+  datos().cajaInicial = monto;
   registrarMovimiento("caja", monto, "conteo de caja");
   save();
 }
 
 function getToday() {
-  const total = data.todayGanancias - data.todayGastos;
+  const total = datos().todayGanancias - datos().todayGastos;
   return {
-    ganancias: data.todayGanancias,
-    gastos: data.todayGastos,
+    ganancias: datos().todayGanancias,
+    gastos: datos().todayGastos,
     total,
-    caja: data.cajaInicial,
-    esperado: data.cajaInicial + total,
+    caja: datos().cajaInicial,
+    esperado: datos().cajaInicial + total,
   };
 }
 
@@ -134,40 +124,40 @@ function getToday() {
 // no se reinician (es un saldo que le sigo debiendo hasta devolverlo).
 function registrarAna(tipo, monto, descripcion) {
   const ahora = peruAhora();
-  data.anaMovimientos.push({
+  datos().anaMovimientos.push({
     fecha: businessDayLabel(),
     hora: horaLabel(ahora),
     tipo,
     monto,
     descripcion: descripcion || "",
   });
-  if (data.anaMovimientos.length > MAX_MOVIMIENTOS) {
-    data.anaMovimientos.splice(0, data.anaMovimientos.length - MAX_MOVIMIENTOS);
+  if (datos().anaMovimientos.length > MAX_MOVIMIENTOS) {
+    datos().anaMovimientos.splice(0, datos().anaMovimientos.length - MAX_MOVIMIENTOS);
   }
 }
 
 function addAnaGuardo(monto, descripcion) {
-  data.anaGuardado += monto;
+  datos().anaGuardado += monto;
   registrarAna("guardo", monto, descripcion);
   save();
 }
 
 function addAnaGasto(monto, descripcion) {
-  data.anaGastado += monto;
+  datos().anaGastado += monto;
   registrarAna("gasto", monto, descripcion);
   save();
 }
 
 function getAna() {
   return {
-    guardado: data.anaGuardado,
-    gastado: data.anaGastado,
-    saldo: data.anaGuardado - data.anaGastado,
+    guardado: datos().anaGuardado,
+    gastado: datos().anaGastado,
+    saldo: datos().anaGuardado - datos().anaGastado,
   };
 }
 
 function getAnaMovimientos() {
-  return data.anaMovimientos;
+  return datos().anaMovimientos;
 }
 
 function efectoAna(tipo, monto, signo) {
@@ -178,12 +168,12 @@ function efectoAna(tipo, monto, signo) {
 // Edita un movimiento puntual de Ana (por índice): revierte su efecto
 // viejo sobre guardado/gastado y aplica el nuevo.
 function editAnaMovimiento(indice, cambios) {
-  const mov = data.anaMovimientos[indice];
+  const mov = datos().anaMovimientos[indice];
   if (!mov) return null;
 
   const viejo = efectoAna(mov.tipo, mov.monto, -1);
-  data.anaGuardado += viejo.g;
-  data.anaGastado += viejo.gs;
+  datos().anaGuardado += viejo.g;
+  datos().anaGastado += viejo.gs;
 
   if (cambios.tipo !== undefined) mov.tipo = cambios.tipo;
   if (cambios.monto !== undefined) mov.monto = Number(cambios.monto) || 0;
@@ -192,8 +182,8 @@ function editAnaMovimiento(indice, cambios) {
   if (cambios.hora !== undefined) mov.hora = cambios.hora;
 
   const nuevo = efectoAna(mov.tipo, mov.monto, 1);
-  data.anaGuardado += nuevo.g;
-  data.anaGastado += nuevo.gs;
+  datos().anaGuardado += nuevo.g;
+  datos().anaGastado += nuevo.gs;
 
   save();
   return mov;
@@ -201,12 +191,12 @@ function editAnaMovimiento(indice, cambios) {
 
 // Elimina un movimiento puntual de Ana y revierte su efecto.
 function removeAnaMovimiento(indice) {
-  const mov = data.anaMovimientos[indice];
+  const mov = datos().anaMovimientos[indice];
   if (!mov) return false;
   const efecto = efectoAna(mov.tipo, mov.monto, -1);
-  data.anaGuardado += efecto.g;
-  data.anaGastado += efecto.gs;
-  data.anaMovimientos.splice(indice, 1);
+  datos().anaGuardado += efecto.g;
+  datos().anaGastado += efecto.gs;
+  datos().anaMovimientos.splice(indice, 1);
   save();
   return true;
 }
@@ -218,26 +208,26 @@ function removeAnaMovimiento(indice) {
 // contra la plata física real cuando el usuario quiera).
 function closeDay(dayLabel) {
   const resumen = getToday();
-  data.cierres.push({ fecha: dayLabel, ...resumen });
-  if (data.cierres.length > MAX_CIERRES) {
-    data.cierres.splice(0, data.cierres.length - MAX_CIERRES);
+  datos().cierres.push({ fecha: dayLabel, ...resumen });
+  if (datos().cierres.length > MAX_CIERRES) {
+    datos().cierres.splice(0, datos().cierres.length - MAX_CIERRES);
   }
-  data.weekGanancias += data.todayGanancias;
-  data.weekGastos += data.todayGastos;
-  data.todayGanancias = 0;
-  data.todayGastos = 0;
-  data.cajaInicial = resumen.esperado;
-  data.lastClosedDay = dayLabel;
+  datos().weekGanancias += datos().todayGanancias;
+  datos().weekGastos += datos().todayGastos;
+  datos().todayGanancias = 0;
+  datos().todayGastos = 0;
+  datos().cajaInicial = resumen.esperado;
+  datos().lastClosedDay = dayLabel;
   save();
   return resumen;
 }
 
 // Cierra la semana: devuelve el resumen semanal y la deja en cero.
 function closeWeek(weekLabel) {
-  const resumen = { ganancias: data.weekGanancias, gastos: data.weekGastos };
-  data.weekGanancias = 0;
-  data.weekGastos = 0;
-  data.lastClosedWeek = weekLabel;
+  const resumen = { ganancias: datos().weekGanancias, gastos: datos().weekGastos };
+  datos().weekGanancias = 0;
+  datos().weekGastos = 0;
+  datos().lastClosedWeek = weekLabel;
   save();
   return resumen;
 }
@@ -247,12 +237,12 @@ function closeWeek(weekLabel) {
 // fija la caja inicial, y si es hoy actualiza los totales del día en curso
 // (si ya estaba cerrado, corrige su cierre). Opcionalmente reinicia Ana.
 function rebuildDay(fecha, caja, movs, resetAna) {
-  data.movimientos = data.movimientos.filter((m) => m.fecha !== fecha);
+  datos().movimientos = datos().movimientos.filter((m) => m.fecha !== fecha);
   let g = 0;
   let gs = 0;
   (movs || []).forEach((m) => {
     const monto = Number(m.monto) || 0;
-    data.movimientos.push({
+    datos().movimientos.push({
       fecha,
       hora: m.hora || "",
       tipo: m.tipo,
@@ -265,11 +255,11 @@ function rebuildDay(fecha, caja, movs, resetAna) {
   const cajaNum = Number(caja) || 0;
   const esHoy = fecha === businessDayLabel();
   if (esHoy) {
-    data.todayGanancias = g;
-    data.todayGastos = gs;
-    data.cajaInicial = cajaNum;
+    datos().todayGanancias = g;
+    datos().todayGastos = gs;
+    datos().cajaInicial = cajaNum;
   } else {
-    const cierre = data.cierres.find((c) => c.fecha === fecha);
+    const cierre = datos().cierres.find((c) => c.fecha === fecha);
     if (cierre) {
       cierre.ganancias = g;
       cierre.gastos = gs;
@@ -279,16 +269,16 @@ function rebuildDay(fecha, caja, movs, resetAna) {
     }
   }
   if (resetAna) {
-    data.anaGuardado = 0;
-    data.anaGastado = 0;
-    data.anaMovimientos = (data.anaMovimientos || []).filter((m) => m.fecha !== fecha);
+    datos().anaGuardado = 0;
+    datos().anaGastado = 0;
+    datos().anaMovimientos = (datos().anaMovimientos || []).filter((m) => m.fecha !== fecha);
   }
   save();
   return { fecha, caja: cajaNum, ganancias: g, gastos: gs, total: g - gs, esperado: cajaNum + (g - gs) };
 }
 
 function getMovimientos() {
-  return data.movimientos;
+  return datos().movimientos;
 }
 
 // Suma (o resta) el efecto de un movimiento de ganancia/gasto sobre los
@@ -299,10 +289,10 @@ function getMovimientos() {
 function ajustarTotalesPorFecha(fecha, deltaGanancia, deltaGasto) {
   const esHoy = fecha === businessDayLabel();
   if (esHoy) {
-    data.todayGanancias += deltaGanancia;
-    data.todayGastos += deltaGasto;
+    datos().todayGanancias += deltaGanancia;
+    datos().todayGastos += deltaGasto;
   } else {
-    const cierre = data.cierres.find((c) => c.fecha === fecha);
+    const cierre = datos().cierres.find((c) => c.fecha === fecha);
     if (cierre) {
       cierre.ganancias += deltaGanancia;
       cierre.gastos += deltaGasto;
@@ -330,7 +320,7 @@ function addMovimientoManual(tipo, monto, descripcion, fecha, hora) {
   const f = fecha || businessDayLabel();
   const h = hora || horaLabel(ahora);
   const movimiento = { id: nuevoMovimientoId(), fecha: f, hora: h, tipo, monto, descripcion: descripcion || "" };
-  data.movimientos.push(movimiento);
+  datos().movimientos.push(movimiento);
   const efecto = efectoDelta(tipo, monto, 1);
   ajustarTotalesPorFecha(f, efecto.g, efecto.gs);
   save();
@@ -341,7 +331,7 @@ function addMovimientoManual(tipo, monto, descripcion, fecha, hora) {
 // getMovimientos): revierte su efecto viejo sobre los totales, aplica los
 // cambios, y vuelve a sumar el efecto nuevo (incluso si cambió de fecha).
 function editMovimiento(indice, cambios) {
-  const mov = data.movimientos[indice];
+  const mov = datos().movimientos[indice];
   if (!mov) return null;
 
   const viejo = efectoDelta(mov.tipo, mov.monto, -1);
@@ -371,28 +361,28 @@ function editMovimiento(indice, cambios) {
 // por índice, para lo que necesita seguir un movimiento concreto aunque la
 // lista se haya movido (ej. el gasto enlazado a un faltante).
 function editMovimientoPorId(id, cambios) {
-  const indice = data.movimientos.findIndex((m) => m.id === id);
+  const indice = datos().movimientos.findIndex((m) => m.id === id);
   return indice === -1 ? null : editMovimiento(indice, cambios);
 }
 
 function removeMovimientoPorId(id) {
-  const indice = data.movimientos.findIndex((m) => m.id === id);
+  const indice = datos().movimientos.findIndex((m) => m.id === id);
   return indice === -1 ? false : removeMovimiento(indice);
 }
 
 // Elimina un movimiento (por índice) y revierte su efecto de los totales.
 function removeMovimiento(indice) {
-  const mov = data.movimientos[indice];
+  const mov = datos().movimientos[indice];
   if (!mov) return false;
   const efecto = efectoDelta(mov.tipo, mov.monto, -1);
   ajustarTotalesPorFecha(mov.fecha, efecto.g, efecto.gs);
-  data.movimientos.splice(indice, 1);
+  datos().movimientos.splice(indice, 1);
   save();
   return true;
 }
 
 function getCierres() {
-  return data.cierres;
+  return datos().cierres;
 }
 
 // "YYYY-MM-DD" del día siguiente a uno dado (sin conversión de huso
@@ -408,7 +398,7 @@ function fechaSiguiente(fecha) {
 // (un solo salto, no en cadena); si el día siguiente es hoy (todavía sin
 // cerrar), le actualiza directo la caja inicial del día en curso.
 function editCierre(fecha, cambios) {
-  const cierre = data.cierres.find((c) => c.fecha === fecha);
+  const cierre = datos().cierres.find((c) => c.fecha === fecha);
   if (!cierre) return null;
 
   if (cambios.ganancias !== undefined) cierre.ganancias = Number(cambios.ganancias) || 0;
@@ -418,13 +408,13 @@ function editCierre(fecha, cambios) {
   cierre.esperado = cierre.caja + cierre.total;
 
   const siguiente = fechaSiguiente(fecha);
-  const cierreSiguiente = data.cierres.find((c) => c.fecha === siguiente);
+  const cierreSiguiente = datos().cierres.find((c) => c.fecha === siguiente);
   if (cierreSiguiente) {
     cierreSiguiente.caja = cierre.esperado;
     cierreSiguiente.total = cierreSiguiente.ganancias - cierreSiguiente.gastos;
     cierreSiguiente.esperado = cierreSiguiente.caja + cierreSiguiente.total;
   } else if (siguiente === businessDayLabel()) {
-    data.cajaInicial = cierre.esperado;
+    datos().cajaInicial = cierre.esperado;
   }
 
   save();
@@ -432,11 +422,11 @@ function editCierre(fecha, cambios) {
 }
 
 function getLastClosedDay() {
-  return data.lastClosedDay;
+  return datos().lastClosedDay;
 }
 
 function getLastClosedWeek() {
-  return data.lastClosedWeek;
+  return datos().lastClosedWeek;
 }
 
 // "YYYY-MM" del mes actual (hora Perú), para agrupar gastos por mes en
@@ -456,8 +446,8 @@ function getHoyLabel() {
 // el progreso de la meta semanal sin esperar al cierre.
 function getWeekSoFar() {
   return {
-    ganancias: data.weekGanancias + data.todayGanancias,
-    gastos: data.weekGastos + data.todayGastos,
+    ganancias: datos().weekGanancias + datos().todayGanancias,
+    gastos: datos().weekGastos + datos().todayGastos,
   };
 }
 
@@ -465,9 +455,9 @@ function getWeekSoFar() {
 // más lo que va del día de hoy, para medir el progreso de la meta mensual.
 function getMonthSoFar() {
   const mesActual = getMesActualLabel();
-  let ganancias = data.todayGanancias;
-  let gastos = data.todayGastos;
-  data.cierres.forEach((c) => {
+  let ganancias = datos().todayGanancias;
+  let gastos = datos().todayGastos;
+  datos().cierres.forEach((c) => {
     if (c.fecha.slice(0, 7) === mesActual) {
       ganancias += c.ganancias;
       gastos += c.gastos;
@@ -484,7 +474,7 @@ function getPreviousMonthTotals() {
   const mesAnteriorLabel = `${mesAnteriorDate.getFullYear()}-${String(mesAnteriorDate.getMonth() + 1).padStart(2, "0")}`;
   let ganancias = 0;
   let gastos = 0;
-  data.cierres.forEach((c) => {
+  datos().cierres.forEach((c) => {
     if (c.fecha.slice(0, 7) === mesAnteriorLabel) {
       ganancias += c.ganancias;
       gastos += c.gastos;
@@ -511,9 +501,9 @@ function getQuincenaSoFar() {
   const [, , d] = hoy.split("-").map(Number);
   const inicioDia = d <= 15 ? 1 : 16;
   const inicioLabel = `${hoy.slice(0, 7)}-${String(inicioDia).padStart(2, "0")}`;
-  let ganancias = data.todayGanancias;
-  let gastos = data.todayGastos;
-  data.cierres.forEach((c) => {
+  let ganancias = datos().todayGanancias;
+  let gastos = datos().todayGastos;
+  datos().cierres.forEach((c) => {
     if (c.fecha >= inicioLabel && c.fecha.slice(0, 7) === hoy.slice(0, 7)) {
       ganancias += c.ganancias;
       gastos += c.gastos;

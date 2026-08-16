@@ -1,27 +1,17 @@
-const fs = require("fs");
-const { dataPath } = require("./dataDir");
+const { crearAlmacen } = require("./almacenPorUsuario");
 
-const DATA_PATH = dataPath("debts-data.json");
 
-function loadData() {
+
+const almacen = crearAlmacen("debts-data.json", function (parsed) {
   try {
-    const raw = fs.readFileSync(DATA_PATH, "utf8");
-    const parsed = JSON.parse(raw);
     return { personas: parsed.personas || {} };
   } catch (err) {
     return { personas: {} };
   }
-}
+});
+const datos = almacen.datos;
+const save = almacen.guardar;
 
-const data = loadData();
-
-function save() {
-  try {
-    fs.writeFileSync(DATA_PATH, JSON.stringify(data, null, 2));
-  } catch (err) {
-    console.error("No se pudo guardar debts-data.json:", err.message);
-  }
-}
 
 // Fecha y hora actuales en Perú (UTC-5), igual que en cashbox.js.
 function peruAhora() {
@@ -46,13 +36,13 @@ function normKey(persona) {
 }
 
 function ensurePersona(k, label) {
-  if (!data.personas[k]) {
-    data.personas[k] = { label, saldo: 0, movimientos: [] };
+  if (!datos().personas[k]) {
+    datos().personas[k] = { label, saldo: 0, movimientos: [] };
   } else if (label) {
     // Se refresca con la última forma en que se escribió el nombre (mayúsculas, etc.)
-    data.personas[k].label = label;
+    datos().personas[k].label = label;
   }
-  return data.personas[k];
+  return datos().personas[k];
 }
 
 // "Menos X Nombre debe": Nombre te debe X soles. No afecta la caja.
@@ -92,7 +82,7 @@ function payDebt(personaRaw, monto, descripcion) {
 }
 
 function getDeudas() {
-  return Object.entries(data.personas).map(([k, p]) => ({
+  return Object.entries(datos().personas).map(([k, p]) => ({
     key: k,
     label: p.label,
     saldo: p.saldo,
@@ -100,20 +90,20 @@ function getDeudas() {
 }
 
 function getDeuda(personaRaw) {
-  const p = data.personas[normKey(personaRaw)];
+  const p = datos().personas[normKey(personaRaw)];
   return p ? { label: p.label, saldo: p.saldo } : null;
 }
 
 function getMovimientos(personaRaw) {
-  const p = data.personas[normKey(personaRaw)];
+  const p = datos().personas[normKey(personaRaw)];
   return p ? p.movimientos : [];
 }
 
 // Marca como saldada la deuda completa de una persona (uso desde el panel).
 function clearDebt(personaRaw) {
   const k = normKey(personaRaw);
-  if (data.personas[k]) {
-    data.personas[k].saldo = 0;
+  if (datos().personas[k]) {
+    datos().personas[k].saldo = 0;
     save();
   }
 }
@@ -121,7 +111,7 @@ function clearDebt(personaRaw) {
 // Elimina por completo el registro de una persona (uso desde el panel).
 function removePersona(personaRaw) {
   const k = normKey(personaRaw);
-  delete data.personas[k];
+  delete datos().personas[k];
   save();
 }
 
@@ -133,7 +123,7 @@ function efectoDelta(tipo, monto, signo) {
 // Edita un movimiento puntual (por índice dentro del historial de esa
 // persona): revierte su efecto viejo sobre el saldo y aplica el nuevo.
 function editMovimiento(personaRaw, indice, cambios) {
-  const p = data.personas[normKey(personaRaw)];
+  const p = datos().personas[normKey(personaRaw)];
   if (!p || !p.movimientos[indice]) return null;
   const mov = p.movimientos[indice];
 
@@ -153,7 +143,7 @@ function editMovimiento(personaRaw, indice, cambios) {
 
 // Elimina un movimiento puntual y revierte su efecto sobre el saldo.
 function removeMovimiento(personaRaw, indice) {
-  const p = data.personas[normKey(personaRaw)];
+  const p = datos().personas[normKey(personaRaw)];
   if (!p || !p.movimientos[indice]) return false;
   const mov = p.movimientos[indice];
   p.saldo += efectoDelta(mov.tipo, mov.monto, -1);

@@ -1,7 +1,5 @@
-const fs = require("fs");
-const { dataPath } = require("./dataDir");
+const { crearAlmacen } = require("./almacenPorUsuario");
 
-const DATA_PATH = dataPath("query-intents-data.json");
 
 // Cada consulta tiene: un tipo ("fijo" = frase que puede aparecer en
 // cualquier parte del mensaje; "prefijo" = el mensaje debe EMPEZAR con la
@@ -237,34 +235,26 @@ const CAMPOS_RESPUESTA = [
   "respuestaRecordatorio",
 ];
 
-function loadData() {
+
+const almacen = crearAlmacen("query-intents-data.json", function (parsed) {
   try {
-    const raw = fs.readFileSync(DATA_PATH, "utf8");
-    const parsed = JSON.parse(raw);
     return {
       intents: Array.isArray(parsed.intents) && parsed.intents.length ? parsed.intents : DEFAULTS.map((i) => ({ ...i })),
     };
   } catch (err) {
     return { intents: DEFAULTS.map((i) => ({ ...i })) };
   }
-}
+});
+const datos = almacen.datos;
+const save = almacen.guardar;
 
-const data = loadData();
-
-function save() {
-  try {
-    fs.writeFileSync(DATA_PATH, JSON.stringify(data, null, 2));
-  } catch (err) {
-    console.error("No se pudo guardar query-intents-data.json:", err.message);
-  }
-}
 
 function getIntents() {
-  return data.intents;
+  return datos().intents;
 }
 
 function getIntent(id) {
-  return data.intents.find((i) => i.id === id) || null;
+  return datos().intents.find((i) => i.id === id) || null;
 }
 
 function normalizarFrase(frase) {

@@ -1,7 +1,5 @@
-const fs = require("fs");
-const { dataPath } = require("./dataDir");
+const { crearAlmacen } = require("./almacenPorUsuario");
 
-const DATA_PATH = dataPath("product-prices-data.json");
 
 // Precios anotados a mano en el grupo "Precios general de productos", con
 // el formato que ya venía usando el dueño:
@@ -17,30 +15,25 @@ const DATA_PATH = dataPath("product-prices-data.json");
 // línea completa tal cual se escribió, que es lo que sirve para decidir a
 // dónde ir a comprar.
 
-function loadData() {
+
+const almacen = crearAlmacen("product-prices-data.json", function (parsed) {
   try {
-    const raw = fs.readFileSync(DATA_PATH, "utf8");
-    const parsed = JSON.parse(raw);
     return { precios: Array.isArray(parsed.precios) ? parsed.precios : [] };
   } catch (err) {
     return { precios: [] };
   }
-}
-
-const data = loadData();
-
-function save() {
-  try {
-    fs.writeFileSync(DATA_PATH, JSON.stringify(data, null, 2));
-  } catch (err) {
-    console.error("No se pudo guardar product-prices-data.json:", err.message);
-  }
-}
-
-let siguienteId = 1;
-data.precios.forEach((p) => {
-  if (p.id >= siguienteId) siguienteId = p.id + 1;
 });
+const datos = almacen.datos;
+const save = almacen.guardar;
+
+
+// El id siguiente se calcula sobre los precios de la cuenta que está
+// consultando. Antes era un contador global que se armaba al arrancar el
+// servidor, lo que con varias cuentas habría hecho que una tomara ids
+// pensados para otra.
+function siguienteId() {
+  return datos().precios.reduce((mayor, p) => Math.max(mayor, Number(p.id) || 0), 0) + 1;
+}
 
 // Quita tildes y pasa a minúsculas, para que "huánuco" y "huanuco"
 // busquen igual.
@@ -74,7 +67,7 @@ function parsePriceLine(linea) {
 // la vieja como "más barato", mandando a comprar a un precio que ya no es.
 function add(precio, descripcion, extra = {}) {
   const clave = normalizar(descripcion);
-  const existente = data.precios.find((p) => normalizar(p.descripcion) === clave);
+  const existente = datos().precios.find((p) => normalizar(p.descripcion) === clave);
   if (existente) {
     existente.precio = precio;
     existente.descripcion = descripcion;
@@ -85,13 +78,13 @@ function add(precio, descripcion, extra = {}) {
   }
 
   const registro = {
-    id: siguienteId++,
+    id: siguienteId(),
     precio,
     descripcion,
     texto: `${precio} ${descripcion}`,
     fecha: extra.fecha || new Date().toISOString(),
   };
-  data.precios.push(registro);
+  datos().precios.push(registro);
   save();
   return registro;
 }
@@ -115,13 +108,13 @@ function addBulk(texto) {
 }
 
 function getAll() {
-  return data.precios.slice().sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+  return datos().precios.slice().sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
 }
 
 function remove(id) {
-  const antes = data.precios.length;
-  data.precios = data.precios.filter((p) => p.id !== Number(id));
-  if (data.precios.length === antes) return false;
+  const antes = datos().precios.length;
+  datos().precios = datos().precios.filter((p) => p.id !== Number(id));
+  if (datos().precios.length === antes) return false;
   save();
   return true;
 }
@@ -148,7 +141,7 @@ function palabrasBusqueda(terminos) {
 function buscar(terminos) {
   const palabras = palabrasBusqueda(terminos);
   if (palabras.length === 0) return [];
-  return data.precios
+  return datos().precios
     .filter((p) => {
       const objetivo = normalizar(p.descripcion);
       return palabras.every((w) => objetivo.includes(w));

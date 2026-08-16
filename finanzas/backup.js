@@ -1,5 +1,13 @@
 const fs = require("fs");
-const { dataPath } = require("./dataDir");
+const { userDataPath } = require("./dataDir");
+const { usuarioActual } = require("./contexto");
+
+// El respaldo es de la cuenta que lo pide: cada una guarda y restaura lo
+// suyo. Antes leía los archivos sueltos de la raíz, que con varias cuentas
+// habría significado que cualquiera se bajara los datos del dueño.
+function dataPath(nombre) {
+  return userDataPath(usuarioActual(), nombre);
+}
 
 // Respaldo de los datos de FINANZAS: caja chica, deudas, metas, precios y
 // demás. Es el respaldo más importante de los dos, porque acá vive el

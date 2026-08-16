@@ -24,8 +24,18 @@ const queryIntents = require("./queryIntents");
 const productPrices = require("./productPrices");
 const { responderConsultaPrecio } = require("./priceQueries");
 const { dataPath } = require("./dataDir");
+const contexto = require("./contexto");
+const users = require("./users");
 
 const SESSION_PATH = dataPath("session");
+
+// En esta etapa el bot es uno solo y trabaja siempre sobre la cuenta del
+// dueño: es su número de WhatsApp el que está vinculado. Todo lo que toque
+// datos (caja, deudas, recordatorios) tiene que decir de quién son, así
+// que se envuelve acá en vez de repetirlo en cada función.
+function comoDueno(fn) {
+  return contexto.correrComo(users.DUENO_ID, fn);
+}
 
 // Quita tildes/acentos ("móvil" -> "movil") para que dé igual si el
 // mensaje o la frase configurada los llevan o no.
@@ -755,8 +765,10 @@ async function checkMorningSchedule() {
 }
 
 setInterval(() => {
-  checkCashboxSchedule().catch((err) => console.error("Error en checkCashboxSchedule:", err.message));
-  checkMorningSchedule().catch((err) => console.error("Error en checkMorningSchedule:", err.message));
+  comoDueno(() => {
+    checkCashboxSchedule().catch((err) => console.error("Error en checkCashboxSchedule:", err.message));
+    checkMorningSchedule().catch((err) => console.error("Error en checkMorningSchedule:", err.message));
+  });
 }, 30000);
 
 // ---------- Recordatorios de pagos: notificación diaria de las 8am ----------
@@ -785,7 +797,7 @@ function chequearRecordatorios() {
 
 // Se revisa cada 5 minutos; la lógica interna se asegura de mandar una sola
 // notificación por día.
-setInterval(chequearRecordatorios, 5 * 60 * 1000);
+setInterval(() => comoDueno(chequearRecordatorios), 5 * 60 * 1000);
 
 // ---------- Tareas sueltas: notificación cada 30 minutos ----------
 // A diferencia de los pagos de arriba (una vez al día), una tarea sin
@@ -804,7 +816,7 @@ function chequearTareas() {
     .catch((err) => console.error("Error al notificar tareas:", err.message));
 }
 
-setInterval(chequearTareas, 5 * 60 * 1000);
+setInterval(() => comoDueno(chequearTareas), 5 * 60 * 1000);
 
 function extractText(msg) {
   // Si el chat tiene mensajes que desaparecen (o es "ver una vez"), el texto
@@ -906,7 +918,13 @@ async function startBot() {
   // Solo escucha el grupo GANANCIAS: registro de caja chica y consultas
   // financieras. Todo lo demás (otros grupos, cotizaciones, keywords) no
   // existe en este bot — vive en el proyecto de delivery, aparte.
-  sock.ev.on("messages.upsert", async ({ messages }) => {
+  sock.ev.on("messages.upsert", ({ messages }) => comoDueno(() => procesarMensajes(sock, messages)));
+
+  return sock;
+}
+
+async function procesarMensajes(sock, messages) {
+  {
     for (const msg of messages) {
       if (!msg?.message) continue;
       // Dos protecciones contra responder dos veces lo mismo tras una
@@ -978,9 +996,7 @@ async function startBot() {
         }
       }
     }
-  });
-
-  return sock;
+  }
 }
 
 // El servidor (server.js) necesita mandar mensajes desde afuera del

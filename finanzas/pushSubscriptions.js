@@ -1,71 +1,85 @@
 const fs = require("fs");
 const webpush = require("web-push");
+const { crearAlmacen } = require("./almacenPorUsuario");
 const { dataPath } = require("./dataDir");
 
-const DATA_PATH = dataPath("push-data.json");
-
-function loadData() {
+// Las suscripciones sí son de cada cuenta (son los celulares de esa
+// persona), pero las claves VAPID identifican al SERVIDOR frente al
+// servicio de notificaciones, no al usuario. Por eso viven aparte, una
+// sola vez para toda la instalación: si cada cuenta generara las suyas,
+// las suscripciones existentes dejarían de funcionar.
+const almacen = crearAlmacen("push-data.json", function (parsed) {
   try {
-    const raw = fs.readFileSync(DATA_PATH, "utf8");
-    const parsed = JSON.parse(raw);
-    return {
-      vapidPublicKey: parsed.vapidPublicKey || null,
-      vapidPrivateKey: parsed.vapidPrivateKey || null,
-      subscriptions: parsed.subscriptions || [],
-    };
+    return { subscriptions: parsed.subscriptions || [] };
   } catch (err) {
-    return { vapidPublicKey: null, vapidPrivateKey: null, subscriptions: [] };
+    return { subscriptions: [] };
   }
-}
+});
+const datos = almacen.datos;
+const save = almacen.guardar;
 
-const data = loadData();
+const VAPID_PATH = dataPath("vapid-data.json");
 
-function save() {
+function cargarVapid() {
   try {
-    fs.writeFileSync(DATA_PATH, JSON.stringify(data, null, 2));
+    const guardado = JSON.parse(fs.readFileSync(VAPID_PATH, "utf8"));
+    if (guardado.publicKey && guardado.privateKey) return guardado;
   } catch (err) {
-    console.error("No se pudo guardar push-data.json:", err.message);
+    // sigue abajo y las genera
   }
+
+  // Antes las claves vivían dentro de push-data.json. Se reutilizan si
+  // están ahí, para que los celulares ya suscritos no pierdan las
+  // notificaciones al pasar a multiusuario.
+  try {
+    const viejo = JSON.parse(fs.readFileSync(dataPath("push-data.json"), "utf8"));
+    if (viejo.vapidPublicKey && viejo.vapidPrivateKey) {
+      const heredadas = { publicKey: viejo.vapidPublicKey, privateKey: viejo.vapidPrivateKey };
+      fs.writeFileSync(VAPID_PATH, JSON.stringify(heredadas, null, 2));
+      return heredadas;
+    }
+  } catch (err) {
+    // no había nada previo
+  }
+
+  const nuevas = webpush.generateVAPIDKeys();
+  try {
+    fs.writeFileSync(VAPID_PATH, JSON.stringify(nuevas, null, 2));
+  } catch (err) {
+    console.error("No se pudo guardar vapid-data.json:", err.message);
+  }
+  return nuevas;
 }
 
-// Las claves VAPID se generan una sola vez y se guardan: si cambiaran en
-// cada reinicio, las suscripciones ya hechas por el celular dejarían de
-// funcionar (quedarían firmadas con una clave vieja).
-if (!data.vapidPublicKey || !data.vapidPrivateKey) {
-  const keys = webpush.generateVAPIDKeys();
-  data.vapidPublicKey = keys.publicKey;
-  data.vapidPrivateKey = keys.privateKey;
-  save();
-}
-
-webpush.setVapidDetails("mailto:notificaciones@whatsapp-bot-dashboard.local", data.vapidPublicKey, data.vapidPrivateKey);
+const vapid = cargarVapid();
+webpush.setVapidDetails("mailto:notificaciones@whatsapp-bot-dashboard.local", vapid.publicKey, vapid.privateKey);
 
 function getPublicKey() {
-  return data.vapidPublicKey;
+  return vapid.publicKey;
 }
 
 function addSubscription(sub) {
   if (!sub || !sub.endpoint) return;
-  const yaExiste = data.subscriptions.some((s) => s.endpoint === sub.endpoint);
+  const yaExiste = datos().subscriptions.some((s) => s.endpoint === sub.endpoint);
   if (!yaExiste) {
-    data.subscriptions.push(sub);
+    datos().subscriptions.push(sub);
     save();
   }
 }
 
 function removeSubscription(endpoint) {
-  const antes = data.subscriptions.length;
-  data.subscriptions = data.subscriptions.filter((s) => s.endpoint !== endpoint);
-  if (data.subscriptions.length !== antes) save();
+  const antes = datos().subscriptions.length;
+  datos().subscriptions = datos().subscriptions.filter((s) => s.endpoint !== endpoint);
+  if (datos().subscriptions.length !== antes) save();
 }
 
 // Manda la notificación a todos los dispositivos suscritos. Si alguno ya no
 // es válido (404/410 — el usuario desinstaló o revocó el permiso), se borra
 // solo para no seguir intentando mandarle en vano.
 async function notifyAll(payload) {
-  if (data.subscriptions.length === 0) return;
+  if (datos().subscriptions.length === 0) return;
   const payloadStr = JSON.stringify(payload);
-  const subs = data.subscriptions.slice();
+  const subs = datos().subscriptions.slice();
   const resultados = await Promise.allSettled(subs.map((sub) => webpush.sendNotification(sub, payloadStr)));
   resultados.forEach((resultado, i) => {
     if (resultado.status === "rejected") {

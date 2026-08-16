@@ -16,3 +16,6 @@ push-data.json
 .env
 *.log
 product-prices-data.json
+users-data.json
+vapid-data.json
+users/

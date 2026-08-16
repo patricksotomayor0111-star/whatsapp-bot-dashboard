@@ -1,13 +1,10 @@
-const fs = require("fs");
-const { dataPath } = require("./dataDir");
+const { crearAlmacen } = require("./almacenPorUsuario");
 
-const DATA_PATH = dataPath("reference-accounts-data.json");
 const NOMBRES_BASE = ["yape", "plin", "sip", "efectivo"];
 
-function loadData() {
+
+const almacen = crearAlmacen("reference-accounts-data.json", function (parsed) {
   try {
-    const raw = fs.readFileSync(DATA_PATH, "utf8");
-    const parsed = JSON.parse(raw);
     return {
       nombres: Array.isArray(parsed.nombres) && parsed.nombres.length ? parsed.nombres : NOMBRES_BASE.slice(),
       entradas: parsed.entradas || [],
@@ -15,17 +12,10 @@ function loadData() {
   } catch (err) {
     return { nombres: NOMBRES_BASE.slice(), entradas: [] };
   }
-}
+});
+const datos = almacen.datos;
+const save = almacen.guardar;
 
-const data = loadData();
-
-function save() {
-  try {
-    fs.writeFileSync(DATA_PATH, JSON.stringify(data, null, 2));
-  } catch (err) {
-    console.error("No se pudo guardar reference-accounts-data.json:", err.message);
-  }
-}
 
 function peruAhora() {
   const now = new Date();
@@ -45,20 +35,20 @@ function horaLabel(d) {
 }
 
 function getNombres() {
-  return data.nombres;
+  return datos().nombres;
 }
 
 function addNombre(nombre) {
   const n = String(nombre || "").trim().toLowerCase();
-  if (n && !data.nombres.includes(n)) {
-    data.nombres.push(n);
+  if (n && !datos().nombres.includes(n)) {
+    datos().nombres.push(n);
     save();
   }
 }
 
 function removeNombre(nombre) {
   const n = String(nombre || "").trim().toLowerCase();
-  data.nombres = data.nombres.filter((x) => x !== n);
+  datos().nombres = datos().nombres.filter((x) => x !== n);
   save();
 }
 
@@ -68,14 +58,14 @@ function removeNombre(nombre) {
 // en minúsculas).
 function matchNombre(restoNorm) {
   const texto = String(restoNorm || "").trim();
-  return data.nombres.find((n) => texto === n) || null;
+  return datos().nombres.find((n) => texto === n) || null;
 }
 
 // Solo queda registrada como nota (fecha/hora/monto/descripción); no afecta
 // caja ni ganancia.
 function addEntrada(cuenta, monto, descripcion) {
   const ahora = peruAhora();
-  data.entradas.push({
+  datos().entradas.push({
     fecha: fechaLabel(ahora),
     hora: horaLabel(ahora),
     cuenta,
@@ -86,18 +76,18 @@ function addEntrada(cuenta, monto, descripcion) {
 }
 
 function getEntradas() {
-  return data.entradas;
+  return datos().entradas;
 }
 
 function removeEntrada(index) {
-  if (index >= 0 && index < data.entradas.length) {
-    data.entradas.splice(index, 1);
+  if (index >= 0 && index < datos().entradas.length) {
+    datos().entradas.splice(index, 1);
     save();
   }
 }
 
 function editEntrada(index, cambios) {
-  const entrada = data.entradas[index];
+  const entrada = datos().entradas[index];
   if (!entrada) return null;
   if (cambios.cuenta !== undefined) entrada.cuenta = cambios.cuenta;
   if (cambios.monto !== undefined) entrada.monto = Number(cambios.monto) || 0;

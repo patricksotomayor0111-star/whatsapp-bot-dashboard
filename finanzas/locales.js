@@ -1,32 +1,22 @@
-const fs = require("fs");
-const { dataPath } = require("./dataDir");
+const { crearAlmacen } = require("./almacenPorUsuario");
 
-const DATA_PATH = dataPath("locales-data.json");
 
 // Los locales (restaurantes, negocios) que le dan pedidos al delivery.
 // Cada ganancia registrada es un reparto hecho para alguno de ellos, y su
 // monto es lo que se cobró por ese reparto. Como en el grupo se escriben
 // abreviados y no siempre igual ("bum", "buma"), cada local guarda sus
 // propias abreviaturas para poder juntarlos en un solo ranking.
-function loadData() {
+
+const almacen = crearAlmacen("locales-data.json", function (parsed) {
   try {
-    const raw = fs.readFileSync(DATA_PATH, "utf8");
-    const parsed = JSON.parse(raw);
     return { locales: Array.isArray(parsed.locales) ? parsed.locales : [] };
   } catch (err) {
     return { locales: [] };
   }
-}
+});
+const datos = almacen.datos;
+const save = almacen.guardar;
 
-const data = loadData();
-
-function save() {
-  try {
-    fs.writeFileSync(DATA_PATH, JSON.stringify(data, null, 2));
-  } catch (err) {
-    console.error("No se pudo guardar locales-data.json:", err.message);
-  }
-}
 
 const COMBINING_MARKS = new RegExp("[̀-ͯ]", "g");
 function normalizeText(str) {
@@ -50,7 +40,7 @@ function normalizarAliases(aliases) {
 }
 
 function getAll() {
-  return data.locales;
+  return datos().locales;
 }
 
 // A qué local pertenece una descripción. Se acepta que coincida entera, que
@@ -61,7 +51,7 @@ function localDe(descripcion) {
   if (!desc) return null;
   const palabras = desc.split(/[^a-z0-9]+/).filter(Boolean);
 
-  for (const local of data.locales) {
+  for (const local of datos().locales) {
     for (const alias of local.aliases) {
       if (desc === alias || palabras.includes(alias) || desc.startsWith(alias)) return local;
     }
@@ -74,7 +64,7 @@ function addLocal({ nombre, aliases }) {
   if (!nombreLimpio) throw new Error("Ponle un nombre al local.");
   let id = slugify(nombreLimpio);
   let sufijo = 1;
-  while (data.locales.some((l) => l.id === id)) id = `${slugify(nombreLimpio)}_${sufijo++}`;
+  while (datos().locales.some((l) => l.id === id)) id = `${slugify(nombreLimpio)}_${sufijo++}`;
 
   // Sin abreviaturas explícitas se usa el propio nombre, que es lo más
   // común: el local se llama igual que como se escribe en el grupo.
@@ -83,13 +73,13 @@ function addLocal({ nombre, aliases }) {
     nombre: nombreLimpio,
     aliases: normalizarAliases(aliases && aliases.length ? aliases : [nombreLimpio]),
   };
-  data.locales.push(nuevo);
+  datos().locales.push(nuevo);
   save();
   return nuevo;
 }
 
 function editLocal(id, cambios) {
-  const local = data.locales.find((l) => l.id === id);
+  const local = datos().locales.find((l) => l.id === id);
   if (!local) return null;
   if (cambios.nombre !== undefined && String(cambios.nombre).trim()) local.nombre = String(cambios.nombre).trim();
   if (cambios.aliases !== undefined) local.aliases = normalizarAliases(cambios.aliases);
@@ -98,9 +88,9 @@ function editLocal(id, cambios) {
 }
 
 function removeLocal(id) {
-  const antes = data.locales.length;
-  data.locales = data.locales.filter((l) => l.id !== id);
-  if (data.locales.length !== antes) save();
+  const antes = datos().locales.length;
+  datos().locales = datos().locales.filter((l) => l.id !== id);
+  if (datos().locales.length !== antes) save();
 }
 
 // Solo los repartos (ganancias) del mes pedido; con mes vacío, todo el
@@ -145,7 +135,7 @@ function getRanking(movimientos, mes, hoyLabel, costoPorReparto = 0) {
     if (!ultimaFecha[local.id] || m.fecha > ultimaFecha[local.id]) ultimaFecha[local.id] = m.fecha;
   });
 
-  return data.locales
+  return datos().locales
     .map((local) => {
       const acumulado = porLocal[local.id] || { total: 0, pedidos: 0 };
       const ultima = ultimaFecha[local.id] || null;

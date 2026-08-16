@@ -1,8 +1,7 @@
 const fs = require("fs");
-const { dataPath } = require("./dataDir");
+const { crearAlmacen } = require("./almacenPorUsuario");
 const businessDay = require("./businessDay");
 
-const DATA_PATH = dataPath("reminders-data.json");
 
 // Recordatorios de pagos que se repiten. Cada uno se vuelve "pendiente"
 // 1 día antes de su fecha (a partir de las 8am manda notificación) y sigue
@@ -25,10 +24,9 @@ const SEED = [
   { id: "universidad", label: "Universidad", monto: 3200, tipo: "mensual_finmes" },
 ];
 
-function loadData() {
+
+const almacen = crearAlmacen("reminders-data.json", function (parsed) {
   try {
-    const raw = fs.readFileSync(DATA_PATH, "utf8");
-    const parsed = JSON.parse(raw);
     return {
       reminders: Array.isArray(parsed.reminders) ? parsed.reminders : [],
       lastNotifiedLabel: parsed.lastNotifiedLabel || null,
@@ -42,19 +40,10 @@ function loadData() {
       pagosMarcados: [],
     };
   }
-}
+});
+const datos = almacen.datos;
+const save = almacen.guardar;
 
-const data = loadData();
-
-function save() {
-  try {
-    fs.writeFileSync(DATA_PATH, JSON.stringify(data, null, 2));
-  } catch (err) {
-    console.error("No se pudo guardar reminders-data.json:", err.message);
-  }
-}
-// Si es la primera vez (se sembró en memoria), lo dejamos escrito ya.
-if (!fs.existsSync(DATA_PATH)) save();
 
 // ---------- Utilidades de fecha (solo calendario, sin zona horaria) ----------
 // Se trabaja con etiquetas "YYYY-MM-DD" y fechas UTC a medianoche para que la
@@ -151,7 +140,7 @@ function estaPendiente(r, hoyLabel) {
 function getPendientes() {
   const hoy = fechaLabelPeru();
   const lista = [];
-  data.reminders.forEach((r) => {
+  datos().reminders.forEach((r) => {
     const due = estaPendiente(r, hoy);
     if (due) lista.push({ id: r.id, label: r.label, monto: r.monto, vence: due, dias: diasEntre(hoy, due) });
   });
@@ -163,7 +152,7 @@ function getPendientes() {
 // Lista completa para el panel de gestión (incluye estado y próxima fecha).
 function getAll() {
   const hoy = fechaLabelPeru();
-  return data.reminders.map((r) => {
+  return datos().reminders.map((r) => {
     const due = estaPendiente(r, hoy);
     return {
       id: r.id,
@@ -181,7 +170,7 @@ function getAll() {
 }
 
 function getById(id) {
-  return data.reminders.find((x) => x.id === id) || null;
+  return datos().reminders.find((x) => x.id === id) || null;
 }
 
 // ---------- ¿El gasto de este pago ya está en la caja? ----------
@@ -265,7 +254,7 @@ function buscarPendientePorGasto(descripcion, monto) {
   const hoy = fechaLabelPeru();
   const montoNum = Number(monto) || 0;
 
-  for (const r of data.reminders) {
+  for (const r of datos().reminders) {
     const claves = palabrasClaveDe(r.label);
     if (!claves.some((k) => desc.includes(k))) continue;
     if (r.monto > 0 && montoNum < r.monto * FRACCION_MONTO_MINIMA) continue;
@@ -279,7 +268,7 @@ function buscarPendientePorGasto(descripcion, monto) {
 // solo reabre el aviso; el gasto que haya quedado en la caja se corrige
 // aparte desde Movimientos.
 function desmarcarPagado(id) {
-  const r = data.reminders.find((x) => x.id === id);
+  const r = datos().reminders.find((x) => x.id === id);
   if (!r) throw new Error("Recordatorio inexistente: " + id);
   r.lastPaidCycle = null;
   if (r.tipo === "unica") r.activo = true;
@@ -293,7 +282,7 @@ const MAX_PAGOS_MARCADOS = 100;
 // un pago desde el panel: cuánto fue, y si el gasto se registró en la caja
 // en ese momento o ya estaba escrito.
 function marcarPagado(id, info) {
-  const r = data.reminders.find((x) => x.id === id);
+  const r = datos().reminders.find((x) => x.id === id);
   if (!r) throw new Error("Recordatorio inexistente: " + id);
   const hoy = fechaLabelPeru();
   // "info.vence" llega cuando el pago se marca solo desde el grupo y puede
@@ -307,7 +296,7 @@ function marcarPagado(id, info) {
   }
 
   if (info) {
-    data.pagosMarcados.push({
+    datos().pagosMarcados.push({
       id: r.id,
       label: r.label,
       vence: due || hoy,
@@ -318,8 +307,8 @@ function marcarPagado(id, info) {
       gastoExistente: info.gastoExistente || null,
       origen: info.origen === "grupo" ? "grupo" : "panel",
     });
-    if (data.pagosMarcados.length > MAX_PAGOS_MARCADOS) {
-      data.pagosMarcados.splice(0, data.pagosMarcados.length - MAX_PAGOS_MARCADOS);
+    if (datos().pagosMarcados.length > MAX_PAGOS_MARCADOS) {
+      datos().pagosMarcados.splice(0, datos().pagosMarcados.length - MAX_PAGOS_MARCADOS);
     }
   }
 
@@ -329,12 +318,12 @@ function marcarPagado(id, info) {
 // Historial para el panel: lo más reciente primero. Con "id" devuelve solo
 // el de ese pago (para ver cuándo se pagó cada uno).
 function getHistorialPagos(id) {
-  const lista = id ? data.pagosMarcados.filter((p) => p.id === id) : data.pagosMarcados;
+  const lista = id ? datos().pagosMarcados.filter((p) => p.id === id) : datos().pagosMarcados;
   return lista.slice().reverse();
 }
 
 function setActivo(id, activo) {
-  const r = data.reminders.find((x) => x.id === id);
+  const r = datos().reminders.find((x) => x.id === id);
   if (!r) throw new Error("Recordatorio inexistente: " + id);
   r.activo = !!activo;
   save();
@@ -353,7 +342,7 @@ function addReminder({ label, monto, tipo, dia, fecha }) {
   };
   if (tipo === "semanal" || tipo === "mensual_dia") nuevo.dia = Number(dia);
   if (tipo === "unica") nuevo.fecha = fecha;
-  data.reminders.push(nuevo);
+  datos().reminders.push(nuevo);
   save();
   return nuevo.id;
 }
@@ -362,7 +351,7 @@ function addReminder({ label, monto, tipo, dia, fecha }) {
 // no tener que borrarlo y crearlo de nuevo cuando cambia un monto o una
 // fecha real (ej. actualizar Cuzco o Universidad mes a mes).
 function editReminder(id, cambios) {
-  const r = data.reminders.find((x) => x.id === id);
+  const r = datos().reminders.find((x) => x.id === id);
   if (!r) return null;
   const tiposValidos = ["semanal", "mensual_dia", "mensual_finmes", "unica"];
   if (cambios.label !== undefined && String(cambios.label).trim()) r.label = String(cambios.label).trim();
@@ -380,9 +369,9 @@ function editReminder(id, cambios) {
 }
 
 function removeReminder(id) {
-  const antes = data.reminders.length;
-  data.reminders = data.reminders.filter((r) => r.id !== id);
-  if (data.reminders.length !== antes) save();
+  const antes = datos().reminders.length;
+  datos().reminders = datos().reminders.filter((r) => r.id !== id);
+  if (datos().reminders.length !== antes) save();
 }
 
 // ---------- Notificación diaria de las 8am ----------
@@ -391,14 +380,14 @@ function removeReminder(id) {
 function necesitaNotificar() {
   if (horaPeru() < 8) return null;
   const hoy = fechaLabelPeru();
-  if (data.lastNotifiedLabel === hoy) return null;
+  if (datos().lastNotifiedLabel === hoy) return null;
   const pendientes = getPendientes();
   if (pendientes.length === 0) return null;
   return pendientes;
 }
 
 function registrarNotificacion() {
-  data.lastNotifiedLabel = fechaLabelPeru();
+  datos().lastNotifiedLabel = fechaLabelPeru();
   save();
 }
 
@@ -422,7 +411,7 @@ function getComprisosDelMes() {
   const [y, mo] = hoy.split("-").map(Number);
   const detalle = [];
 
-  data.reminders.forEach((r) => {
+  datos().reminders.forEach((r) => {
     if (r.activo === false) return;
     let veces = 0;
     if (r.tipo === "semanal") {
@@ -462,7 +451,7 @@ function getPagosEnRango(dias) {
     lista.push({ id: r.id, label: r.label, monto: r.monto, fecha });
   }
 
-  data.reminders.forEach((r) => {
+  datos().reminders.forEach((r) => {
     if (r.activo === false) return;
 
     // Lo que ya está vencido y sigue sin pagar, sea de hoy o de antes.

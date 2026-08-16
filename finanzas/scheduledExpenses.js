@@ -1,8 +1,6 @@
-const fs = require("fs");
-const { dataPath } = require("./dataDir");
+const { crearAlmacen } = require("./almacenPorUsuario");
 const businessDay = require("./businessDay");
 
-const DATA_PATH = dataPath("scheduled-expenses-data.json");
 const { ymdToUtc, addDays, diasEnMes, businessDayLabel } = businessDay;
 
 // Gastos programados: SOLO sirven para proyectar cuánto se va a necesitar
@@ -26,28 +24,20 @@ const SEED = [
   { id: "salida_familiar", label: "Salida familiar", monto: 100, tipo: "semanal", dia: 6, fechaInicio: "2026-08-01", fechaFin: null },
 ];
 
-function loadData() {
+
+const almacen = crearAlmacen("scheduled-expenses-data.json", function (parsed) {
   try {
-    const raw = fs.readFileSync(DATA_PATH, "utf8");
-    const parsed = JSON.parse(raw);
     return { gastos: Array.isArray(parsed.gastos) ? parsed.gastos : SEED.map((g) => ({ ...g, activo: true })) };
   } catch (err) {
     return { gastos: SEED.map((g) => ({ ...g, activo: true })) };
   }
-}
+});
+const datos = almacen.datos;
+const save = almacen.guardar;
 
-const data = loadData();
-
-function save() {
-  try {
-    fs.writeFileSync(DATA_PATH, JSON.stringify(data, null, 2));
-  } catch (err) {
-    console.error("No se pudo guardar scheduled-expenses-data.json:", err.message);
-  }
-}
 
 function getAll() {
-  return data.gastos;
+  return datos().gastos;
 }
 
 const tiposValidos = ["rango", "semanal"];
@@ -70,13 +60,13 @@ function addGasto({ label, monto, tipo, fechaInicio, fechaFin, dia }) {
     nuevo.fechaInicio = fechaInicio || businessDayLabel();
     nuevo.fechaFin = fechaFin || null;
   }
-  data.gastos.push(nuevo);
+  datos().gastos.push(nuevo);
   save();
   return nuevo;
 }
 
 function editGasto(id, cambios) {
-  const g = data.gastos.find((x) => x.id === id);
+  const g = datos().gastos.find((x) => x.id === id);
   if (!g) return null;
   if (cambios.label !== undefined && String(cambios.label).trim()) g.label = String(cambios.label).trim();
   if (cambios.monto !== undefined) g.monto = Number(cambios.monto) || 0;
@@ -92,14 +82,14 @@ function editGasto(id, cambios) {
 }
 
 function removeGasto(id) {
-  const antes = data.gastos.length;
-  data.gastos = data.gastos.filter((g) => g.id !== id);
-  if (data.gastos.length !== antes) save();
-  return data.gastos.length !== antes;
+  const antes = datos().gastos.length;
+  datos().gastos = datos().gastos.filter((g) => g.id !== id);
+  if (datos().gastos.length !== antes) save();
+  return datos().gastos.length !== antes;
 }
 
 function setActivo(id, activo) {
-  const g = data.gastos.find((x) => x.id === id);
+  const g = datos().gastos.find((x) => x.id === id);
   if (!g) throw new Error("Gasto programado inexistente: " + id);
   g.activo = !!activo;
   save();
@@ -133,7 +123,7 @@ function ocurrenciasDiaSemanaEnRango(desde, hasta, diaSemana) {
 function getProyeccion(fechaInicioLabel, fechaFinLabel) {
   const detalle = [];
 
-  data.gastos.forEach((g) => {
+  datos().gastos.forEach((g) => {
     if (g.activo === false) return;
 
     if (g.tipo === "rango") {
