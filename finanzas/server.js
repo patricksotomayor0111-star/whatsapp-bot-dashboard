@@ -1,6 +1,6 @@
 const express = require("express");
 const path = require("path");
-const { startBot, botState, logoutBot, getSock, avisarAlGrupo } = require("./bot");
+const { startBot, startBotsGuardados, estadoDe, logoutBot, getSock, avisarAlGrupo } = require("./bot");
 const cashbox = require("./cashbox");
 const pushSubscriptions = require("./pushSubscriptions");
 const budgetCategories = require("./budgetCategories");
@@ -185,16 +185,21 @@ app.get("/api/ping", (req, res) => {
 // El panel consulta esto para saber si el bot está conectado y, si no lo
 // está, obtener el QR para vincular.
 app.get("/api/status", (req, res) => {
-  res.json({
-    connected: botState.connected,
-    qr: botState.qr,
-    groupsCount: botState.groups.length,
-  });
+  // Cada cuenta ve el estado de SU propio bot: su conexión y su QR. El
+  // bot se crea al pedirlo por primera vez, que es cuando esa cuenta
+  // entra al panel a vincular su WhatsApp.
+  res.json(estadoDe(req.userId));
+});
+
+// Arranca (o revive) el bot de esta cuenta para que genere su QR.
+app.post("/api/bot/vincular", (req, res) => {
+  startBot(req.userId).catch((err) => console.error("No se pudo iniciar el bot:", err.message));
+  res.json({ ok: true });
 });
 
 // Cierra la sesión de WhatsApp vinculada, para volver a mostrar un QR nuevo.
 app.post("/api/bot/logout", async (req, res) => {
-  await logoutBot();
+  await logoutBot(req.userId);
   res.json({ ok: true });
 });
 
@@ -904,7 +909,7 @@ app.post("/api/reminders/:id/pagado", (req, res) => {
     const aviso = registrado
       ? `✅ Marcaste "${recordatorio.label}" como pagado desde el panel.\n📉 Registré el gasto por ${formatSoles(monto)}.\nNo hace falta que lo escribas acá.`
       : `✅ Marcaste "${recordatorio.label}" como pagado desde el panel.\nEse gasto ya estaba registrado${gastoExistente.descripcion ? ` ("${gastoExistente.descripcion}")` : ""}, así que no registré nada para no duplicarlo.`;
-    avisarAlGrupo(aviso).catch((err) => console.error("No se pudo avisar al grupo:", err.message));
+    avisarAlGrupo(req.userId, aviso).catch((err) => console.error("No se pudo avisar al grupo:", err.message));
 
     res.json({ ok: true, registrado, gastoExistente });
   } catch (err) {
@@ -1195,6 +1200,5 @@ app.listen(PORT, () => {
   console.log(`Finanzas disponible en el puerto ${PORT}`);
 });
 
-startBot().catch((err) => {
-  console.error("Error al iniciar el bot de Finanzas:", err);
-});
+// Levanta los bots de todas las cuentas que ya vincularon su WhatsApp.
+startBotsGuardados();

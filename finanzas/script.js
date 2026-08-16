@@ -35,6 +35,8 @@ const pushStatus = document.getElementById("pushStatus");
 
 let isConnected = false;
 let lastRenderedQr = null;
+// Para no pedir arrancar el bot en cada vuelta del polling.
+let vinculacionPedida = false;
 let qrInstance = null;
 
 // ---------- Caja chica (Ganancias/Gastos del grupo "GANANCIAS") ----------
@@ -94,6 +96,7 @@ async function pollStatus() {
     if (isConnected) {
       qrHint.textContent = "";
       lastRenderedQr = null;
+      vinculacionPedida = false;
     } else if (data.qr && data.qr !== lastRenderedQr) {
       lastRenderedQr = data.qr;
       qrHint.textContent = "Escanea antes de que expire (se renueva solo).";
@@ -113,6 +116,13 @@ async function pollStatus() {
         console.error("No se pudo generar el QR (¿falló el CDN?):", err);
       }
     } else if (!data.qr) {
+      // Una cuenta que todavía no vinculó su WhatsApp no tiene bot
+      // levantado, así que nunca llegaría un QR sola. Se pide arrancarlo
+      // una vez y a partir de ahí el QR aparece por el polling normal.
+      if (!vinculacionPedida) {
+        vinculacionPedida = true;
+        fetch("/api/bot/vincular", { method: "POST" }).catch(() => {});
+      }
       qrHint.textContent = "Esperando código QR del servidor…";
     }
 

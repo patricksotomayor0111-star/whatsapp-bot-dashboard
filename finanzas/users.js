@@ -1,13 +1,12 @@
 const fs = require("fs");
 const crypto = require("crypto");
-const { dataPath, migrarADueño } = require("./dataDir");
+const { dataPath, migrarADueño, migrarSesionADueño } = require("./dataDir");
 
 const DATA_PATH = dataPath("users-data.json");
 
 // Archivos que hasta ahora vivían sueltos en la raíz del volumen y pasan a
-// ser de la cuenta del dueño. La sesión de WhatsApp NO está en la lista:
-// en esta fase el bot sigue siendo uno solo, atado al dueño, y se maneja
-// aparte.
+// ser de la cuenta del dueño. La sesión de WhatsApp va aparte porque es
+// una carpeta, no un archivo (ver migrarSesionADueño).
 const ARCHIVOS_DE_CUENTA = [
   "cashbox-data.json",
   "debts-data.json",
@@ -151,7 +150,15 @@ function removeUsuario(id) {
 // la contraseña que ya venía por variable de entorno y le pasa los datos
 // que hoy están sueltos, para que no tenga que reconfigurar nada.
 function asegurarDueno() {
-  if (getById(DUENO_ID)) return getById(DUENO_ID);
+  const existente = getById(DUENO_ID);
+  if (existente) {
+    // La cuenta puede haberse creado en un despliegue anterior, antes de
+    // que cada cuenta tuviera su propio bot. Se intenta igual mover la
+    // sesión de WhatsApp: si ya está en su carpeta no hace nada, y si no,
+    // evita que el dueño tenga que reescanear el QR.
+    migrarSesionADueño(DUENO_ID);
+    return existente;
+  }
 
   const passwordInicial = (process.env.PANEL_PASSWORD || "").trim();
   if (!passwordInicial) {
@@ -171,6 +178,7 @@ function asegurarDueno() {
   });
   save();
   migrarADueño(DUENO_ID, ARCHIVOS_DE_CUENTA);
+  migrarSesionADueño(DUENO_ID);
   console.log(`Cuenta del dueño "${DUENO_ID}" creada con la contraseña de PANEL_PASSWORD.`);
   return getById(DUENO_ID);
 }

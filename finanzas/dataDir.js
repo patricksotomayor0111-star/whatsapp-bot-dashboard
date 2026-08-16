@@ -71,4 +71,21 @@ function migrarADueño(userId, archivos) {
   return copiados;
 }
 
-module.exports = { DATA_DIR, dataPath, userDataPath, migrarADueño };
+// La sesión de WhatsApp es una carpeta, no un archivo. Se copia entera a
+// la carpeta del dueño para que su bot siga conectado sin tener que
+// reescanear el QR. Igual que con los datos: se copia, no se mueve.
+function migrarSesionADueño(userId) {
+  const origen = path.join(DATA_DIR, "session");
+  const destino = userDataPath(userId, "session");
+  try {
+    if (!fs.existsSync(origen) || fs.existsSync(destino)) return false;
+    fs.cpSync(origen, destino, { recursive: true });
+    console.log(`Sesión de WhatsApp migrada a la cuenta "${userId}" (no hace falta reescanear el QR).`);
+    return true;
+  } catch (err) {
+    console.error("No se pudo migrar la sesión de WhatsApp:", err.message);
+    return false;
+  }
+}
+
+module.exports = { DATA_DIR, dataPath, userDataPath, migrarADueño, migrarSesionADueño };

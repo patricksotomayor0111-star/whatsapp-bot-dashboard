@@ -23,19 +23,9 @@ const budgetCategories = require("./budgetCategories");
 const queryIntents = require("./queryIntents");
 const productPrices = require("./productPrices");
 const { responderConsultaPrecio } = require("./priceQueries");
-const { dataPath } = require("./dataDir");
+const { dataPath, userDataPath } = require("./dataDir");
 const contexto = require("./contexto");
 const users = require("./users");
-
-const SESSION_PATH = dataPath("session");
-
-// En esta etapa el bot es uno solo y trabaja siempre sobre la cuenta del
-// dueño: es su número de WhatsApp el que está vinculado. Todo lo que toque
-// datos (caja, deudas, recordatorios) tiene que decir de quién son, así
-// que se envuelve acá en vez de repetirlo en cada función.
-function comoDueno(fn) {
-  return contexto.correrComo(users.DUENO_ID, fn);
-}
 
 // Quita tildes/acentos ("móvil" -> "movil") para que dé igual si el
 // mensaje o la frase configurada los llevan o no.
@@ -527,26 +517,59 @@ function handleCashboxEntries(entradas) {
 }
 
 // ---------- Estado y conexión ----------
-const botState = {
-  connected: false,
-  qr: null,
-  groups: [],
-};
+// ---------- Un bot por cuenta ----------
+// Antes había UNA conexión de WhatsApp para todo el servidor. Ahora cada
+// cuenta vincula su propio número, así que todo lo que era una variable
+// global (el socket, si está conectado, su QR, sus grupos, los mensajes ya
+// procesados) pasa a vivir dentro del bot de esa cuenta.
+const bots = new Map();
 
-let currentSock = null;
+function botDe(userId) {
+  if (!bots.has(userId)) {
+    bots.set(userId, {
+      userId,
+      sock: null,
+      connected: false,
+      qr: null,
+      groups: [],
+      // Evita responder dos veces el mismo mensaje tras una reconexión.
+      // Es por bot: dos cuentas distintas pueden recibir mensajes con el
+      // mismo id sin que uno tape al otro.
+      mensajesProcesados: new Set(),
+      // Segunda barrera contra que el bot se lea a sí mismo.
+      textosEnviados: new Set(),
+      // Control de los reintentos al cargar la lista de grupos.
+      refreshEnCurso: false,
+      ultimoFalloTs: 0,
+      // Para no repetir el mensaje de las 7am dentro del mismo día.
+      lastMorningMessageLabel: null,
+    });
+  }
+  return bots.get(userId);
+}
+
+// Las cuentas que tienen bot levantado en este momento.
+function botsActivos() {
+  return Array.from(bots.values());
+}
+
+// Cada cuenta guarda su sesión de WhatsApp en su propia carpeta: son las
+// credenciales de SU número y no pueden compartirse.
+function sessionPathDe(userId) {
+  return userDataPath(userId, "session");
+}
 
 // Dedup por ID de mensaje (sobrevive a reconexiones porque está fuera de
 // startBot) + descarte de mensajes viejos que Baileys reentrega al
 // reconectar. NO se filtra por "type": los mensajes que escribe el propio
 // dueño desde su teléfono no siempre llegan como "notify".
-const mensajesProcesados = new Set();
 const MAX_MENSAJES_PROCESADOS = 500;
-function yaFueProcesado(id) {
+function yaFueProcesado(bot, id) {
   if (!id) return false;
-  if (mensajesProcesados.has(id)) return true;
-  mensajesProcesados.add(id);
-  if (mensajesProcesados.size > MAX_MENSAJES_PROCESADOS) {
-    mensajesProcesados.delete(mensajesProcesados.values().next().value);
+  if (bot.mensajesProcesados.has(id)) return true;
+  bot.mensajesProcesados.add(id);
+  if (bot.mensajesProcesados.size > MAX_MENSAJES_PROCESADOS) {
+    bot.mensajesProcesados.delete(bot.mensajesProcesados.values().next().value);
   }
   return false;
 }
@@ -567,28 +590,27 @@ function esMensajeViejo(msg) {
 // mensajes propios (fromMe) porque el dueño registra la caja desde su
 // teléfono con la misma cuenta — sin esta marca, una respuesta que
 // contenga una frase de consulta se dispara a sí misma sin parar.
-async function enviarMensaje(sock, chatId, contenido, opciones) {
-  if (contenido?.text) recordarTextoEnviado(contenido.text);
-  const enviado = await sock.sendMessage(chatId, contenido, opciones);
+async function enviarMensaje(bot, chatId, contenido, opciones) {
+  if (contenido?.text) recordarTextoEnviado(bot, contenido.text);
+  const enviado = await bot.sock.sendMessage(chatId, contenido, opciones);
   const idEnviado = enviado?.key?.id;
-  if (idEnviado) yaFueProcesado(idEnviado);
+  if (idEnviado) yaFueProcesado(bot, idEnviado);
   return enviado;
 }
 
 // Segunda barrera contra el bucle, por si algún envío no devolviera su ID.
-const textosEnviados = new Set();
 const MAX_TEXTOS_ENVIADOS = 50;
-function recordarTextoEnviado(texto) {
+function recordarTextoEnviado(bot, texto) {
   const clave = normalizeText(String(texto || "")).trim();
   if (!clave) return;
-  textosEnviados.add(clave);
-  if (textosEnviados.size > MAX_TEXTOS_ENVIADOS) {
-    textosEnviados.delete(textosEnviados.values().next().value);
+  bot.textosEnviados.add(clave);
+  if (bot.textosEnviados.size > MAX_TEXTOS_ENVIADOS) {
+    bot.textosEnviados.delete(bot.textosEnviados.values().next().value);
   }
 }
-function esEcoDelBot(texto) {
+function esEcoDelBot(bot, texto) {
   const clave = normalizeText(String(texto || "")).trim();
-  return Boolean(clave) && textosEnviados.has(clave);
+  return Boolean(clave) && bot.textosEnviados.has(clave);
 }
 
 // Espera creciente para reintentar si falla la carga de grupos (ej. un
@@ -602,27 +624,29 @@ let refreshEnCurso = false;
 let ultimoFalloTs = 0;
 const ENFRIAMIENTO_TRAS_FALLO_MS = 5 * 60 * 1000; // 5 minutos
 
-async function refreshGroups(sock, intento = 0) {
+async function refreshGroups(bot, sock, intento = 0) {
   if (intento === 0) {
-    if (refreshEnCurso) return;
-    if (Date.now() - ultimoFalloTs < ENFRIAMIENTO_TRAS_FALLO_MS) return;
-    refreshEnCurso = true;
+    if (bot.refreshEnCurso) return;
+    if (Date.now() - bot.ultimoFalloTs < ENFRIAMIENTO_TRAS_FALLO_MS) return;
+    bot.refreshEnCurso = true;
   }
 
   try {
     const groupsMap = await sock.groupFetchAllParticipating();
-    botState.groups = Object.values(groupsMap).map((g) => ({ id: g.id, name: g.subject || "(sin nombre)" }));
-    refreshEnCurso = false;
+    bot.groups = Object.values(groupsMap).map((g) => ({ id: g.id, name: g.subject || "(sin nombre)" }));
+    bot.refreshEnCurso = false;
   } catch (err) {
-    console.error("No se pudo obtener la lista de grupos:", err.message);
+    console.error("[" + bot.userId + "] No se pudo obtener la lista de grupos:", err.message);
     if (intento < REINTENTO_GRUPOS_MS.length) {
       const esperaMs = REINTENTO_GRUPOS_MS[intento];
       setTimeout(() => {
-        if (sock === currentSock) refreshGroups(sock, intento + 1);
+        // Solo reintenta si ese socket sigue siendo el vigente de la
+        // cuenta: si ya reconectó, el viejo no sirve.
+        if (sock === bot.sock) refreshGroups(bot, sock, intento + 1);
       }, esperaMs);
     } else {
-      refreshEnCurso = false;
-      ultimoFalloTs = Date.now();
+      bot.refreshEnCurso = false;
+      bot.ultimoFalloTs = Date.now();
     }
   }
 }
@@ -632,8 +656,8 @@ async function refreshGroups(sock, intento = 0) {
 // que cierra fue domingo, también la semana). Guarda qué día ya cerró para
 // no mandar el mensaje dos veces si esta función corre más de una vez
 // dentro del mismo minuto.
-async function checkCashboxSchedule() {
-  if (!currentSock || !botState.connected) return;
+async function checkCashboxSchedule(bot) {
+  if (!bot.sock || !bot.connected) return;
 
   const now = businessDay.peruAhora();
   if (now.getHours() !== 3 || now.getMinutes() !== 0) return;
@@ -643,7 +667,7 @@ async function checkCashboxSchedule() {
   const hoyLabel = businessDay.businessDayLabel();
   if (cashbox.getLastClosedDay() === hoyLabel) return;
 
-  const grupo = botState.groups.find((g) => g.name.trim().toUpperCase() === CASHBOX_GROUP_NAME);
+  const grupo = bot.groups.find((g) => g.name.trim().toUpperCase() === CASHBOX_GROUP_NAME);
   if (!grupo) return;
 
   // La meta de producción que estuvo vigente el día que se está cerrando
@@ -678,7 +702,7 @@ async function checkCashboxSchedule() {
   }
 
   try {
-    await enviarMensaje(currentSock, grupo.id, { text: textoDia });
+    await enviarMensaje(bot, grupo.id, { text: textoDia });
   } catch (err) {
     console.error("Error al mandar el cierre diario de caja chica:", err.message);
   }
@@ -705,32 +729,30 @@ async function checkCashboxSchedule() {
       `✅ Total ganancias de la semana: ${formatSoles(resumenSemana.ganancias)}\n` +
       `📉 Total gastos de la semana: ${formatSoles(resumenSemana.gastos)}`;
     try {
-      await enviarMensaje(currentSock, grupo.id, { text: textoSemana });
+      await enviarMensaje(bot, grupo.id, { text: textoSemana });
     } catch (err) {
       console.error("Error al mandar el resumen semanal de caja chica:", err.message);
     }
   }
 }
 
-let lastMorningMessageLabel = null;
-
 // Revisa cada cierto tiempo si ya son las 7:00am hora Perú (inicio del día
 // laboral) para mandar el mensaje de "buenos días": la meta de producción
 // de hoy, cuánto falta para completar el mes, cuánto conviene ahorrar hoy
 // y cuánto se puede gastar sin afectar los objetivos.
-async function checkMorningSchedule() {
-  if (!currentSock || !botState.connected) return;
+async function checkMorningSchedule(bot) {
+  if (!bot.sock || !bot.connected) return;
 
   const now = businessDay.peruAhora();
   if (now.getHours() !== 7 || now.getMinutes() !== 0) return;
 
   const hoyLabel = businessDay.businessDayLabel();
-  if (lastMorningMessageLabel === hoyLabel) return;
+  if (bot.lastMorningMessageLabel === hoyLabel) return;
 
-  const grupo = botState.groups.find((g) => g.name.trim().toUpperCase() === CASHBOX_GROUP_NAME);
+  const grupo = bot.groups.find((g) => g.name.trim().toUpperCase() === CASHBOX_GROUP_NAME);
   if (!grupo) return;
 
-  lastMorningMessageLabel = hoyLabel;
+  bot.lastMorningMessageLabel = hoyLabel;
 
   const progreso = productionGoals.getProgresoMes(cashbox.getMesActualLabel());
   const { goals, margen } = calcularMargenHoy();
@@ -758,16 +780,18 @@ async function checkMorningSchedule() {
       : `⚠️ Todavía no tienes margen para gastar de más: te faltan ${formatSoles(Math.abs(margen))} para cubrir tus compromisos y tu ahorro.`;
 
   try {
-    await enviarMensaje(currentSock, grupo.id, { text: texto });
+    await enviarMensaje(bot, grupo.id, { text: texto });
   } catch (err) {
     console.error("Error al mandar el mensaje de buenos días:", err.message);
   }
 }
 
 setInterval(() => {
-  comoDueno(() => {
-    checkCashboxSchedule().catch((err) => console.error("Error en checkCashboxSchedule:", err.message));
-    checkMorningSchedule().catch((err) => console.error("Error en checkMorningSchedule:", err.message));
+  botsActivos().forEach((bot) => {
+    contexto.correrComo(bot.userId, () => {
+      checkCashboxSchedule(bot).catch((err) => console.error(`[${bot.userId}] checkCashboxSchedule:`, err.message));
+      checkMorningSchedule(bot).catch((err) => console.error(`[${bot.userId}] checkMorningSchedule:`, err.message));
+    });
   });
 }, 30000);
 
@@ -797,7 +821,9 @@ function chequearRecordatorios() {
 
 // Se revisa cada 5 minutos; la lógica interna se asegura de mandar una sola
 // notificación por día.
-setInterval(() => comoDueno(chequearRecordatorios), 5 * 60 * 1000);
+setInterval(() => {
+  botsActivos().forEach((bot) => contexto.correrComo(bot.userId, chequearRecordatorios));
+}, 5 * 60 * 1000);
 
 // ---------- Tareas sueltas: notificación cada 30 minutos ----------
 // A diferencia de los pagos de arriba (una vez al día), una tarea sin
@@ -816,7 +842,9 @@ function chequearTareas() {
     .catch((err) => console.error("Error al notificar tareas:", err.message));
 }
 
-setInterval(() => comoDueno(chequearTareas), 5 * 60 * 1000);
+setInterval(() => {
+  botsActivos().forEach((bot) => contexto.correrComo(bot.userId, chequearTareas));
+}, 5 * 60 * 1000);
 
 function extractText(msg) {
   // Si el chat tiene mensajes que desaparecen (o es "ver una vez"), el texto
@@ -830,10 +858,11 @@ function extractText(msg) {
   return m.conversation || m.extendedTextMessage?.text || m.imageMessage?.caption || "";
 }
 
-async function logoutBot() {
-  if (!currentSock) return;
+async function logoutBot(userId) {
+  const bot = botDe(userId);
+  if (!bot.sock) return;
   try {
-    await currentSock.logout();
+    await bot.sock.logout();
   } catch (err) {
     console.error("Error al cerrar sesión:", err.message);
   }
@@ -845,23 +874,24 @@ async function logoutBot() {
 // intento empeoraba el bloqueo y lo alargaba. Ahora cada reintento
 // seguido espera más, y el contador se reinicia al volver a conectar.
 const ESPERA_RECONEXION_MS = [1000, 2000, 5000, 15000, 30000, 60000];
-let intentosReconexion = 0;
-let reconexionProgramada = false;
 
-function programarReconexion(motivo) {
-  if (reconexionProgramada) return; // ya hay una en camino: no encimar otra
-  reconexionProgramada = true;
-  const espera = ESPERA_RECONEXION_MS[Math.min(intentosReconexion, ESPERA_RECONEXION_MS.length - 1)];
-  intentosReconexion++;
-  console.log(`${motivo} Reintentando en ${Math.round(espera / 1000)}s...`);
+function programarReconexion(bot, motivo) {
+  if (bot.reconexionProgramada) return; // ya hay una en camino: no encimar otra
+  bot.reconexionProgramada = true;
+  const intentos = bot.intentosReconexion || 0;
+  const espera = ESPERA_RECONEXION_MS[Math.min(intentos, ESPERA_RECONEXION_MS.length - 1)];
+  bot.intentosReconexion = intentos + 1;
+  console.log(`[${bot.userId}] ${motivo} Reintentando en ${Math.round(espera / 1000)}s...`);
   setTimeout(() => {
-    reconexionProgramada = false;
-    startBot().catch((err) => console.error("Error al reconectar:", err.message));
+    bot.reconexionProgramada = false;
+    startBot(bot.userId).catch((err) => console.error(`[${bot.userId}] Error al reconectar:`, err.message));
   }, espera);
 }
 
-async function startBot() {
-  const { state, saveCreds } = await useMultiFileAuthState(SESSION_PATH);
+async function startBot(userId) {
+  const bot = botDe(userId);
+  const sessionPath = sessionPathDe(userId);
+  const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
   const { version } = await fetchLatestBaileysVersion();
 
   const sock = makeWASocket({
@@ -870,7 +900,7 @@ async function startBot() {
     logger: P({ level: "silent" }),
   });
 
-  currentSock = sock;
+  bot.sock = sock;
 
   sock.ev.on("creds.update", saveCreds);
 
@@ -879,51 +909,53 @@ async function startBot() {
     // creó el nuevo. Si no se ignoran, el "close" del viejo dispara OTRA
     // reconexión en paralelo: terminan dos sockets vivos peleándose la
     // misma sesión, y WhatsApp corta los dos.
-    if (sock !== currentSock) return;
+    if (sock !== bot.sock) return;
 
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
-      botState.qr = qr;
-      console.log("\nEscanea este código QR con WhatsApp (Dispositivos vinculados):\n");
+      bot.qr = qr;
+      console.log(`\n[${userId}] Escanea este código QR con WhatsApp (Dispositivos vinculados):\n`);
       qrcode.generate(qr, { small: true });
     }
 
     if (connection === "close") {
-      botState.connected = false;
-      botState.groups = [];
+      bot.connected = false;
+      bot.groups = [];
       const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
 
       if (shouldReconnect) {
-        programarReconexion("Conexión cerrada.");
+        programarReconexion(bot, "Conexión cerrada.");
       } else {
-        console.log("Sesión cerrada. Generando un nuevo QR para vincular...");
-        fs.rmSync(SESSION_PATH, { recursive: true, force: true });
-        intentosReconexion = 0; // el usuario está esperando el QR: sin castigo de espera
-        programarReconexion("Sesión cerrada.");
+        console.log(`[${userId}] Sesión cerrada. Generando un nuevo QR para vincular...`);
+        fs.rmSync(sessionPath, { recursive: true, force: true });
+        bot.intentosReconexion = 0; // está esperando el QR: sin castigo de espera
+        programarReconexion(bot, "Sesión cerrada.");
       }
     } else if (connection === "open") {
-      botState.connected = true;
-      botState.qr = null;
-      intentosReconexion = 0; // conectó bien: la próxima caída vuelve a empezar desde 1s
-      console.log("Bot de FINANZAS conectado a WhatsApp correctamente.");
-      refreshGroups(sock);
+      bot.connected = true;
+      bot.qr = null;
+      bot.intentosReconexion = 0; // conectó bien: la próxima caída empieza de nuevo en 1s
+      console.log(`[${userId}] Bot de FINANZAS conectado a WhatsApp correctamente.`);
+      refreshGroups(bot, sock);
     }
   });
 
   // Mantiene la lista de grupos al día si se crean, editan o el bot se une/sale de uno.
-  sock.ev.on("groups.upsert", () => refreshGroups(sock));
-  sock.ev.on("groups.update", () => refreshGroups(sock));
+  sock.ev.on("groups.upsert", () => refreshGroups(bot, sock));
+  sock.ev.on("groups.update", () => refreshGroups(bot, sock));
 
   // Solo escucha el grupo GANANCIAS: registro de caja chica y consultas
   // financieras. Todo lo demás (otros grupos, cotizaciones, keywords) no
   // existe en este bot — vive en el proyecto de delivery, aparte.
-  sock.ev.on("messages.upsert", ({ messages }) => comoDueno(() => procesarMensajes(sock, messages)));
+  sock.ev.on("messages.upsert", ({ messages }) =>
+    contexto.correrComo(userId, () => procesarMensajes(bot, messages))
+  );
 
   return sock;
 }
 
-async function procesarMensajes(sock, messages) {
+async function procesarMensajes(bot, messages) {
   {
     for (const msg of messages) {
       if (!msg?.message) continue;
@@ -932,11 +964,11 @@ async function procesarMensajes(sock, messages) {
       // historial viejo. NO se filtra por "type" porque los mensajes que
       // escribe el propio dueño (los de la caja chica) no siempre llegan
       // como "notify".
-      if (yaFueProcesado(msg.key.id)) continue;
+      if (yaFueProcesado(bot, msg.key.id)) continue;
       if (esMensajeViejo(msg)) continue;
 
       const chatId = msg.key.remoteJid;
-      const grupoActual = botState.groups.find((g) => g.id === chatId);
+      const grupoActual = bot.groups.find((g) => g.id === chatId);
       if (!grupoActual) continue;
       const nombreGrupo = grupoActual.name.trim().toUpperCase();
       const esCajaChica = nombreGrupo === CASHBOX_GROUP_NAME;
@@ -944,7 +976,7 @@ async function procesarMensajes(sock, messages) {
       if (!esCajaChica && !esPrecios) continue;
 
       const rawText = extractText(msg).trim();
-      if (esEcoDelBot(rawText)) continue; // es una respuesta que mandó el propio bot
+      if (esEcoDelBot(bot, rawText)) continue; // es una respuesta que mandó el propio bot
 
       // ---------- Grupo de precios de productos ----------
       // Dos usos en el mismo grupo, sin ambigüedad: si arranca con un
@@ -966,7 +998,7 @@ async function procesarMensajes(sock, messages) {
         const respuestaPrecio = responderConsultaPrecio(rawText);
         if (respuestaPrecio) {
           try {
-            await enviarMensaje(sock, chatId, { text: respuestaPrecio });
+            await enviarMensaje(bot, chatId, { text: respuestaPrecio });
           } catch (err) {
             console.error("Error al responder consulta de precios:", err.message);
           }
@@ -977,7 +1009,7 @@ async function procesarMensajes(sock, messages) {
       const respuestaConsulta = responderConsultaFinanciera(rawText);
       if (respuestaConsulta) {
         try {
-          await enviarMensaje(sock, chatId, { text: respuestaConsulta });
+          await enviarMensaje(bot, chatId, { text: respuestaConsulta });
         } catch (err) {
           console.error("Error al responder consulta financiera:", err.message);
         }
@@ -989,7 +1021,7 @@ async function procesarMensajes(sock, messages) {
         const avisos = handleCashboxEntries(entradas);
         for (const aviso of avisos) {
           try {
-            await enviarMensaje(sock, chatId, { text: aviso });
+            await enviarMensaje(bot, chatId, { text: aviso });
           } catch (err) {
             console.error("Error al avisar que se marcó un pago:", err.message);
           }
@@ -1003,20 +1035,39 @@ async function procesarMensajes(sock, messages) {
 // listener (ej. desde una ruta de administración), así que se expone una
 // función que siempre devuelve el socket actual (no un valor fijo, porque
 // currentSock cambia cuando el bot reconecta).
-function getSock() {
-  return currentSock;
+function getSock(userId) {
+  return botDe(userId).sock;
 }
 
 // Manda un aviso al grupo GANANCIAS desde afuera del listener (lo usa el
 // panel al marcar un pago como pagado). Va por enviarMensaje() a propósito:
 // así el propio bot no lee su aviso como si fuera una entrada de caja.
 // Devuelve false si no hay conexión o el grupo todavía no está cargado.
-async function avisarAlGrupo(texto) {
-  if (!currentSock || !botState.connected) return false;
-  const grupo = botState.groups.find((g) => g.name.trim().toUpperCase() === CASHBOX_GROUP_NAME);
+async function avisarAlGrupo(userId, texto) {
+  const bot = botDe(userId);
+  if (!bot.sock || !bot.connected) return false;
+  const grupo = bot.groups.find((g) => g.name.trim().toUpperCase() === CASHBOX_GROUP_NAME);
   if (!grupo) return false;
-  await enviarMensaje(currentSock, grupo.id, { text: texto });
+  await enviarMensaje(bot, grupo.id, { text: texto });
   return true;
 }
 
-module.exports = { startBot, botState, logoutBot, getSock, avisarAlGrupo };
+// Estado del bot de una cuenta, para que el panel muestre su QR y si está
+// conectado. Cada cuenta ve el suyo y nada del de las demás.
+function estadoDe(userId) {
+  const bot = botDe(userId);
+  return { connected: bot.connected, qr: bot.qr, groupsCount: bot.groups.length };
+}
+
+// Levanta el bot de cada cuenta que ya tenga su WhatsApp vinculado. Las
+// que nunca vincularon no se arrancan solas: su bot se crea recién cuando
+// piden el QR desde el panel, para no gastar conexiones al pedo.
+function startBotsGuardados() {
+  users.getAll().forEach((u) => {
+    if (u.activo === false) return;
+    if (!fs.existsSync(sessionPathDe(u.id))) return;
+    startBot(u.id).catch((err) => console.error(`[${u.id}] No se pudo arrancar el bot:`, err.message));
+  });
+}
+
+module.exports = { startBot, startBotsGuardados, estadoDe, logoutBot, getSock, avisarAlGrupo };
