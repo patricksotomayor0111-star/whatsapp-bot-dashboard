@@ -1,4 +1,15 @@
 const { crearAlmacen } = require("./almacenPorUsuario");
+const users = require("./users");
+const { usuarioActual } = require("./contexto");
+
+// Las semillas son la configuración con la que arrancó el dueño. Una
+// cuenta nueva debe empezar vacía: si no, vería los pagos y las
+// categorías (con sus montos) de otra persona.
+function sembrarSoloAlDueno(semilla) {
+  return usuarioActual() === users.DUENO_ID ? semilla : [];
+}
+
+
 
 
 // Categorías originales (orden de prioridad: la primera palabra clave que
@@ -28,12 +39,12 @@ const CATEGORIA_OTROS = { id: "otros", label: "Otros", keywords: [], tipo: "limi
 const almacen = crearAlmacen("budget-categories-data.json", function (parsed) {
   try {
     return {
-      categorias: Array.isArray(parsed.categorias) && parsed.categorias.length ? parsed.categorias : CATEGORIAS_SEMILLA.slice(),
+      categorias: Array.isArray(parsed.categorias) && parsed.categorias.length ? parsed.categorias : sembrarSoloAlDueno(CATEGORIAS_SEMILLA.slice()),
       limits: parsed.limits || {},
       metas: parsed.metas || {},
     };
   } catch (err) {
-    return { categorias: CATEGORIAS_SEMILLA.slice(), limits: {}, metas: {} };
+    return { categorias: sembrarSoloAlDueno(CATEGORIAS_SEMILLA.slice()), limits: {}, metas: {} };
   }
 });
 const datos = almacen.datos;

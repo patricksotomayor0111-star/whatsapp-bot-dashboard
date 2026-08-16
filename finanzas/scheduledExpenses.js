@@ -1,4 +1,15 @@
 const { crearAlmacen } = require("./almacenPorUsuario");
+const users = require("./users");
+const { usuarioActual } = require("./contexto");
+
+// Las semillas son la configuración con la que arrancó el dueño. Una
+// cuenta nueva debe empezar vacía: si no, vería los pagos y las
+// categorías (con sus montos) de otra persona.
+function sembrarSoloAlDueno(semilla) {
+  return usuarioActual() === users.DUENO_ID ? semilla : [];
+}
+
+
 const businessDay = require("./businessDay");
 
 const { ymdToUtc, addDays, diasEnMes, businessDayLabel } = businessDay;
@@ -27,9 +38,9 @@ const SEED = [
 
 const almacen = crearAlmacen("scheduled-expenses-data.json", function (parsed) {
   try {
-    return { gastos: Array.isArray(parsed.gastos) ? parsed.gastos : SEED.map((g) => ({ ...g, activo: true })) };
+    return { gastos: Array.isArray(parsed.gastos) ? parsed.gastos : sembrarSoloAlDueno(SEED.map((g) => ({ ...g, activo: true }))) };
   } catch (err) {
-    return { gastos: SEED.map((g) => ({ ...g, activo: true })) };
+    return { gastos: sembrarSoloAlDueno(SEED.map((g) => ({ ...g, activo: true }))) };
   }
 });
 const datos = almacen.datos;

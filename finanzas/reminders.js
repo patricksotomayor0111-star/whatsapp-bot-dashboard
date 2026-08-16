@@ -1,6 +1,17 @@
 const fs = require("fs");
 const { crearAlmacen } = require("./almacenPorUsuario");
 const businessDay = require("./businessDay");
+const users = require("./users");
+const { usuarioActual } = require("./contexto");
+
+// Las semillas son la configuración con la que arrancó el dueño. Una
+// cuenta nueva debe empezar vacía: si no, vería los pagos y las
+// categorías (con sus montos) de otra persona.
+function sembrarSoloAlDueno(semilla) {
+  return usuarioActual() === users.DUENO_ID ? semilla : [];
+}
+
+
 
 
 // Recordatorios de pagos que se repiten. Cada uno se vuelve "pendiente"
@@ -28,14 +39,14 @@ const SEED = [
 const almacen = crearAlmacen("reminders-data.json", function (parsed) {
   try {
     return {
-      reminders: Array.isArray(parsed.reminders) ? parsed.reminders : [],
+      reminders: Array.isArray(parsed.reminders) ? parsed.reminders : sembrarSoloAlDueno(SEED.map((r) => ({ ...r, activo: true, lastPaidCycle: null }))),
       lastNotifiedLabel: parsed.lastNotifiedLabel || null,
       pagosMarcados: Array.isArray(parsed.pagosMarcados) ? parsed.pagosMarcados : [],
     };
   } catch (err) {
     // Primera vez (sin archivo): se siembran los pagos que ya conocemos.
     return {
-      reminders: SEED.map((r) => ({ ...r, activo: true, lastPaidCycle: null })),
+      reminders: sembrarSoloAlDueno(SEED.map((r) => ({ ...r, activo: true, lastPaidCycle: null }))),
       lastNotifiedLabel: null,
       pagosMarcados: [],
     };

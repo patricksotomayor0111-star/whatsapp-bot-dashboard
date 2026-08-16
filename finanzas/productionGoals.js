@@ -1,4 +1,13 @@
 const { crearAlmacen } = require("./almacenPorUsuario");
+const users = require("./users");
+const { usuarioActual } = require("./contexto");
+
+// La meta de producción sembrada es la del dueño; una cuenta nueva la
+// configura ella misma desde el panel.
+function metasIniciales() {
+  return usuarioActual() === users.DUENO_ID ? { ...SEED } : {};
+}
+
 const cashbox = require("./cashbox");
 
 
@@ -12,9 +21,9 @@ const SEED = { "2026-08": { metaDiariaBase: 200, diasProduccion: 27 } };
 
 const almacen = crearAlmacen("production-goals-data.json", function (parsed) {
   try {
-    return { metas: parsed.metas && typeof parsed.metas === "object" ? parsed.metas : { ...SEED } };
+    return { metas: parsed.metas && typeof parsed.metas === "object" ? parsed.metas : metasIniciales() };
   } catch (err) {
-    return { metas: { ...SEED } };
+    return { metas: metasIniciales() };
   }
 });
 const datos = almacen.datos;
