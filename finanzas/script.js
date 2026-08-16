@@ -53,10 +53,10 @@ async function fetchCashboxToday() {
     statTotal.textContent = formatSoles(data.total);
     statCaja.textContent = formatSoles(data.caja);
     statEsperado.textContent = formatSoles(data.esperado);
-    if (data.ana) {
-      statAnaGuardado.textContent = formatSoles(data.ana.guardado);
-      statAnaGastado.textContent = "-" + formatSoles(data.ana.gastado);
-      statAnaSaldo.textContent = formatSoles(data.ana.saldo);
+    if (data.custodia) {
+      statAnaGuardado.textContent = formatSoles(data.custodia.guardado);
+      statAnaGastado.textContent = "-" + formatSoles(data.custodia.gastado);
+      statAnaSaldo.textContent = formatSoles(data.custodia.saldo);
     }
   } catch (err) {
     console.error("No se pudo obtener la caja chica del día:", err);
@@ -982,7 +982,7 @@ function showFinanceTab(tabId) {
     fetchBudgetCategories();
     fetchScheduledExpenses();
   } else if (tabId === "financeTabAna") {
-    fetchAna();
+    fetchCustodias();
   } else if (tabId === "financeTabConsultas") {
     fetchQueryIntents();
   } else if (tabId === "financeTabPrecios") {
@@ -3057,93 +3057,215 @@ addSchedExpBtn.addEventListener("click", async () => {
   await fetchScheduledExpenses();
 });
 
-// ---------- Finanzas: Ana (custodia, editable) ----------
-const anaGuardadoTxt = document.getElementById("anaGuardadoTxt");
-const anaGastadoTxt = document.getElementById("anaGastadoTxt");
-const anaSaldoTxt = document.getElementById("anaSaldoTxt");
-const anaMovimientosList = document.getElementById("anaMovimientosList");
-const anaMovimientosEmpty = document.getElementById("anaMovimientosEmpty");
+// ---------- Finanzas: Custodia (plata de otras personas) ----------
+// Antes esto era de una sola persona fija ("Ana") escrita en el código,
+// así que cualquier cliente veía la pestaña con el nombre de una
+// desconocida. Ahora cada cuenta arma su lista.
+const custodiasList = document.getElementById("custodiasList");
+const custodiasEmpty = document.getElementById("custodiasEmpty");
+const custodiaNuevoNombre = document.getElementById("custodiaNuevoNombre");
+const addCustodiaBtn = document.getElementById("addCustodiaBtn");
 
-function renderAna(ana, movimientos) {
-  anaGuardadoTxt.textContent = formatSoles(ana.guardado);
-  anaGastadoTxt.textContent = formatSoles(ana.gastado);
-  anaSaldoTxt.textContent = formatSoles(ana.saldo);
+// Dibuja los movimientos de una persona, desplegables dentro de su tarjeta.
+function renderMovimientosCustodia(container, clave) {
+  return async () => {
+    let movimientos;
+    try {
+      const res = await fetch(`/api/finance/custodias/${encodeURIComponent(clave)}/movements`);
+      movimientos = (await res.json()).movimientos || [];
+    } catch (err) {
+      return;
+    }
 
-  anaMovimientosList.innerHTML = "";
-  if (movimientos.length === 0) {
-    anaMovimientosEmpty.classList.remove("hidden");
+    container.innerHTML = "";
+    if (movimientos.length === 0) {
+      const vacio = document.createElement("p");
+      vacio.className = "text-xs text-slate-400 text-center py-2";
+      vacio.textContent = "Sin movimientos todavía.";
+      container.appendChild(vacio);
+      return;
+    }
+
+    movimientos
+      .slice()
+      .reverse()
+      .forEach((m) => {
+        const row = document.createElement("div");
+        row.className = "flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs bg-slate-50 border border-slate-100";
+
+        const info = document.createElement("div");
+        info.className = "min-w-0";
+        const l1 = document.createElement("p");
+        l1.className = `font-semibold break-words ${m.tipo === "guardo" ? "text-violet-700" : "text-amber-700"}`;
+        l1.textContent = `${m.tipo === "guardo" ? "+" : "-"}${formatSoles(m.monto)} · ${m.tipo === "guardo" ? "te dejó" : "gastó"}`;
+        const l2 = document.createElement("p");
+        l2.className = "text-slate-400";
+        l2.textContent = `${fmtFecha(m.fecha)} ${m.hora}${m.descripcion ? " · " + m.descripcion : ""}`;
+        info.appendChild(l1);
+        info.appendChild(l2);
+
+        const acciones = document.createElement("div");
+        acciones.className = "flex items-center gap-1 shrink-0";
+
+        const editBtn = document.createElement("button");
+        editBtn.innerHTML = '<i class="fa-solid fa-pen text-slate-400"></i>';
+        editBtn.className = "w-7 h-7 flex items-center justify-center";
+        editBtn.addEventListener("click", async () => {
+          const nuevoMonto = prompt("Nuevo monto:", m.monto);
+          if (nuevoMonto === null) return;
+          const monto = parseFloat(nuevoMonto);
+          if (!Number.isFinite(monto) || monto <= 0) return;
+          await fetch(`/api/finance/custodias/${encodeURIComponent(clave)}/movements/${m.index}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ monto }),
+          });
+          await fetchCustodias();
+        });
+
+        const delBtn = document.createElement("button");
+        delBtn.innerHTML = '<i class="fa-solid fa-trash text-rose-400"></i>';
+        delBtn.className = "w-7 h-7 flex items-center justify-center";
+        delBtn.addEventListener("click", async () => {
+          if (!confirm("¿Eliminar este movimiento?")) return;
+          await fetch(`/api/finance/custodias/${encodeURIComponent(clave)}/movements/${m.index}`, { method: "DELETE" });
+          await fetchCustodias();
+        });
+
+        acciones.appendChild(editBtn);
+        acciones.appendChild(delBtn);
+        row.appendChild(info);
+        row.appendChild(acciones);
+        container.appendChild(row);
+      });
+  };
+}
+
+function renderCustodias(personas) {
+  custodiasList.innerHTML = "";
+  custodiasEmpty.classList.toggle("hidden", personas.length > 0);
+
+  personas.forEach((p) => {
+    const card = document.createElement("div");
+    card.className = "card bg-white py-3";
+
+    const top = document.createElement("div");
+    top.className = "flex items-center justify-between gap-2";
+    const nombre = document.createElement("span");
+    nombre.className = "font-semibold text-slate-800 text-sm";
+    nombre.textContent = p.label;
+    const saldo = document.createElement("span");
+    saldo.className = "font-bold text-violet-700";
+    saldo.textContent = formatSoles(p.saldo);
+    top.appendChild(nombre);
+    top.appendChild(saldo);
+    card.appendChild(top);
+
+    const detalle = document.createElement("p");
+    detalle.className = "text-xs text-slate-500 mt-0.5";
+    detalle.textContent = `te dejó ${formatSoles(p.guardado)} · gastó ${formatSoles(p.gastado)} · en tu poder ahora`;
+    card.appendChild(detalle);
+
+    const historial = document.createElement("div");
+    historial.className = "hidden space-y-1.5 mt-3 pt-3 border-t border-slate-100";
+
+    const acciones = document.createElement("div");
+    acciones.className = "flex items-center gap-2 mt-2 flex-wrap";
+
+    const addMovBtn = document.createElement("button");
+    addMovBtn.className = "btn-capsule bg-violet-100 text-violet-700 text-xs py-1.5 px-3";
+    addMovBtn.textContent = "Anotar";
+    addMovBtn.addEventListener("click", async () => {
+      const montoStr = prompt(`¿Cuánto? (positivo = te deja plata, negativo = gastó)`, "");
+      if (montoStr === null) return;
+      const valor = parseFloat(montoStr);
+      if (!Number.isFinite(valor) || valor === 0) return;
+      await fetch(`/api/finance/custodias/${encodeURIComponent(p.clave)}/movements`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tipo: valor > 0 ? "guardo" : "gasto", monto: Math.abs(valor) }),
+      });
+      await fetchCustodias();
+    });
+    acciones.appendChild(addMovBtn);
+
+    const verBtn = document.createElement("button");
+    verBtn.className = "btn-capsule bg-blue-50 text-blue-600 text-xs py-1.5 px-3";
+    verBtn.textContent = "Ver historial";
+    let cargado = false;
+    verBtn.addEventListener("click", async () => {
+      const oculto = historial.classList.contains("hidden");
+      if (oculto) {
+        historial.classList.remove("hidden");
+        verBtn.textContent = "Ocultar historial";
+        if (!cargado) {
+          await renderMovimientosCustodia(historial, p.clave)();
+          cargado = true;
+        }
+      } else {
+        historial.classList.add("hidden");
+        verBtn.textContent = "Ver historial";
+      }
+    });
+    acciones.appendChild(verBtn);
+
+    const editBtn = document.createElement("button");
+    editBtn.className = "btn-capsule bg-slate-100 text-slate-600 text-xs py-1.5 px-3";
+    editBtn.textContent = "Renombrar";
+    editBtn.addEventListener("click", async () => {
+      const nuevo = prompt("Nombre de la persona:", p.label);
+      if (nuevo === null || !nuevo.trim()) return;
+      await fetch(`/api/finance/custodias/${encodeURIComponent(p.clave)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nombre: nuevo }),
+      });
+      await fetchCustodias();
+    });
+    acciones.appendChild(editBtn);
+
+    const delBtn = document.createElement("button");
+    delBtn.className = "btn-capsule bg-rose-100 text-rose-700 text-xs py-1.5 px-3";
+    delBtn.textContent = "Eliminar";
+    delBtn.addEventListener("click", async () => {
+      if (!confirm(`¿Eliminar a ${p.label} y todo su historial?`)) return;
+      await fetch(`/api/finance/custodias/${encodeURIComponent(p.clave)}`, { method: "DELETE" });
+      await fetchCustodias();
+    });
+    acciones.appendChild(delBtn);
+
+    card.appendChild(acciones);
+    card.appendChild(historial);
+    custodiasList.appendChild(card);
+  });
+}
+
+async function fetchCustodias() {
+  try {
+    const data = await (await fetch("/api/finance/custodias")).json();
+    renderCustodias(data.personas || []);
+  } catch (err) {
+    console.error("No se pudo obtener las custodias:", err);
+  }
+}
+
+addCustodiaBtn.addEventListener("click", async () => {
+  const nombre = custodiaNuevoNombre.value.trim();
+  if (!nombre) return;
+  const res = await fetch("/api/finance/custodias", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ nombre }),
+  });
+  const data = await res.json();
+  if (!data.ok) {
+    alert(data.error || "No se pudo agregar.");
     return;
   }
-  anaMovimientosEmpty.classList.add("hidden");
+  custodiaNuevoNombre.value = "";
+  await fetchCustodias();
+});
 
-  movimientos
-    .slice()
-    .reverse()
-    .forEach((m) => {
-      const row = document.createElement("div");
-      row.className = "flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs bg-white border border-slate-100";
-
-      const info = document.createElement("div");
-      info.className = "min-w-0";
-      const linea1 = document.createElement("p");
-      linea1.className = "font-semibold text-slate-800 truncate";
-      const signo = m.tipo === "gasto" ? "-" : "+";
-      linea1.textContent = `${signo}${formatSoles(m.monto)} · ${m.tipo === "guardo" ? "guardó" : "gastó/retiró"}`;
-      const linea2 = document.createElement("p");
-      linea2.className = "text-slate-400";
-      linea2.textContent = `${m.fecha} ${m.hora}${m.descripcion ? " · " + m.descripcion : ""}`;
-      info.appendChild(linea1);
-      info.appendChild(linea2);
-
-      const acciones = document.createElement("div");
-      acciones.className = "flex items-center gap-1 shrink-0";
-
-      const editBtn = document.createElement("button");
-      editBtn.innerHTML = '<i class="fa-solid fa-pen text-slate-400"></i>';
-      editBtn.className = "w-7 h-7 flex items-center justify-center";
-      editBtn.addEventListener("click", async () => {
-        const nuevoMontoStr = prompt("Nuevo monto:", m.monto);
-        if (nuevoMontoStr === null) return;
-        const nuevoMonto = parseFloat(nuevoMontoStr);
-        if (!Number.isFinite(nuevoMonto) || nuevoMonto <= 0) return;
-        await fetch(`/api/finance/ana/movements/${m.index}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ monto: nuevoMonto }),
-        });
-        await fetchAna();
-      });
-
-      const delBtn = document.createElement("button");
-      delBtn.innerHTML = '<i class="fa-solid fa-trash text-rose-400"></i>';
-      delBtn.className = "w-7 h-7 flex items-center justify-center";
-      delBtn.addEventListener("click", async () => {
-        if (!confirm("¿Eliminar este movimiento de Ana?")) return;
-        await fetch(`/api/finance/ana/movements/${m.index}`, { method: "DELETE" });
-        await fetchAna();
-      });
-
-      acciones.appendChild(editBtn);
-      acciones.appendChild(delBtn);
-      row.appendChild(info);
-      row.appendChild(acciones);
-      anaMovimientosList.appendChild(row);
-    });
-}
-
-async function fetchAna() {
-  try {
-    const [todayRes, movRes] = await Promise.all([
-      fetch("/api/cashbox/today"),
-      fetch("/api/finance/ana/movements"),
-    ]);
-    const todayData = await todayRes.json();
-    const movData = await movRes.json();
-    renderAna(todayData.ana || { guardado: 0, gastado: 0, saldo: 0 }, movData.movimientos || []);
-  } catch (err) {
-    console.error("No se pudo obtener la info de Ana:", err);
-  }
-}
 
 // ---------- Finanzas: Consultas (frases y respuestas editables) ----------
 const queryIntentsList = document.getElementById("queryIntentsList");

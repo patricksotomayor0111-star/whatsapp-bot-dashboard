@@ -122,7 +122,7 @@
         <button data-finance-tab="financeTabGraficos" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Gráficos</button>
         <button data-finance-tab="financeTabMetas" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Metas</button>
         <button data-finance-tab="financeTabPresupuesto" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Presupuesto</button>
-        <button data-finance-tab="financeTabAna" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Ana</button>
+        <button data-finance-tab="financeTabAna" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Custodia</button>
         <button data-finance-tab="financeTabConsultas" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Consultas</button>
         <button data-finance-tab="financeTabPrecios" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Precios</button>
       </div>
@@ -138,9 +138,9 @@
               <p>🧮 <b>CAJA:</b> <span id="statCaja" class="font-semibold text-slate-800">S/ 0</span></p>
               <p>💵 <b>EFECTIVO ESPERADO:</b> <span id="statEsperado" class="font-semibold text-emerald-700">S/ 0</span></p>
               <div class="mt-2 pt-2 border-t border-green-200">
-                <p>👛 <b>ANA GUARDÓ:</b> <span id="statAnaGuardado" class="font-semibold text-violet-700">S/ 0</span></p>
-                <p>👛 <b>ANA GASTÓ:</b> <span id="statAnaGastado" class="font-semibold text-violet-700">S/ 0</span></p>
-                <p class="text-xs text-slate-400 mt-0.5">En tu poder de Ana: <span id="statAnaSaldo" class="font-semibold text-slate-500">S/ 0</span> · aparte de la caja</p>
+                <p>👛 <b>TE DEJARON:</b> <span id="statAnaGuardado" class="font-semibold text-violet-700">S/ 0</span></p>
+                <p>👛 <b>GASTARON:</b> <span id="statAnaGastado" class="font-semibold text-violet-700">S/ 0</span></p>
+                <p class="text-xs text-slate-400 mt-0.5">Guardas de otras personas: <span id="statAnaSaldo" class="font-semibold text-slate-500">S/ 0</span> · aparte de tu caja</p>
               </div>
               <div class="mt-2 pt-2 border-t border-green-200">
                 <p>🧾 <b>DEUDAS POR COBRAR:</b> <span id="statDeudasTotal" class="font-semibold text-blue-700">S/ 0</span></p>
@@ -482,18 +482,21 @@
           </div>
         </div>
 
-        <!-- Tab: Ana -->
+        <!-- Tab: Custodia (plata de otras personas que guardas) -->
         <div id="financeTabAna" class="finance-tab-panel hidden space-y-4">
-          <p class="text-xs text-slate-400">Plata de Ana en custodia (aparte de la caja). Se registra escribiendo "X Ana guardo" / "menos X Ana guardo" en el grupo GANANCIAS.</p>
-          <section class="card bg-violet-50 border border-violet-100 py-3">
-            <div class="text-sm space-y-1">
-              <p>👛 Guardó en total: <span id="anaGuardadoTxt" class="font-semibold text-violet-700">S/ 0</span></p>
-              <p>👛 Gastó/retiró en total: <span id="anaGastadoTxt" class="font-semibold text-violet-700">S/ 0</span></p>
-              <p>En tu poder ahora: <span id="anaSaldoTxt" class="font-semibold text-slate-700">S/ 0</span></p>
+          <p class="text-xs text-slate-400">Plata de otras personas que guardas. No entra a tu caja. Se registra escribiendo <b>"50 mamá guardo"</b> (te deja plata) o <b>"menos 20 mamá guardo"</b> (gasta de lo suyo) en tu chat.</p>
+
+          <div id="custodiasList" class="space-y-2"></div>
+          <p id="custodiasEmpty" class="hidden text-center text-xs text-slate-400 py-6">Todavía no tienes a nadie. Agrega abajo a quien le guardes plata.</p>
+
+          <details class="card bg-slate-50">
+            <summary class="text-xs font-bold text-violet-600 cursor-pointer">+ Agregar persona</summary>
+            <div class="space-y-2 mt-2">
+              <input id="custodiaNuevoNombre" type="text" placeholder="Nombre (ej: Mamá, Mi socio)" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200" />
+              <button id="addCustodiaBtn" class="w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-violet-600 text-white active:scale-95 transition-all">Agregar</button>
+              <p class="text-[11px] text-slate-400">El bot va a reconocer ese nombre cuando escribas "guardo" junto a él.</p>
             </div>
-          </section>
-          <div id="anaMovimientosList" class="space-y-1.5"></div>
-          <p id="anaMovimientosEmpty" class="hidden text-center text-xs text-slate-400 py-6">Todavía no hay movimientos de Ana.</p>
+          </details>
         </div>
 
         <!-- Tab: Consultas -->

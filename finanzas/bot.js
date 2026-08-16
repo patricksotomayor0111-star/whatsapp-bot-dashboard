@@ -27,6 +27,7 @@ const { dataPath, userDataPath } = require("./dataDir");
 const contexto = require("./contexto");
 const users = require("./users");
 const chatConfig = require("./chatConfig");
+const custodias = require("./custodias");
 
 // El número propio de la cuenta, para reconocer el chat de "mensajes
 // contigo mismo". Baileys lo entrega con un sufijo de dispositivo
@@ -74,18 +75,21 @@ function parseCashboxLine(rawLine) {
   const text = rawLine.trim();
   if (!text) return null;
 
-  // Plata de Ana en custodia (aparte de la caja): solo si el mensaje dice
-  // explícitamente "guardo" además de "ana" (para no chocar con "Ana debe" /
-  // "Ana pago", que son deudas, no custodia).
-  // "5 Ana guardo" -> Ana me deja plata para guardar.
+  // Plata de otra persona en custodia (aparte de la caja): solo si el
+  // mensaje dice "guardo" además del nombre de alguien de la lista (para
+  // no chocar con "Ana debe" / "Ana pago", que son deudas, no custodia).
+  // "5 Ana guardo"       -> Ana me deja plata para guardar.
   // "menos 5 Ana guardo" -> le devuelvo / gasta de lo suyo.
+  // El nombre ya no está fijo: cada cuenta arma su propia lista de
+  // personas, así que esto funciona igual con "mamá" o "mi socio".
   const norm = normalizeText(text);
-  if (/\bana\b/.test(norm) && /\bguardo\b/.test(norm)) {
+  if (/\bguardo\b/.test(norm)) {
+    const persona = custodias.personaEnTexto(text);
     const num = text.match(/(\d+(?:\.\d+)?)\s*(mil)?/i);
-    if (num) {
+    if (persona && num) {
       const monto = parseFloat(num[1]) * (num[2] ? 1000 : 1);
-      const tipo = /\bmenos\b/.test(norm) ? "ana_gasto" : "ana_guardo";
-      return { type: tipo, monto, descripcion: text };
+      const tipo = /\bmenos\b/.test(norm) ? "custodia_gasto" : "custodia_guardo";
+      return { type: tipo, monto, persona, descripcion: text };
     }
   }
 
@@ -522,10 +526,10 @@ function handleCashboxEntries(entradas) {
       }
     } else if (entrada.type === "caja") {
       cashbox.setCaja(entrada.monto);
-    } else if (entrada.type === "ana_guardo") {
-      cashbox.addAnaGuardo(entrada.monto, entrada.descripcion);
-    } else if (entrada.type === "ana_gasto") {
-      cashbox.addAnaGasto(entrada.monto, entrada.descripcion);
+    } else if (entrada.type === "custodia_guardo") {
+      custodias.registrar(entrada.persona, "guardo", entrada.monto, entrada.descripcion);
+    } else if (entrada.type === "custodia_gasto") {
+      custodias.registrar(entrada.persona, "gasto", entrada.monto, entrada.descripcion);
     } else if (entrada.type === "deuda_debe") {
       debts.addDebt(entrada.persona, entrada.monto, entrada.descripcion);
     } else if (entrada.type === "deuda_pago") {

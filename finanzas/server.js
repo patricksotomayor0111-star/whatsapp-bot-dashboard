@@ -20,6 +20,7 @@ const auth = require("./auth");
 const users = require("./users");
 const contexto = require("./contexto");
 const chatConfig = require("./chatConfig");
+const custodias = require("./custodias");
 
 // Crea la cuenta del dueño y le pasa los datos que hoy están sueltos en el
 // volumen. Se hace al arrancar, antes de atender cualquier pedido.
@@ -335,7 +336,14 @@ app.post("/api/prices/:id/remove", (req, res) => {
 });
 
 app.get("/api/cashbox/today", (req, res) => {
-  res.json({ ...cashbox.getToday(), ana: cashbox.getAna() });
+  // "custodia" es el total de plata de OTRAS personas que estás guardando,
+  // sumando a todas: antes era solo de Ana, que estaba fija en el código.
+  const personas = custodias.getPersonas();
+  const custodia = personas.reduce(
+    (acc, p) => ({ guardado: acc.guardado + p.guardado, gastado: acc.gastado + p.gastado, saldo: acc.saldo + p.saldo }),
+    { guardado: 0, gastado: 0, saldo: 0 }
+  );
+  res.json({ ...cashbox.getToday(), custodia, personasCustodia: personas.length });
 });
 
 // Corregir/reconstruir un día completo a mano (para que el Excel cuadre):
@@ -402,21 +410,64 @@ app.delete("/api/finance/movements/:index", (req, res) => {
   res.json({ ok: true });
 });
 
-// Plata de Ana en custodia (aparte de la caja): ver y editar sus movimientos.
-app.get("/api/finance/ana/movements", (req, res) => {
-  const movimientos = cashbox.getAnaMovimientos().map((m, index) => ({ ...m, index }));
-  res.json({ movimientos });
+// Plata de otras personas en custodia (aparte de la caja). Cada cuenta
+// arma su propia lista: antes era una sola persona fija ("Ana") escrita
+// en el código, que todos los clientes veían.
+app.get("/api/finance/custodias", (req, res) => {
+  // Lo que ya estaba guardado como "Ana" pasa a la lista la primera vez.
+  const ana = cashbox.getToday().ana || {};
+  custodias.migrarDesdeAna({
+    guardado: ana.guardado || 0,
+    gastado: ana.gastado || 0,
+    movimientos: cashbox.getAnaMovimientos(),
+  });
+  res.json({ personas: custodias.getPersonas() });
 });
 
-app.put("/api/finance/ana/movements/:index", (req, res) => {
-  const mov = cashbox.editAnaMovimiento(Number(req.params.index), req.body || {});
+app.post("/api/finance/custodias", (req, res) => {
+  try {
+    res.json({ ok: true, persona: custodias.addPersona(req.body?.nombre) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.put("/api/finance/custodias/:clave", (req, res) => {
+  if (!custodias.editPersona(req.params.clave, req.body?.nombre)) {
+    return res.status(404).json({ error: "Persona no encontrada." });
+  }
+  res.json({ ok: true });
+});
+
+app.delete("/api/finance/custodias/:clave", (req, res) => {
+  custodias.removePersona(req.params.clave);
+  res.json({ ok: true });
+});
+
+app.get("/api/finance/custodias/:clave/movements", (req, res) => {
+  res.json({ movimientos: custodias.getMovimientos(req.params.clave).map((m, index) => ({ ...m, index })) });
+});
+
+app.post("/api/finance/custodias/:clave/movements", (req, res) => {
+  const monto = Number(req.body?.monto);
+  if (!Number.isFinite(monto) || monto <= 0) return res.status(400).json({ error: "Monto inválido." });
+  const tipo = req.body?.tipo === "gasto" ? "gasto" : "guardo";
+  if (!custodias.registrar(req.params.clave, tipo, monto, req.body?.descripcion)) {
+    return res.status(404).json({ error: "Persona no encontrada." });
+  }
+  res.json({ ok: true });
+});
+
+app.put("/api/finance/custodias/:clave/movements/:index", (req, res) => {
+  const mov = custodias.editMovimiento(req.params.clave, Number(req.params.index), req.body || {});
   if (!mov) return res.status(404).json({ error: "Movimiento no encontrado." });
   res.json({ ok: true, movimiento: mov });
 });
 
-app.delete("/api/finance/ana/movements/:index", (req, res) => {
-  const ok = cashbox.removeAnaMovimiento(Number(req.params.index));
-  if (!ok) return res.status(404).json({ error: "Movimiento no encontrado." });
+app.delete("/api/finance/custodias/:clave/movements/:index", (req, res) => {
+  if (!custodias.removeMovimiento(req.params.clave, Number(req.params.index))) {
+    return res.status(404).json({ error: "Movimiento no encontrado." });
+  }
   res.json({ ok: true });
 });
 
