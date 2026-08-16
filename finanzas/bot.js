@@ -29,20 +29,46 @@ const users = require("./users");
 const chatConfig = require("./chatConfig");
 const custodias = require("./custodias");
 
-// El número propio de la cuenta, para reconocer el chat de "mensajes
-// contigo mismo". Baileys lo entrega con un sufijo de dispositivo
-// (":12@s.whatsapp.net") que hay que sacar para poder comparar.
+// Identificadores propios de la cuenta, para reconocer el chat de
+// "mensajes contigo mismo".
+//
+// WhatsApp puede nombrar al MISMO número de dos formas: el número de
+// siempre (@s.whatsapp.net) y el formato nuevo "lid" (@lid). El chat
+// propio puede llegar con cualquiera de las dos, y encima Baileys agrega
+// un sufijo de dispositivo (":12"). Por eso se comparan solo las partes
+// identificadoras, y contra las dos formas: comparar contra una sola era
+// lo que hacía que anotar en tus propios mensajes no registrara nada.
+function identidadesPropias(bot) {
+  const ids = new Set();
+  const agregar = (jid) => {
+    if (!jid) return;
+    ids.add(String(jid).split(":")[0].split("@")[0]);
+  };
+  agregar(bot.sock?.user?.id);
+  agregar(bot.sock?.user?.lid);
+  return ids;
+}
+
+function esChatPropio(bot, chatId) {
+  if (!chatId || chatId.endsWith("@g.us")) return false;
+  const destino = String(chatId).split(":")[0].split("@")[0];
+  return identidadesPropias(bot).has(destino);
+}
+
+// Para ENVIAR al chat propio hay que dar un jid completo; se conserva el
+// dominio que reporte WhatsApp en vez de asumir uno.
 function jidPropio(bot) {
   const id = bot.sock?.user?.id;
   if (!id) return null;
-  return id.split(":")[0].split("@")[0] + "@s.whatsapp.net";
+  const sinDispositivo = String(id).split(":")[0];
+  return sinDispositivo.includes("@") ? sinDispositivo : sinDispositivo + "@s.whatsapp.net";
 }
 
 // ¿Este chat es el que la cuenta eligió para X uso? Si no eligió ninguno,
 // se cae al grupo con el nombre de siempre, para no romperle nada a quien
 // ya lo tenía configurado así.
 function esChatElegido(bot, chatId, grupoActual, elegido, nombrePorDefecto) {
-  if (elegido === chatConfig.YO_MISMO) return chatId === jidPropio(bot);
+  if (elegido === chatConfig.YO_MISMO) return esChatPropio(bot, chatId);
   if (elegido) return chatId === elegido;
   return Boolean(grupoActual) && grupoActual.name.trim().toUpperCase() === nombrePorDefecto;
 }
@@ -1006,6 +1032,18 @@ async function procesarMensajes(bot, messages) {
       const { chatCaja, chatPrecios } = chatConfig.getConfig();
       const esCajaChica = esChatElegido(bot, chatId, grupoActual, chatCaja, CASHBOX_GROUP_NAME);
       const esPrecios = esChatElegido(bot, chatId, grupoActual, chatPrecios, PRICES_GROUP_NAME);
+
+      // Diagnóstico acotado: si la cuenta eligió anotar en sus propios
+      // mensajes y llega uno suyo en un chat que NO es grupo pero tampoco
+      // reconocimos como propio, se deja constancia de con qué
+      // identificador vino. Es la única forma de ver qué formato usa
+      // WhatsApp en ese teléfono sin poder reproducirlo acá.
+      if (!esCajaChica && chatCaja === chatConfig.YO_MISMO && msg.key.fromMe && !chatId.endsWith("@g.us")) {
+        console.log(
+          `[${bot.userId}] Mensaje propio no reconocido. Llegó de "${chatId}"; esperaba alguno de: ${[...identidadesPropias(bot)].join(", ") || "(ninguno)"}`
+        );
+      }
+
       if (!esCajaChica && !esPrecios) continue;
 
       const rawText = extractText(msg).trim();
