@@ -16,16 +16,22 @@ const YO_MISMO = "__yo__";
 
 const almacen = crearAlmacen("chat-config-data.json", function (parsed) {
   try {
-    return { chatCaja: parsed.chatCaja || null, chatPrecios: parsed.chatPrecios || null };
+    return { chatCaja: parsed.chatCaja || null, chatPrecios: parsed.chatPrecios || null, tutorialVisto: Boolean(parsed.tutorialVisto) };
   } catch (err) {
-    return { chatCaja: null, chatPrecios: null };
+    return { chatCaja: null, chatPrecios: null, tutorialVisto: false };
   }
 });
 const datos = almacen.datos;
 const save = almacen.guardar;
 
 function getConfig() {
-  return { chatCaja: datos().chatCaja, chatPrecios: datos().chatPrecios };
+  return { chatCaja: datos().chatCaja, chatPrecios: datos().chatPrecios, tutorialVisto: datos().tutorialVisto };
+}
+
+// El tutorial de bienvenida se muestra una sola vez por cuenta.
+function marcarTutorialVisto() {
+  datos().tutorialVisto = true;
+  save();
 }
 
 function setChatCaja(chatId) {
@@ -38,4 +44,4 @@ function setChatPrecios(chatId) {
   save();
 }
 
-module.exports = { YO_MISMO, getConfig, setChatCaja, setChatPrecios };
+module.exports = { YO_MISMO, getConfig, setChatCaja, setChatPrecios, marcarTutorialVisto };

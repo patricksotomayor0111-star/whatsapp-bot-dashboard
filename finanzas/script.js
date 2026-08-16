@@ -211,6 +211,117 @@ togglePushBtn.addEventListener("click", async () => {
   }
 });
 
+// ---------- Tutorial de bienvenida ----------
+// Sin esto, alguien que abre la app por primera vez ve pantallas vacías y
+// no tiene forma de adivinar que todo se registra escribiendo por
+// WhatsApp. Los pasos 2 y 3 muestran el estado real (si ya vinculó, si ya
+// eligió su chat), así sirve también de lista de pendientes.
+const tutorialOverlay = document.getElementById("tutorialOverlay");
+const tutorialIcono = document.getElementById("tutorialIcono");
+const tutorialTitulo = document.getElementById("tutorialTitulo");
+const tutorialCuerpo = document.getElementById("tutorialCuerpo");
+const tutorialPuntos = document.getElementById("tutorialPuntos");
+const tutorialAtras = document.getElementById("tutorialAtras");
+const tutorialSiguiente = document.getElementById("tutorialSiguiente");
+const tutorialSaltar = document.getElementById("tutorialSaltar");
+
+let pasoTutorial = 0;
+
+const PASOS_TUTORIAL = [
+  {
+    icono: "👋",
+    titulo: "Anota tu plata escribiendo",
+    cuerpo: () => [
+      "No tienes que llenar formularios. Escribes en WhatsApp como siempre y acá se registra solo.",
+      "Después ves cuánto ganaste, cuánto gastaste y cuánto te queda limpio.",
+    ],
+  },
+  {
+    icono: "🔗",
+    titulo: "Vincula tu WhatsApp",
+    cuerpo: () =>
+      isConnected
+        ? ["✅ Ya está vinculado. Puedes seguir."]
+        : [
+            "Arriba de esta pantalla te aparece un código QR.",
+            "Ábrelo desde tu WhatsApp: Ajustes → Dispositivos vinculados → Vincular un dispositivo.",
+            "Si todavía no aparece, espera unos segundos.",
+          ],
+  },
+  {
+    icono: "💬",
+    titulo: "Elige dónde vas a anotar",
+    cuerpo: () => [
+      "En la tarjeta «Dónde anotas tus repartos» eliges el chat donde vas a escribir.",
+      "Si trabajas solo, lo más cómodo es usar tus propios mensajes de WhatsApp: no tienes que crear ningún grupo.",
+      "El bot solo lee ese chat, nada más.",
+    ],
+  },
+  {
+    icono: "✍️",
+    titulo: "Cómo se anota",
+    cuerpo: () => [
+      "<b>Un ingreso:</b> escribe el monto y de dónde vino.<br><span class='text-slate-800 font-mono text-xs'>7 bumanguesa</span>",
+      "<b>Un gasto:</b> igual, pero empezando con «menos».<br><span class='text-slate-800 font-mono text-xs'>menos 20 gasolina</span>",
+      "Puedes poner varios en un mismo mensaje, uno por línea.",
+    ],
+  },
+  {
+    icono: "🎯",
+    titulo: "Dos cosas para después",
+    cuerpo: () => [
+      "En <b>Presupuesto</b>, marca cada gasto como 🛵 negocio o 🏠 personal. Recién ahí sabrás tu ganancia real.",
+      "En <b>Locales</b>, arma la lista de quiénes te dan trabajo para ver cuál te conviene más.",
+      "Listo, ya puedes empezar.",
+    ],
+  },
+];
+
+function pintarTutorial() {
+  const paso = PASOS_TUTORIAL[pasoTutorial];
+  tutorialIcono.textContent = paso.icono;
+  tutorialTitulo.textContent = paso.titulo;
+  tutorialCuerpo.innerHTML = paso.cuerpo().map((p) => `<p>${p}</p>`).join("");
+
+  tutorialPuntos.innerHTML = "";
+  PASOS_TUTORIAL.forEach((_, i) => {
+    const punto = document.createElement("span");
+    punto.className = "w-1.5 h-1.5 rounded-full " + (i === pasoTutorial ? "bg-brand-green" : "bg-slate-200");
+    tutorialPuntos.appendChild(punto);
+  });
+
+  tutorialAtras.classList.toggle("hidden", pasoTutorial === 0);
+  tutorialSiguiente.textContent = pasoTutorial === PASOS_TUTORIAL.length - 1 ? "Empezar" : "Siguiente";
+}
+
+async function cerrarTutorial() {
+  tutorialOverlay.classList.add("hidden");
+  tutorialOverlay.classList.remove("flex");
+  try {
+    await fetch("/api/tutorial-visto", { method: "POST" });
+  } catch (err) {
+    // si falla, en la próxima entrada se vuelve a mostrar: no es grave
+  }
+}
+
+function abrirTutorial() {
+  pasoTutorial = 0;
+  pintarTutorial();
+  tutorialOverlay.classList.remove("hidden");
+  tutorialOverlay.classList.add("flex");
+}
+
+tutorialSiguiente.addEventListener("click", () => {
+  if (pasoTutorial === PASOS_TUTORIAL.length - 1) return cerrarTutorial();
+  pasoTutorial++;
+  pintarTutorial();
+});
+tutorialAtras.addEventListener("click", () => {
+  if (pasoTutorial > 0) pasoTutorial--;
+  pintarTutorial();
+});
+tutorialSaltar.addEventListener("click", cerrarTutorial);
+
 // ---------- Dónde escucha el bot de esta cuenta ----------
 const chatConfigCard = document.getElementById("chatConfigCard");
 const chatCajaSelect = document.getElementById("chatCajaSelect");
@@ -278,7 +389,8 @@ async function fetchSesion() {
     sesion = await (await fetch("/api/sesion")).json();
     // El botón de cuentas solo existe para el dueño: un cliente no tiene
     // por qué ver ni administrar las demás cuentas.
-    openCuentas.classList.toggle("hidden", !sesion.esDueno);
+    document.getElementById("seccionDueno").classList.toggle("hidden", !sesion.esDueno);
+    if (!sesion.tutorialVisto) abrirTutorial();
     sesionActual.textContent = `Estás dentro como ${sesion.nombre} (${sesion.usuario}).`;
   } catch (err) {
     console.error("No se pudo obtener la sesión:", err);
@@ -393,6 +505,12 @@ addCuentaBtn.addEventListener("click", async () => {
   renderCuentas();
 });
 
+document.getElementById("verTutorialBtn").addEventListener("click", () => {
+  cuentasOverlay.classList.add("hidden");
+  cuentasOverlay.classList.remove("flex");
+  abrirTutorial();
+});
+
 salirPanelBtn.addEventListener("click", async () => {
   await fetch("/api/logout", { method: "POST" });
   window.location.href = "/login";
@@ -401,7 +519,7 @@ salirPanelBtn.addEventListener("click", async () => {
 openCuentas.addEventListener("click", () => {
   cuentasOverlay.classList.remove("hidden");
   cuentasOverlay.classList.add("flex");
-  renderCuentas();
+  if (sesion && sesion.esDueno) renderCuentas();
 });
 
 closeCuentas.addEventListener("click", () => {

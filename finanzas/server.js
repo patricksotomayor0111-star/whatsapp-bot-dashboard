@@ -107,7 +107,19 @@ app.use((req, res, next) => {
 // administración de cuentas solo cuando corresponde.
 app.get("/api/sesion", (req, res) => {
   const cuenta = users.getById(req.userId);
-  res.json({ id: cuenta.id, usuario: cuenta.usuario, nombre: cuenta.nombre, esDueno: cuenta.id === users.DUENO_ID });
+  res.json({
+    id: cuenta.id,
+    usuario: cuenta.usuario,
+    nombre: cuenta.nombre,
+    esDueno: cuenta.id === users.DUENO_ID,
+    tutorialVisto: chatConfig.getConfig().tutorialVisto,
+  });
+});
+
+// El tutorial de bienvenida se muestra una sola vez por cuenta.
+app.post("/api/tutorial-visto", (req, res) => {
+  chatConfig.marcarTutorialVisto();
+  res.json({ ok: true });
 });
 
 app.get("/api/usuarios", soloDueno, (req, res) => {

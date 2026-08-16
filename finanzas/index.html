@@ -70,7 +70,7 @@
             <i class="fa-solid fa-bell text-lg"></i>
             <span id="reminderBadge" class="hidden absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-brand-red text-white text-[10px] font-bold flex items-center justify-center leading-none">0</span>
           </button>
-          <button id="openCuentas" aria-label="Cuentas" class="hidden btn-tap w-10 h-10 rounded-2xl flex items-center justify-center text-slate-600 hover:bg-slate-100 active:scale-90 transition-all duration-200">
+          <button id="openCuentas" aria-label="Mi cuenta" class="btn-tap w-10 h-10 rounded-2xl flex items-center justify-center text-slate-600 hover:bg-slate-100 active:scale-90 transition-all duration-200">
             <i class="fa-solid fa-users text-lg"></i>
           </button>
           <button id="logoutBtn" aria-label="Cerrar sesión" class="btn-tap w-10 h-10 rounded-2xl flex items-center justify-center text-slate-600 hover:bg-slate-100 active:scale-90 transition-all duration-200">
@@ -570,14 +570,34 @@
 
     <!-- ===================== PENDIENTES (recordatorios de pago) ===================== -->
     <!-- Cuentas de usuario (solo el dueño) -->
+    <!-- Tutorial de bienvenida (una vez por cuenta) -->
+    <div id="tutorialOverlay" class="fixed inset-0 bg-slate-900/95 z-[60] hidden items-center justify-center px-5">
+      <div class="w-full max-w-[360px] bg-white rounded-2xl overflow-hidden">
+        <div class="px-5 pt-5 pb-4">
+          <div id="tutorialIcono" class="text-4xl mb-3"></div>
+          <h2 id="tutorialTitulo" class="font-bold text-slate-900 text-lg"></h2>
+          <div id="tutorialCuerpo" class="text-sm text-slate-500 mt-2 space-y-2"></div>
+        </div>
+        <div class="px-5 pb-5">
+          <div id="tutorialPuntos" class="flex justify-center gap-1.5 mb-4"></div>
+          <div class="flex gap-2">
+            <button id="tutorialAtras" class="rounded-xl px-4 py-2.5 text-sm font-semibold bg-slate-100 text-slate-600 active:scale-95 transition-all">Atrás</button>
+            <button id="tutorialSiguiente" class="flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold bg-brand-green text-white active:scale-95 transition-all">Siguiente</button>
+          </div>
+          <button id="tutorialSaltar" class="w-full text-center text-xs text-slate-400 mt-3">Saltar</button>
+        </div>
+      </div>
+    </div>
+
     <div id="cuentasOverlay" class="fixed inset-0 bg-brand-bg z-50 hidden flex-col">
       <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-white">
-        <span class="font-bold text-slate-900">👥 Cuentas</span>
+        <span class="font-bold text-slate-900">👤 Mi cuenta</span>
         <button id="closeCuentas" class="w-9 h-9 rounded-xl flex items-center justify-center hover:bg-slate-100 active:scale-90 transition-all">
           <i class="fa-solid fa-xmark text-lg text-slate-500"></i>
         </button>
       </div>
       <div class="flex-1 overflow-y-auto px-5 py-5 space-y-6">
+        <div id="seccionDueno" class="hidden space-y-6">
         <p class="text-xs text-slate-400">Cada cuenta tiene su propia caja, sus locales, sus metas y sus deudas. Una cuenta nunca ve los datos de otra.</p>
 
         <div id="cuentasList" class="space-y-2"></div>
@@ -591,10 +611,12 @@
             <button id="addCuentaBtn" class="w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-brand-green text-white active:scale-95 transition-all">Crear cuenta</button>
           </div>
         </section>
+        </div>
 
         <section class="pt-4 border-t border-slate-100">
           <p class="eyebrow text-slate-500"><i class="fa-solid fa-right-from-bracket"></i> ESTA SESIÓN</p>
           <p id="sesionActual" class="text-xs text-slate-400 mt-1 mb-2"></p>
+          <button id="verTutorialBtn" class="w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-blue-50 text-blue-600 active:scale-95 transition-all mb-2">Ver el tutorial de nuevo</button>
           <button id="salirPanelBtn" class="w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-slate-100 text-slate-600 active:scale-95 transition-all">Salir del panel</button>
         </section>
       </div>
