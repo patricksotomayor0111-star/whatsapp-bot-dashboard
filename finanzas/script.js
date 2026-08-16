@@ -200,6 +200,156 @@ togglePushBtn.addEventListener("click", async () => {
   }
 });
 
+// ---------- Cuentas de usuario (solo el dueño) ----------
+const openCuentas = document.getElementById("openCuentas");
+const cuentasOverlay = document.getElementById("cuentasOverlay");
+const closeCuentas = document.getElementById("closeCuentas");
+const cuentasList = document.getElementById("cuentasList");
+const cuentaNuevoNombre = document.getElementById("cuentaNuevoNombre");
+const cuentaNuevoUsuario = document.getElementById("cuentaNuevoUsuario");
+const cuentaNuevoPassword = document.getElementById("cuentaNuevoPassword");
+const addCuentaBtn = document.getElementById("addCuentaBtn");
+const sesionActual = document.getElementById("sesionActual");
+const salirPanelBtn = document.getElementById("salirPanelBtn");
+
+let sesion = null;
+
+async function fetchSesion() {
+  try {
+    sesion = await (await fetch("/api/sesion")).json();
+    // El botón de cuentas solo existe para el dueño: un cliente no tiene
+    // por qué ver ni administrar las demás cuentas.
+    openCuentas.classList.toggle("hidden", !sesion.esDueno);
+    sesionActual.textContent = `Estás dentro como ${sesion.nombre} (${sesion.usuario}).`;
+  } catch (err) {
+    console.error("No se pudo obtener la sesión:", err);
+  }
+}
+
+async function renderCuentas() {
+  let lista;
+  try {
+    lista = (await (await fetch("/api/usuarios")).json()).usuarios || [];
+  } catch (err) {
+    cuentasList.innerHTML = '<p class="text-sm text-slate-400">No se pudo cargar.</p>';
+    return;
+  }
+
+  cuentasList.innerHTML = "";
+  lista.forEach((u) => {
+    const card = document.createElement("div");
+    card.className = "rounded-xl border p-3 " + (u.activo ? "bg-white border-slate-200" : "bg-slate-50 border-slate-200 opacity-70");
+
+    const top = document.createElement("div");
+    top.className = "flex items-start justify-between gap-2";
+    const info = document.createElement("div");
+    info.className = "min-w-0";
+    const nombre = document.createElement("p");
+    nombre.className = "text-sm font-semibold text-slate-800 break-words";
+    nombre.textContent = u.nombre + (u.esDueno ? " 👑" : "");
+    const detalle = document.createElement("p");
+    detalle.className = "text-xs text-slate-400 mt-0.5";
+    detalle.textContent = `entra como "${u.usuario}"${u.activo ? "" : " · desactivada"}`;
+    info.appendChild(nombre);
+    info.appendChild(detalle);
+    top.appendChild(info);
+
+    const acciones = document.createElement("div");
+    acciones.className = "flex items-center gap-1 shrink-0";
+
+    const btnClave = document.createElement("button");
+    btnClave.className = "w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 active:scale-90 transition-all";
+    btnClave.title = "Cambiar contraseña";
+    btnClave.innerHTML = '<i class="fa-solid fa-key"></i>';
+    btnClave.addEventListener("click", async () => {
+      const nueva = prompt(`Nueva contraseña para ${u.nombre} (mínimo 6 caracteres):`);
+      if (nueva === null) return;
+      const res = await fetch(`/api/usuarios/${encodeURIComponent(u.id)}/password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: nueva }),
+      });
+      const data = await res.json();
+      alert(data.ok ? "Contraseña cambiada." : data.error || "No se pudo cambiar.");
+      // Al dueño le cambia SU propia clave de entrada: conviene avisarlo.
+      if (data.ok && u.esDueno) alert("Ojo: esa es tu propia contraseña. Úsala la próxima vez que entres.");
+    });
+    acciones.appendChild(btnClave);
+
+    if (!u.esDueno) {
+      const btnActivo = document.createElement("button");
+      btnActivo.className = "w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 active:scale-90 transition-all";
+      btnActivo.title = u.activo ? "Desactivar" : "Activar";
+      btnActivo.innerHTML = u.activo ? '<i class="fa-solid fa-toggle-on text-brand-green"></i>' : '<i class="fa-solid fa-toggle-off"></i>';
+      btnActivo.addEventListener("click", async () => {
+        await fetch(`/api/usuarios/${encodeURIComponent(u.id)}/activo`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ activo: !u.activo }),
+        });
+        renderCuentas();
+      });
+      acciones.appendChild(btnActivo);
+
+      const btnDel = document.createElement("button");
+      btnDel.className = "w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-red-50 hover:text-brand-red active:scale-90 transition-all";
+      btnDel.title = "Eliminar";
+      btnDel.innerHTML = '<i class="fa-solid fa-trash"></i>';
+      btnDel.addEventListener("click", async () => {
+        if (!confirm(`¿Eliminar la cuenta de ${u.nombre}?\n\nSus datos NO se borran: quedan guardados por si la quieres recuperar.`)) return;
+        await fetch(`/api/usuarios/${encodeURIComponent(u.id)}`, { method: "DELETE" });
+        renderCuentas();
+      });
+      acciones.appendChild(btnDel);
+    }
+
+    top.appendChild(acciones);
+    card.appendChild(top);
+    cuentasList.appendChild(card);
+  });
+}
+
+addCuentaBtn.addEventListener("click", async () => {
+  const nombre = cuentaNuevoNombre.value.trim();
+  const usuario = cuentaNuevoUsuario.value.trim();
+  const password = cuentaNuevoPassword.value;
+  if (!usuario || !password) {
+    alert("Completa el usuario y la contraseña.");
+    return;
+  }
+  const res = await fetch("/api/usuarios", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ nombre, usuario, password }),
+  });
+  const data = await res.json();
+  if (!data.ok) {
+    alert(data.error || "No se pudo crear la cuenta.");
+    return;
+  }
+  alert(`Cuenta creada. ${nombre || usuario} entra con el usuario "${data.usuario.usuario}" y la contraseña que pusiste.`);
+  cuentaNuevoNombre.value = "";
+  cuentaNuevoUsuario.value = "";
+  cuentaNuevoPassword.value = "";
+  renderCuentas();
+});
+
+salirPanelBtn.addEventListener("click", async () => {
+  await fetch("/api/logout", { method: "POST" });
+  window.location.href = "/login";
+});
+
+openCuentas.addEventListener("click", () => {
+  cuentasOverlay.classList.remove("hidden");
+  cuentasOverlay.classList.add("flex");
+  renderCuentas();
+});
+
+closeCuentas.addEventListener("click", () => {
+  cuentasOverlay.classList.add("hidden");
+  cuentasOverlay.classList.remove("flex");
+});
+
 // ---------- Pendientes (recordatorios de pago) ----------
 const remindersOverlay = document.getElementById("remindersOverlay");
 const closeReminders = document.getElementById("closeReminders");
@@ -3132,6 +3282,7 @@ backupRestoreBtn.addEventListener("click", async () => {
 
 // ---------- Inicialización ----------
 document.addEventListener("DOMContentLoaded", () => {
+  fetchSesion();
   updateBotUI();
   pollStatus();
   setInterval(pollStatus, 3000);

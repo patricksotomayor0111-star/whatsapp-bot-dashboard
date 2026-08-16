@@ -62,6 +62,15 @@ app.post("/api/logout", (req, res) => {
   res.json({ ok: true });
 });
 
+// Administrar cuentas es solo del dueño: una cuenta cliente no tiene por
+// qué ver quién más usa el sistema, ni menos crear o borrar cuentas.
+function soloDueno(req, res, next) {
+  if (req.userId !== users.DUENO_ID) {
+    return res.status(403).json({ error: "Solo el dueño puede administrar las cuentas." });
+  }
+  next();
+}
+
 app.get("/login", (req, res) => {
   res.sendFile(path.join(__dirname, "login.html"));
 });
@@ -91,6 +100,56 @@ app.use((req, res, next) => {
   // en la información de otra.
   req.userId = cuenta.id;
   contexto.correrComo(cuenta.id, next);
+});
+
+// Quién soy: lo usa el panel para saludar y para mostrar la
+// administración de cuentas solo cuando corresponde.
+app.get("/api/sesion", (req, res) => {
+  const cuenta = users.getById(req.userId);
+  res.json({ id: cuenta.id, usuario: cuenta.usuario, nombre: cuenta.nombre, esDueno: cuenta.id === users.DUENO_ID });
+});
+
+app.get("/api/usuarios", soloDueno, (req, res) => {
+  res.json({ usuarios: users.getAll() });
+});
+
+app.post("/api/usuarios", soloDueno, (req, res) => {
+  try {
+    res.json({ ok: true, usuario: users.addUsuario(req.body || {}) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/usuarios/:id/password", soloDueno, (req, res) => {
+  try {
+    if (!users.cambiarPassword(req.params.id, req.body?.password)) {
+      return res.status(404).json({ error: "Cuenta no encontrada." });
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/usuarios/:id/activo", soloDueno, (req, res) => {
+  try {
+    if (!users.setActivo(req.params.id, req.body?.activo)) {
+      return res.status(404).json({ error: "Cuenta no encontrada." });
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete("/api/usuarios/:id", soloDueno, (req, res) => {
+  try {
+    users.removeUsuario(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 // Solo se exponen estos archivos del panel (no todo el proyecto, para no
