@@ -106,6 +106,7 @@
         <button data-finance-tab="financeTabMovimientos" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Movimientos</button>
         <button data-finance-tab="financeTabDeudas" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Deudas</button>
         <button data-finance-tab="financeTabFaltantes" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Faltantes</button>
+        <button data-finance-tab="financeTabLocales" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Locales</button>
         <button data-finance-tab="financeTabCuentas" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Cuentas</button>
         <button data-finance-tab="financeTabGraficos" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Gráficos</button>
         <button data-finance-tab="financeTabMetas" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Metas</button>
@@ -213,6 +214,35 @@
               <input id="shortfallNuevoMonto" type="number" placeholder="Monto (S/)" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200" />
               <input id="shortfallNuevaDescripcion" type="text" placeholder="Descripción (opcional)" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200" />
               <button id="addShortfallBtn" class="w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-rose-600 text-white active:scale-95 transition-all">Agregar faltante</button>
+            </div>
+          </details>
+        </div>
+
+        <!-- Tab: Locales que dan pedidos -->
+        <div id="financeTabLocales" class="finance-tab-panel hidden space-y-4">
+          <p class="text-xs text-slate-400">Cada reparto que registras es de algún local. Acá se agrupan para ver cuál te da más volumen, cuál te paga mejor por reparto y cuál dejó de darte trabajo.</p>
+
+          <div class="flex items-center justify-between gap-2 flex-wrap">
+            <p class="eyebrow text-brand-green"><i class="fa-solid fa-ranking-star"></i> RANKING DE LOCALES</p>
+            <select id="localesMes" class="bg-white rounded-lg px-2 py-1 text-xs border border-slate-200"></select>
+          </div>
+          <div id="localesResumen" class="grid grid-cols-3 gap-2"></div>
+          <div id="localesList" class="space-y-2"></div>
+          <p id="localesEmpty" class="hidden text-center text-xs text-slate-400 py-4">Todavía no tienes locales configurados. Abajo están los nombres que ya aparecen en tus repartos: dale a "+ Crear local" al que corresponda.</p>
+
+          <section>
+            <p class="eyebrow text-amber-600"><i class="fa-solid fa-circle-question"></i> SIN ASIGNAR</p>
+            <p class="text-xs text-slate-400 mt-1 mb-2">Nombres que aparecen en tus repartos pero todavía no pertenecen a ningún local.</p>
+            <div id="localesSinAsignar" class="space-y-1.5"></div>
+            <p id="localesSinAsignarEmpty" class="hidden text-center text-xs text-slate-400 py-3">Todos los repartos del mes ya están asignados a un local.</p>
+          </section>
+
+          <details class="card bg-slate-50">
+            <summary class="text-xs font-bold text-blue-600 cursor-pointer">+ Agregar local manual</summary>
+            <div class="space-y-2 mt-2">
+              <input id="localNuevoNombre" type="text" placeholder="Nombre del local (ej: Bumanguesa)" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200" />
+              <input id="localNuevoAliases" type="text" placeholder="Abreviaturas separadas por coma (ej: bum, buma)" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200" />
+              <button id="addLocalBtn" class="w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-brand-green text-white active:scale-95 transition-all">Agregar local</button>
             </div>
           </details>
         </div>

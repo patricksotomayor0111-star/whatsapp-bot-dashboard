@@ -11,6 +11,7 @@ production-goals-data.json
 scheduled-expenses-data.json
 query-intents-data.json
 tasks-data.json
+locales-data.json
 push-data.json
 .env
 *.log

@@ -14,6 +14,7 @@ const financeGoals = require("./financeGoals");
 const productionGoals = require("./productionGoals");
 const scheduledExpenses = require("./scheduledExpenses");
 const tasks = require("./tasks");
+const locales = require("./locales");
 const backup = require("./backup");
 const ExcelJS = require("exceljs");
 
@@ -448,6 +449,40 @@ app.delete("/api/finance/shortfalls/:index", (req, res) => {
   if (!mov) return res.status(404).json({ error: "Movimiento no encontrado." });
   if (mov.movimientoId) cashbox.removeMovimientoPorId(mov.movimientoId);
   res.json({ ok: true, enlazado: !!mov.movimientoId });
+});
+
+// ---------- Locales que dan pedidos (ranking de repartos) ----------
+// Cada ganancia es un reparto hecho para un local; acá se agrupan por
+// local para ver cuál da más volumen, cuál paga mejor por reparto y cuál
+// dejó de dar trabajo. ?mes=YYYY-MM acota el ranking (vacío = todo).
+app.get("/api/finance/locales", (req, res) => {
+  const mes = req.query.mes || "";
+  const movimientos = cashbox.getMovimientos();
+  res.json({
+    ranking: locales.getRanking(movimientos, mes, cashbox.getHoyLabel()),
+    sinAsignar: locales.getSinAsignar(movimientos, mes),
+    meses: Array.from(new Set(movimientos.map((m) => m.fecha.slice(0, 7)))).sort().reverse(),
+  });
+});
+
+app.post("/api/finance/locales", (req, res) => {
+  try {
+    const local = locales.addLocal(req.body || {});
+    res.json({ ok: true, local });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.put("/api/finance/locales/:id", (req, res) => {
+  const local = locales.editLocal(req.params.id, req.body || {});
+  if (!local) return res.status(404).json({ error: "Local no encontrado." });
+  res.json({ ok: true, local });
+});
+
+app.delete("/api/finance/locales/:id", (req, res) => {
+  locales.removeLocal(req.params.id);
+  res.json({ ok: true });
 });
 
 // Cuentas de referencia (Yape/Plin/Sip/Efectivo, editable)

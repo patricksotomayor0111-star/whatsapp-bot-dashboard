@@ -631,6 +631,8 @@ function showFinanceTab(tabId) {
     fetchDebts();
   } else if (tabId === "financeTabFaltantes") {
     fetchShortfalls();
+  } else if (tabId === "financeTabLocales") {
+    fetchLocales();
   } else if (tabId === "financeTabCuentas") {
     fetchAccountNames();
     fetchAccountEntries();
@@ -1169,6 +1171,220 @@ addDebtBtn.addEventListener("click", async () => {
   debtNuevoMonto.value = "";
   debtNuevaDescripcion.value = "";
   await fetchDebts();
+});
+
+// ---------- Finanzas: Locales que dan pedidos (ranking de repartos) ----------
+const localesMes = document.getElementById("localesMes");
+const localesResumen = document.getElementById("localesResumen");
+const localesList = document.getElementById("localesList");
+const localesEmpty = document.getElementById("localesEmpty");
+const localesSinAsignar = document.getElementById("localesSinAsignar");
+const localesSinAsignarEmpty = document.getElementById("localesSinAsignarEmpty");
+const localNuevoNombre = document.getElementById("localNuevoNombre");
+const localNuevoAliases = document.getElementById("localNuevoAliases");
+const addLocalBtn = document.getElementById("addLocalBtn");
+
+let mesLocalesSeleccionado = null;
+
+function tarjetaResumen(valor, etiqueta) {
+  const card = document.createElement("div");
+  card.className = "card bg-white py-2 text-center";
+  const v = document.createElement("p");
+  v.className = "text-sm font-bold text-slate-800";
+  v.textContent = valor;
+  const e = document.createElement("p");
+  e.className = "text-[10px] text-slate-400 mt-0.5";
+  e.textContent = etiqueta;
+  card.appendChild(v);
+  card.appendChild(e);
+  return card;
+}
+
+function renderLocales(data) {
+  const ranking = data.ranking || [];
+  const conPedidos = ranking.filter((l) => l.pedidos > 0);
+
+  // Resumen de arriba: lo que dejaron los repartos del mes elegido.
+  const totalMes = conPedidos.reduce((s, l) => s + l.total, 0);
+  const pedidosMes = conPedidos.reduce((s, l) => s + l.pedidos, 0);
+  localesResumen.innerHTML = "";
+  localesResumen.appendChild(tarjetaResumen(formatSoles(totalMes), "cobrado"));
+  localesResumen.appendChild(tarjetaResumen(String(pedidosMes), "repartos"));
+  localesResumen.appendChild(tarjetaResumen(pedidosMes ? formatSoles(totalMes / pedidosMes) : formatSoles(0), "por reparto"));
+
+  localesList.innerHTML = "";
+  localesEmpty.classList.toggle("hidden", ranking.length > 0);
+
+  ranking.forEach((l, i) => {
+    const card = document.createElement("div");
+    card.className = "card bg-white py-3";
+
+    const top = document.createElement("div");
+    top.className = "flex items-start justify-between gap-2";
+
+    const info = document.createElement("div");
+    info.className = "min-w-0";
+    const nombre = document.createElement("p");
+    nombre.className = "font-semibold text-slate-800 text-sm break-words";
+    nombre.textContent = `${i + 1}. ${l.nombre}`;
+    const detalle = document.createElement("p");
+    detalle.className = "text-xs text-slate-500 mt-0.5";
+    detalle.textContent = l.pedidos
+      ? `${l.pedidos} reparto${l.pedidos === 1 ? "" : "s"} · ${formatSoles(l.promedio)} por reparto`
+      : "sin repartos en este mes";
+    info.appendChild(nombre);
+    info.appendChild(detalle);
+
+    const total = document.createElement("span");
+    total.className = "font-bold text-brand-green shrink-0";
+    total.textContent = formatSoles(l.total);
+
+    top.appendChild(info);
+    top.appendChild(total);
+    card.appendChild(top);
+
+    // Aviso de local que dejó de dar trabajo (mira todo el historial, no
+    // solo el mes elegido).
+    if (l.diasSinPedir !== null && l.diasSinPedir >= 14) {
+      const alerta = document.createElement("p");
+      alerta.className = "text-xs text-rose-600 font-medium mt-1.5";
+      alerta.textContent = `⚠️ Hace ${l.diasSinPedir} días que no te da un reparto (último: ${fmtFecha(l.ultimaFecha)})`;
+      card.appendChild(alerta);
+    }
+
+    const aliases = document.createElement("p");
+    aliases.className = "text-[10px] text-slate-400 mt-1.5";
+    aliases.textContent = `se registra como: ${l.aliases.join(", ")}`;
+    card.appendChild(aliases);
+
+    const acciones = document.createElement("div");
+    acciones.className = "flex items-center gap-2 mt-2";
+
+    const editBtn = document.createElement("button");
+    editBtn.className = "btn-capsule bg-slate-100 text-slate-600 text-xs py-1.5 px-3";
+    editBtn.textContent = "Editar";
+    editBtn.addEventListener("click", async () => {
+      const nuevoNombre = prompt("Nombre del local:", l.nombre);
+      if (nuevoNombre === null) return;
+      const nuevasAbrev = prompt("Abreviaturas separadas por coma:", l.aliases.join(", "));
+      if (nuevasAbrev === null) return;
+      await fetch(`/api/finance/locales/${encodeURIComponent(l.id)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nombre: nuevoNombre,
+          aliases: nuevasAbrev.split(",").map((a) => a.trim()).filter(Boolean),
+        }),
+      });
+      await fetchLocales();
+    });
+
+    const delBtn = document.createElement("button");
+    delBtn.className = "btn-capsule bg-rose-100 text-rose-700 text-xs py-1.5 px-3";
+    delBtn.textContent = "Eliminar";
+    delBtn.addEventListener("click", async () => {
+      if (!confirm(`¿Eliminar el local "${l.nombre}"?\n\nLos repartos no se borran: solo dejan de estar agrupados bajo ese nombre.`)) return;
+      await fetch(`/api/finance/locales/${encodeURIComponent(l.id)}`, { method: "DELETE" });
+      await fetchLocales();
+    });
+
+    acciones.appendChild(editBtn);
+    acciones.appendChild(delBtn);
+    card.appendChild(acciones);
+    localesList.appendChild(card);
+  });
+
+  // Nombres todavía sin local, con un atajo para darlos de alta.
+  const sueltos = data.sinAsignar || [];
+  localesSinAsignar.innerHTML = "";
+  localesSinAsignarEmpty.classList.toggle("hidden", sueltos.length > 0);
+
+  sueltos.forEach((s) => {
+    const row = document.createElement("div");
+    row.className = "flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs bg-amber-50 border border-amber-100";
+
+    const info = document.createElement("div");
+    info.className = "min-w-0";
+    const nombre = document.createElement("p");
+    nombre.className = "font-semibold text-slate-800 break-words";
+    nombre.textContent = s.nombre;
+    const detalle = document.createElement("p");
+    detalle.className = "text-slate-400";
+    detalle.textContent = `${s.pedidos} reparto${s.pedidos === 1 ? "" : "s"} · ${formatSoles(s.total)}`;
+    info.appendChild(nombre);
+    info.appendChild(detalle);
+
+    const crearBtn = document.createElement("button");
+    crearBtn.className = "btn-capsule bg-brand-green text-white text-xs py-1.5 px-3 shrink-0";
+    crearBtn.textContent = "+ Crear local";
+    crearBtn.addEventListener("click", async () => {
+      const nombreReal = prompt(`¿Cómo se llama el local que registras como "${s.nombre}"?`, s.nombre);
+      if (nombreReal === null || !nombreReal.trim()) return;
+      await fetch("/api/finance/locales", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nombre: nombreReal.trim(), aliases: [s.nombre] }),
+      });
+      await fetchLocales();
+    });
+
+    row.appendChild(info);
+    row.appendChild(crearBtn);
+    localesSinAsignar.appendChild(row);
+  });
+}
+
+function poblarSelectorMesLocales(meses) {
+  const previo = mesLocalesSeleccionado && meses.includes(mesLocalesSeleccionado) ? mesLocalesSeleccionado : "";
+  localesMes.innerHTML = "";
+  const todos = document.createElement("option");
+  todos.value = "";
+  todos.textContent = "Todo el historial";
+  localesMes.appendChild(todos);
+  meses.forEach((m) => {
+    const opt = document.createElement("option");
+    opt.value = m;
+    const [anio, mes] = m.split("-");
+    opt.textContent = `${MESES_CORTO[Number(mes) - 1]} ${anio}`;
+    localesMes.appendChild(opt);
+  });
+  localesMes.value = previo;
+  mesLocalesSeleccionado = previo;
+}
+
+async function fetchLocales() {
+  try {
+    const res = await fetch(`/api/finance/locales?mes=${encodeURIComponent(mesLocalesSeleccionado || "")}`);
+    const data = await res.json();
+    poblarSelectorMesLocales(data.meses || []);
+    renderLocales(data);
+  } catch (err) {
+    console.error("No se pudo obtener los locales:", err);
+  }
+}
+
+localesMes.addEventListener("change", () => {
+  mesLocalesSeleccionado = localesMes.value;
+  fetchLocales();
+});
+
+addLocalBtn.addEventListener("click", async () => {
+  const nombre = localNuevoNombre.value.trim();
+  if (!nombre) return;
+  const aliases = localNuevoAliases.value.split(",").map((a) => a.trim()).filter(Boolean);
+  const res = await fetch("/api/finance/locales", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ nombre, aliases }),
+  });
+  const data = await res.json();
+  if (!data.ok) {
+    alert(data.error || "No se pudo agregar el local.");
+    return;
+  }
+  localNuevoNombre.value = "";
+  localNuevoAliases.value = "";
+  await fetchLocales();
 });
 
 // ---------- Finanzas: Faltantes (sí tocan caja, y llevan total aparte) ----------
