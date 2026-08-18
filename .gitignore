@@ -25,3 +25,10 @@ broadcast-images/
 excluded-numbers-data.json
 media-triggers-data.json
 pending-time-matches-data.json
+
+# Carpetas personales y archivos que no son código. OJO: este repositorio es
+# PÚBLICO, así que la caja chica (DINERO PATRICK) nunca debe subirse acá.
+DINERO PATRICK/
+TIKTOK/
+.claude/
+*.zip
