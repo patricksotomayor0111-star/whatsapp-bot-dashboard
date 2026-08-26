@@ -34,15 +34,26 @@ function claveDe(nombre) {
   return normalizar(nombre).replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 }
 
+// Los totales se calculan sumando el historial; no se guardan aparte.
+// Antes habia un contador propio y termino desincronizado: un conteo de
+// caja lo ponia en cero pero del historial solo borraba los movimientos
+// de ESE dia, y los de los otros dias quedaban sumando. Resultado: el
+// saldo de arriba no cuadraba con la lista de abajo y no habia forma de
+// reconciliarlos. Sumando siempre el historial, el numero que se muestra
+// es exactamente lo que da sumar lo que se ve.
 function getPersonas() {
-  return Object.entries(datos().personas).map(([clave, p]) => ({
-    clave,
-    label: p.label,
-    guardado: +(p.guardado || 0).toFixed(2),
-    gastado: +(p.gastado || 0).toFixed(2),
-    saldo: +((p.guardado || 0) - (p.gastado || 0)).toFixed(2),
-    movimientos: (p.movimientos || []).length,
-  }));
+  return Object.entries(datos().personas).map(([clave, p]) => {
+    const guardado = sumarPor(p.movimientos, "guardo");
+    const gastado = sumarPor(p.movimientos, "gasto");
+    return {
+      clave,
+      label: p.label,
+      guardado: +guardado.toFixed(2),
+      gastado: +gastado.toFixed(2),
+      saldo: +(guardado - gastado).toFixed(2),
+      movimientos: (p.movimientos || []).length,
+    };
+  });
 }
 
 function addPersona(nombre) {
@@ -51,7 +62,7 @@ function addPersona(nombre) {
   const clave = claveDe(label);
   if (!clave) throw new Error("Ese nombre no sirve como identificador.");
   if (datos().personas[clave]) throw new Error("Ya tienes a alguien con ese nombre.");
-  datos().personas[clave] = { label, guardado: 0, gastado: 0, movimientos: [] };
+  datos().personas[clave] = { label, movimientos: [] };
   save();
   return { clave, label };
 }
@@ -88,8 +99,6 @@ function registrar(clave, tipo, monto, descripcion) {
   const p = datos().personas[clave];
   if (!p) return null;
   const ahora = businessDay.peruAhora();
-  if (tipo === "guardo") p.guardado += monto;
-  else p.gastado += monto;
   p.movimientos.push({
     fecha: businessDay.businessDayLabel(),
     hora: businessDay.horaLabel(ahora),
@@ -106,26 +115,14 @@ function getMovimientos(clave) {
   return p ? p.movimientos : [];
 }
 
-function efectoDelta(tipo, monto, signo) {
-  return tipo === "guardo" ? { g: signo * monto, gs: 0 } : { g: 0, gs: signo * monto };
-}
-
 function editMovimiento(clave, indice, cambios) {
   const p = datos().personas[clave];
   if (!p || !p.movimientos[indice]) return null;
   const mov = p.movimientos[indice];
 
-  const viejo = efectoDelta(mov.tipo, mov.monto, -1);
-  p.guardado += viejo.g;
-  p.gastado += viejo.gs;
-
   if (cambios.tipo !== undefined) mov.tipo = cambios.tipo === "guardo" ? "guardo" : "gasto";
   if (cambios.monto !== undefined) mov.monto = Number(cambios.monto) || 0;
   if (cambios.descripcion !== undefined) mov.descripcion = cambios.descripcion;
-
-  const nuevo = efectoDelta(mov.tipo, mov.monto, 1);
-  p.guardado += nuevo.g;
-  p.gastado += nuevo.gs;
 
   save();
   return mov;
@@ -134,10 +131,6 @@ function editMovimiento(clave, indice, cambios) {
 function removeMovimiento(clave, indice) {
   const p = datos().personas[clave];
   if (!p || !p.movimientos[indice]) return false;
-  const mov = p.movimientos[indice];
-  const efecto = efectoDelta(mov.tipo, mov.monto, -1);
-  p.guardado += efecto.g;
-  p.gastado += efecto.gs;
   p.movimientos.splice(indice, 1);
   save();
   return true;
@@ -153,8 +146,6 @@ function sumarPor(movimientos, tipo) {
 function migrarDesdeAna({ guardado, gastado, movimientos }) {
   if (Object.keys(datos().personas).length > 0) return false;
   if (!guardado && !gastado && (!movimientos || movimientos.length === 0)) return false;
-  // Los movimientos ya migrados alcanzan para reconstruir los totales si
-  // no llegaran, asi la persona nunca queda con historial pero en cero.
   const movs = (movimientos || []).map((m) => ({
     fecha: m.fecha,
     hora: m.hora,
@@ -163,34 +154,15 @@ function migrarDesdeAna({ guardado, gastado, movimientos }) {
     descripcion: m.descripcion || "",
   }));
 
-  datos().personas.ana = {
-    label: "Ana",
-    guardado: guardado || sumarPor(movs, "guardo"),
-    gastado: gastado || sumarPor(movs, "gasto"),
-    movimientos: movs,
-  };
-  save();
-  return true;
-}
-
-// La primera migracion tomaba los totales de una funcion que no los
-// devolvia, asi que Ana quedo con su historial completo pero en cero.
-// Esto lo corrige una sola vez, sin tocar a nadie que ya este bien.
-function repararTotales(clave, totalesViejos) {
-  const p = datos().personas[clave];
-  if (!p) return false;
-  if (p.guardado || p.gastado) return false;
-  if (!(p.movimientos || []).length) return false;
-
-  const v = totalesViejos || {};
-  p.guardado = v.guardado || sumarPor(p.movimientos, "guardo");
-  p.gastado = v.gastado || sumarPor(p.movimientos, "gasto");
+  // Solo se copia el historial. Los totales viejos de la caja NO se traen:
+  // venian desincronizados del historial por el reset del conteo de caja,
+  // y ahora el saldo sale de sumar los movimientos.
+  datos().personas.ana = { label: "Ana", movimientos: movs };
   save();
   return true;
 }
 
 module.exports = {
-  repararTotales,
   getPersonas,
   addPersona,
   editPersona,
