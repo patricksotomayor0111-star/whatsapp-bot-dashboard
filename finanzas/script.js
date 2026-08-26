@@ -2393,6 +2393,8 @@ const metaAutoTengo = document.getElementById("metaAutoTengo");
 const metaAutoFalta = document.getElementById("metaAutoFalta");
 const metaAutoDias = document.getElementById("metaAutoDias");
 const metaAutoDesglose = document.getElementById("metaAutoDesglose");
+const metaAutoAtrasados = document.getElementById("metaAutoAtrasados");
+const metaAutoAtrasadosTxt = document.getElementById("metaAutoAtrasadosTxt");
 const metaAutoDetalle = document.getElementById("metaAutoDetalle");
 const metaAutoToggle = document.getElementById("metaAutoToggle");
 const metaAutoToggleTxt = document.getElementById("metaAutoToggleTxt");
@@ -2440,6 +2442,18 @@ function renderMetasAutomaticas(m) {
   metaAutoTengo.textContent = formatSoles(m.tengo);
   metaAutoFalta.textContent = formatSoles(m.falta);
   metaAutoDias.textContent = m.diasRestantes;
+
+  // Los vencidos sin marcar NO suman a la meta (su efectivo de hoy ya
+  // refleja lo que pago). Pero se avisan para que no se le pasen.
+  const atrasados = (m.detalle.atrasados && m.detalle.atrasados.items) || [];
+  metaAutoAtrasados.classList.toggle("hidden", atrasados.length === 0);
+  if (atrasados.length > 0) {
+    const nombres = atrasados.map((p) => p.label).join(", ");
+    const plural = atrasados.length > 1 ? "s" : "";
+    metaAutoAtrasadosTxt.textContent =
+      atrasados.length + " pago" + plural + " con fecha ya vencida sin marcar como pagado (" + nombres + ", " +
+      formatSoles(m.detalle.atrasados.total) + "). No se cuentan en tu meta. Si de verdad no los pagaste, márcalos en Pendientes.";
+  }
 
   metaAutoDesglose.innerHTML = "";
   [

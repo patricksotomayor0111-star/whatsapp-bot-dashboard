@@ -34,10 +34,18 @@ function calcular() {
   const hoy = cashbox.getToday();
   const tengo = hoy.esperado || 0;
 
-  // 2. Lo que tengo que gastar de aqui a fin de mes.
-  //    Pendientes: incluye lo vencido sin pagar y descuenta lo ya pagado.
-  const pagos = reminders.getPagosMesRestante();
+  // 2. Lo que tengo que gastar de HOY en adelante.
+  //    Solo cuenta lo que vence de hoy al fin de mes. Lo que quedo con
+  //    fecha vieja sin marcar como pagado NO entra: el efectivo que tiene
+  //    hoy ya refleja lo que pago antes, asi que sumarlo seria pedirle la
+  //    misma plata dos veces. Se devuelve aparte para poder avisarle, que
+  //    es distinto de ignorarlo en silencio.
+  const hoyLabel = businessDay.businessDayLabel();
+  const todosLosPagos = reminders.getPagosMesRestante();
+  const pagos = todosLosPagos.filter((p) => !p.fecha || p.fecha >= hoyLabel);
+  const atrasados = todosLosPagos.filter((p) => p.fecha && p.fecha < hoyLabel);
   const pendientes = pagos.reduce((s, p) => s + (p.monto || 0), 0);
+  const atrasadosTotal = atrasados.reduce((s, p) => s + (p.monto || 0), 0);
 
   //    Programados: los recurrentes (almuerzo, gasolina) proyectados de
   //    hoy a fin de mes. Cuenta el de hoy aunque ya lo hayas gastado; al
@@ -78,6 +86,8 @@ function calcular() {
       programados: { total: r2(programados), items: proyeccion.detalle || [] },
       deudas: { total: r2(deudas), items: deudasLista },
       ahorro: { total: r2(ahorro) },
+      // No suman a la meta; solo para avisarle que los revise.
+      atrasados: { total: r2(atrasadosTotal), items: atrasados },
     },
   };
 }

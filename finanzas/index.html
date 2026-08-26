@@ -330,7 +330,7 @@
         <div id="financeTabMetas" class="finance-tab-panel hidden space-y-4">
           <section class="card bg-brand-green/5 border border-brand-green/20 py-3">
             <p class="eyebrow text-brand-green"><i class="fa-solid fa-bullseye"></i> TUS METAS</p>
-            <p class="text-xs text-slate-500 mt-1">Se calculan solas: es lo que te falta juntar para cubrir todo lo que tienes que pagar de aquí a fin de mes. Baja sola cada vez que anotas un ingreso.</p>
+            <p class="text-xs text-slate-500 mt-1">Se calculan solas: es lo que te falta juntar para cubrir todo lo que tienes que pagar de hoy a fin de mes. Baja sola cada vez que anotas un ingreso.</p>
 
             <div id="metaAutoCubierto" class="hidden mt-3 rounded-xl bg-emerald-100 border border-emerald-200 px-3 py-2 text-sm text-emerald-800 font-semibold text-center">
               <i class="fa-solid fa-circle-check"></i> Ya cubriste todo lo del mes
@@ -349,6 +349,10 @@
                 <p class="text-[10px] text-slate-400 font-semibold tracking-wide">EL MES</p>
                 <p id="metaAutoMensual" class="text-base font-bold text-brand-green leading-tight mt-1">S/ 0</p>
               </div>
+            </div>
+
+            <div id="metaAutoAtrasados" class="hidden mt-3 rounded-xl bg-amber-100 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+              <i class="fa-solid fa-triangle-exclamation"></i> <span id="metaAutoAtrasadosTxt"></span>
             </div>
 
             <button id="metaAutoToggle" class="w-full mt-3 text-xs text-slate-500 flex items-center justify-center gap-1 active:scale-95 transition-all">
