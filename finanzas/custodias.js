@@ -146,26 +146,51 @@ function removeMovimiento(clave, indice) {
 // Trae lo que estaba guardado como "Ana" en la caja (cuando esto era de
 // una sola persona fija) a la lista nueva, para no perder ese historial.
 // Solo corre si esa cuenta tiene algo de Ana y todavía no tiene personas.
+function sumarPor(movimientos, tipo) {
+  return (movimientos || []).filter((m) => m.tipo === tipo).reduce((s, m) => s + (m.monto || 0), 0);
+}
+
 function migrarDesdeAna({ guardado, gastado, movimientos }) {
   if (Object.keys(datos().personas).length > 0) return false;
   if (!guardado && !gastado && (!movimientos || movimientos.length === 0)) return false;
+  // Los movimientos ya migrados alcanzan para reconstruir los totales si
+  // no llegaran, asi la persona nunca queda con historial pero en cero.
+  const movs = (movimientos || []).map((m) => ({
+    fecha: m.fecha,
+    hora: m.hora,
+    tipo: m.tipo === "ana_guardo" || m.tipo === "guardo" ? "guardo" : "gasto",
+    monto: m.monto,
+    descripcion: m.descripcion || "",
+  }));
+
   datos().personas.ana = {
     label: "Ana",
-    guardado: guardado || 0,
-    gastado: gastado || 0,
-    movimientos: (movimientos || []).map((m) => ({
-      fecha: m.fecha,
-      hora: m.hora,
-      tipo: m.tipo === "ana_guardo" || m.tipo === "guardo" ? "guardo" : "gasto",
-      monto: m.monto,
-      descripcion: m.descripcion || "",
-    })),
+    guardado: guardado || sumarPor(movs, "guardo"),
+    gastado: gastado || sumarPor(movs, "gasto"),
+    movimientos: movs,
   };
   save();
   return true;
 }
 
+// La primera migracion tomaba los totales de una funcion que no los
+// devolvia, asi que Ana quedo con su historial completo pero en cero.
+// Esto lo corrige una sola vez, sin tocar a nadie que ya este bien.
+function repararTotales(clave, totalesViejos) {
+  const p = datos().personas[clave];
+  if (!p) return false;
+  if (p.guardado || p.gastado) return false;
+  if (!(p.movimientos || []).length) return false;
+
+  const v = totalesViejos || {};
+  p.guardado = v.guardado || sumarPor(p.movimientos, "guardo");
+  p.gastado = v.gastado || sumarPor(p.movimientos, "gasto");
+  save();
+  return true;
+}
+
 module.exports = {
+  repararTotales,
   getPersonas,
   addPersona,
   editPersona,

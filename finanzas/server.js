@@ -468,12 +468,15 @@ app.delete("/api/finance/movements/:index", (req, res) => {
 // en el código, que todos los clientes veían.
 app.get("/api/finance/custodias", (req, res) => {
   // Lo que ya estaba guardado como "Ana" pasa a la lista la primera vez.
-  const ana = cashbox.getToday().ana || {};
+  // Ojo: getToday() NO trae los totales de Ana; los da getAna(). Usar el
+  // primero fue lo que dejo su custodia migrada en cero.
+  const ana = cashbox.getAna();
   custodias.migrarDesdeAna({
     guardado: ana.guardado || 0,
     gastado: ana.gastado || 0,
     movimientos: cashbox.getAnaMovimientos(),
   });
+  custodias.repararTotales("ana", ana);
   res.json({ personas: custodias.getPersonas() });
 });
 
