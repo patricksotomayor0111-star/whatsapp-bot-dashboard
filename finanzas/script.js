@@ -2383,10 +2383,19 @@ function renderChartProduccion(progreso) {
 }
 
 // ---------- Finanzas: Metas ----------
-const goalDiariaInput = document.getElementById("goalDiariaInput");
-const goalSemanalInput = document.getElementById("goalSemanalInput");
-const goalMensualInput = document.getElementById("goalMensualInput");
 const goalAhorroInput = document.getElementById("goalAhorroInput");
+const metaAutoDiaria = document.getElementById("metaAutoDiaria");
+const metaAutoSemanal = document.getElementById("metaAutoSemanal");
+const metaAutoMensual = document.getElementById("metaAutoMensual");
+const metaAutoCubierto = document.getElementById("metaAutoCubierto");
+const metaAutoNecesito = document.getElementById("metaAutoNecesito");
+const metaAutoTengo = document.getElementById("metaAutoTengo");
+const metaAutoFalta = document.getElementById("metaAutoFalta");
+const metaAutoDias = document.getElementById("metaAutoDias");
+const metaAutoDesglose = document.getElementById("metaAutoDesglose");
+const metaAutoDetalle = document.getElementById("metaAutoDetalle");
+const metaAutoToggle = document.getElementById("metaAutoToggle");
+const metaAutoToggleTxt = document.getElementById("metaAutoToggleTxt");
 const goalSavedMsg = document.getElementById("goalSavedMsg");
 const goalProgressList = document.getElementById("goalProgressList");
 const ahorroMetaTxt = document.getElementById("ahorroMetaTxt");
@@ -2397,10 +2406,6 @@ const proyeccionTxt = document.getElementById("proyeccionTxt");
 const comparativaTxt = document.getElementById("comparativaTxt");
 const compromisosList = document.getElementById("compromisosList");
 const compromisosTotalTxt = document.getElementById("compromisosTotalTxt");
-const compromisosAhorroTxt = document.getElementById("compromisosAhorroTxt");
-const compromisosNecesidadTxt = document.getElementById("compromisosNecesidadTxt");
-const compromisosGeneradoTxt = document.getElementById("compromisosGeneradoTxt");
-const metaDiariaRealTxt = document.getElementById("metaDiariaRealTxt");
 
 async function fetchGoalsAndProgress() {
   try {
@@ -2418,13 +2423,56 @@ async function fetchGoalsAndProgress() {
 }
 
 function renderGoalInputs(goals) {
-  goalDiariaInput.value = goals.diaria || "";
-  goalSemanalInput.value = goals.semanal || "";
-  goalMensualInput.value = goals.mensual || "";
+  // Diaria/semanal/mensual ya no se escriben: las calcula la app sola.
   goalAhorroInput.value = goals.ahorroMensual || "";
 }
 
+// Las tres metas y el desglose de donde sale el numero. Todo viene ya
+// calculado del servidor para que el panel y el bot digan lo mismo.
+function renderMetasAutomaticas(m) {
+  if (!m) return;
+  metaAutoDiaria.textContent = formatSoles(m.diaria);
+  metaAutoSemanal.textContent = formatSoles(m.semanal);
+  metaAutoMensual.textContent = formatSoles(m.mensual);
+  metaAutoCubierto.classList.toggle("hidden", !m.cubierto);
+
+  metaAutoNecesito.textContent = formatSoles(m.necesito);
+  metaAutoTengo.textContent = formatSoles(m.tengo);
+  metaAutoFalta.textContent = formatSoles(m.falta);
+  metaAutoDias.textContent = m.diasRestantes;
+
+  metaAutoDesglose.innerHTML = "";
+  [
+    ["Pendientes por pagar", m.detalle.pendientes.total],
+    ["Gastos programados", m.detalle.programados.total],
+    ["Deudas que debes", m.detalle.deudas.total],
+    ["Tu meta de ahorro", m.detalle.ahorro.total],
+  ]
+    .filter(([, monto]) => monto > 0)
+    .forEach(([label, monto]) => {
+      const row = document.createElement("div");
+      row.className = "flex items-center justify-between gap-2";
+      const nombre = document.createElement("span");
+      nombre.className = "text-slate-500";
+      nombre.textContent = label;
+      const valor = document.createElement("span");
+      valor.className = "font-semibold text-slate-600 shrink-0";
+      valor.textContent = formatSoles(monto);
+      row.appendChild(nombre);
+      row.appendChild(valor);
+      metaAutoDesglose.appendChild(row);
+    });
+}
+
+if (metaAutoToggle) {
+  metaAutoToggle.addEventListener("click", () => {
+    const oculto = metaAutoDetalle.classList.toggle("hidden");
+    metaAutoToggleTxt.textContent = oculto ? "Ver de dónde sale" : "Ocultar";
+  });
+}
+
 function renderGoalProgress(data) {
+  renderMetasAutomaticas(data.automaticas);
   goalProgressList.innerHTML = "";
   const filas = [
     { label: "Diaria", info: data.diaria },
@@ -2505,7 +2553,7 @@ function renderGoalProgress(data) {
     if (c.detalle.length === 0) {
       const p = document.createElement("p");
       p.className = "text-xs text-slate-400";
-      p.textContent = "No hay pagos fijos activos este mes.";
+      p.textContent = "No te falta pagar nada este mes.";
       compromisosList.appendChild(p);
     } else {
       c.detalle.forEach((d) => {
@@ -2513,7 +2561,7 @@ function renderGoalProgress(data) {
         row.className = "flex items-center justify-between text-xs";
         const nombre = document.createElement("span");
         nombre.className = "text-slate-600";
-        nombre.textContent = d.veces > 1 ? `${d.label} (x${d.veces})` : d.label;
+        nombre.textContent = d.fecha ? `${d.label} · ${d.fecha.slice(8, 10)}/${d.fecha.slice(5, 7)}` : d.veces > 1 ? `${d.label} (x${d.veces})` : d.label;
         const monto = document.createElement("span");
         monto.className = "font-semibold text-slate-700";
         monto.textContent = formatSoles(d.subtotal);
@@ -2523,10 +2571,6 @@ function renderGoalProgress(data) {
       });
     }
     compromisosTotalTxt.textContent = formatSoles(c.total);
-    compromisosAhorroTxt.textContent = formatSoles(data.goals.ahorroMensual);
-    compromisosNecesidadTxt.textContent = formatSoles(c.necesidadTotal);
-    compromisosGeneradoTxt.textContent = formatSoles(data.ahorro.actual);
-    metaDiariaRealTxt.textContent = formatSoles(c.metaDiariaReal);
   }
 }
 
@@ -2534,9 +2578,6 @@ document.querySelectorAll(".goal-save-btn").forEach((btn) => {
   btn.addEventListener("click", async () => {
     const tipo = btn.dataset.goalSave;
     const inputMap = {
-      diaria: goalDiariaInput,
-      semanal: goalSemanalInput,
-      mensual: goalMensualInput,
       ahorroMensual: goalAhorroInput,
     };
     const input = inputMap[tipo];

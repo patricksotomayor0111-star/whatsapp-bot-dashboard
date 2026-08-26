@@ -328,39 +328,53 @@
 
         <!-- Tab: Metas -->
         <div id="financeTabMetas" class="finance-tab-panel hidden space-y-4">
-          <section>
-            <p class="eyebrow text-brand-green"><i class="fa-solid fa-bullseye"></i> METAS DE GANANCIA</p>
-            <div class="space-y-2 mt-2">
-              <div class="flex items-center gap-2">
-                <span class="text-xs text-slate-500 w-20 shrink-0">Diaria</span>
-                <input id="goalDiariaInput" type="number" placeholder="S/" class="flex-1 min-w-0 bg-white rounded-xl px-3 py-2 text-sm border border-slate-200" />
-                <button data-goal-save="diaria" class="goal-save-btn shrink-0 w-9 h-9 rounded-xl bg-brand-green text-white flex items-center justify-center active:scale-90 transition-all">
-                  <i class="fa-solid fa-check"></i>
-                </button>
+          <section class="card bg-brand-green/5 border border-brand-green/20 py-3">
+            <p class="eyebrow text-brand-green"><i class="fa-solid fa-bullseye"></i> TUS METAS</p>
+            <p class="text-xs text-slate-500 mt-1">Se calculan solas: es lo que te falta juntar para cubrir todo lo que tienes que pagar de aquí a fin de mes. Baja sola cada vez que anotas un ingreso.</p>
+
+            <div id="metaAutoCubierto" class="hidden mt-3 rounded-xl bg-emerald-100 border border-emerald-200 px-3 py-2 text-sm text-emerald-800 font-semibold text-center">
+              <i class="fa-solid fa-circle-check"></i> Ya cubriste todo lo del mes
+            </div>
+
+            <div class="grid grid-cols-3 gap-2 mt-3">
+              <div class="rounded-xl bg-white border border-slate-200 px-2 py-3 text-center">
+                <p class="text-[10px] text-slate-400 font-semibold tracking-wide">HOY</p>
+                <p id="metaAutoDiaria" class="text-base font-bold text-brand-green leading-tight mt-1">S/ 0</p>
               </div>
-              <div class="flex items-center gap-2">
-                <span class="text-xs text-slate-500 w-20 shrink-0">Semanal</span>
-                <input id="goalSemanalInput" type="number" placeholder="S/" class="flex-1 min-w-0 bg-white rounded-xl px-3 py-2 text-sm border border-slate-200" />
-                <button data-goal-save="semanal" class="goal-save-btn shrink-0 w-9 h-9 rounded-xl bg-brand-green text-white flex items-center justify-center active:scale-90 transition-all">
-                  <i class="fa-solid fa-check"></i>
-                </button>
+              <div class="rounded-xl bg-white border border-slate-200 px-2 py-3 text-center">
+                <p class="text-[10px] text-slate-400 font-semibold tracking-wide">ESTA SEMANA</p>
+                <p id="metaAutoSemanal" class="text-base font-bold text-brand-green leading-tight mt-1">S/ 0</p>
               </div>
-              <div class="flex items-center gap-2">
-                <span class="text-xs text-slate-500 w-20 shrink-0">Mensual</span>
-                <input id="goalMensualInput" type="number" placeholder="S/" class="flex-1 min-w-0 bg-white rounded-xl px-3 py-2 text-sm border border-slate-200" />
-                <button data-goal-save="mensual" class="goal-save-btn shrink-0 w-9 h-9 rounded-xl bg-brand-green text-white flex items-center justify-center active:scale-90 transition-all">
-                  <i class="fa-solid fa-check"></i>
-                </button>
-              </div>
-              <div class="flex items-center gap-2">
-                <span class="text-xs text-slate-500 w-20 shrink-0">Ahorro/mes</span>
-                <input id="goalAhorroInput" type="number" placeholder="S/" class="flex-1 min-w-0 bg-white rounded-xl px-3 py-2 text-sm border border-slate-200" />
-                <button data-goal-save="ahorroMensual" class="goal-save-btn shrink-0 w-9 h-9 rounded-xl bg-brand-green text-white flex items-center justify-center active:scale-90 transition-all">
-                  <i class="fa-solid fa-check"></i>
-                </button>
+              <div class="rounded-xl bg-white border border-slate-200 px-2 py-3 text-center">
+                <p class="text-[10px] text-slate-400 font-semibold tracking-wide">EL MES</p>
+                <p id="metaAutoMensual" class="text-base font-bold text-brand-green leading-tight mt-1">S/ 0</p>
               </div>
             </div>
-            <p id="goalSavedMsg" class="hidden text-xs text-brand-green mt-2">Guardado ✓</p>
+
+            <button id="metaAutoToggle" class="w-full mt-3 text-xs text-slate-500 flex items-center justify-center gap-1 active:scale-95 transition-all">
+              <span id="metaAutoToggleTxt">Ver de dónde sale</span> <i class="fa-solid fa-chevron-down text-[10px]"></i>
+            </button>
+
+            <div id="metaAutoDetalle" class="hidden mt-2 pt-2 border-t border-brand-green/20 text-sm space-y-1">
+              <p class="font-semibold text-slate-700">Tienes que gastar: <span id="metaAutoNecesito" class="text-rose-700">S/ 0</span></p>
+              <div id="metaAutoDesglose" class="pl-2 space-y-0.5 text-xs"></div>
+              <p class="pt-1">Ya tienes: <span id="metaAutoTengo" class="font-semibold text-emerald-700">S/ 0</span></p>
+              <p class="text-base font-bold pt-1">Te falta: <span id="metaAutoFalta" class="text-brand-green">S/ 0</span></p>
+              <p class="text-xs text-slate-500">Repartido en los <span id="metaAutoDias" class="font-semibold">0</span> días que quedan del mes.</p>
+            </div>
+          </section>
+
+          <section>
+            <p class="eyebrow text-brand-green"><i class="fa-solid fa-piggy-bank"></i> AHORRO DEL MES</p>
+            <p class="text-xs text-slate-500 mt-1 mb-2">Cuánto quieres juntar este mes además de cubrir tus gastos. Se suma a tus metas de arriba.</p>
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-slate-500 w-20 shrink-0">Ahorro/mes</span>
+              <input id="goalAhorroInput" type="number" placeholder="S/" class="flex-1 min-w-0 bg-white rounded-xl px-3 py-2 text-sm border border-slate-200" />
+              <button data-goal-save="ahorroMensual" class="goal-save-btn shrink-0 w-9 h-9 rounded-xl bg-brand-green text-white flex items-center justify-center active:scale-90 transition-all">
+                <i class="fa-solid fa-check"></i>
+              </button>
+            </div>
+            <p id="goalSavedMsg" class="hidden text-xs text-brand-green mt-2">Guardado</p>
           </section>
 
           <section>
@@ -387,16 +401,10 @@
           </section>
 
           <section class="card bg-rose-50 border border-rose-100 py-3">
-            <p class="eyebrow text-rose-700"><i class="fa-solid fa-file-invoice-dollar"></i> COMPROMISOS FIJOS DEL MES</p>
-            <p class="text-xs text-slate-500 mt-1 mb-2">Todo lo que tienes que pagar este mes (se edita en ☰ → Pendientes).</p>
+            <p class="eyebrow text-rose-700"><i class="fa-solid fa-file-invoice-dollar"></i> PAGOS QUE TE FALTAN</p>
+            <p class="text-xs text-slate-500 mt-1 mb-2">Lo que todavía tienes que pagar de aquí a fin de mes. Ya descuenta lo que marcaste como pagado (se edita en ☰ → Pendientes).</p>
             <div id="compromisosList" class="space-y-1 text-sm"></div>
-            <p class="mt-2 text-sm">Total del mes: <span id="compromisosTotalTxt" class="font-semibold text-rose-700">S/ 0</span></p>
-            <div class="mt-2 pt-2 border-t border-rose-200 text-sm space-y-1">
-              <p>+ Meta de ahorro: <span id="compromisosAhorroTxt" class="font-semibold">S/ 0</span></p>
-              <p>Necesitas generar en total: <span id="compromisosNecesidadTxt" class="font-semibold">S/ 0</span></p>
-              <p>Ya generaste (neto) este mes: <span id="compromisosGeneradoTxt" class="font-semibold">S/ 0</span></p>
-              <p class="text-rose-700 font-semibold">Meta diaria real: <span id="metaDiariaRealTxt">S/ 0</span> / día</p>
-            </div>
+            <p class="mt-2 text-sm">Total por pagar: <span id="compromisosTotalTxt" class="font-semibold text-rose-700">S/ 0</span></p>
           </section>
 
           <section class="card bg-amber-50 border border-amber-100 py-3">

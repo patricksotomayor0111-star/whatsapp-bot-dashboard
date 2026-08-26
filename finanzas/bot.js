@@ -19,6 +19,7 @@ const debts = require("./debts");
 const shortfalls = require("./shortfalls");
 const referenceAccounts = require("./referenceAccounts");
 const financeGoals = require("./financeGoals");
+const metasAutomaticas = require("./metasAutomaticas");
 const budgetCategories = require("./budgetCategories");
 const queryIntents = require("./queryIntents");
 const productPrices = require("./productPrices");
@@ -478,17 +479,10 @@ function calcularRespuestaConsulta(intent, variable) {
   }
 
   if (intent.id === "metaDiariaTodasMetas") {
-    const goals = financeGoals.getGoals();
-    const mes = cashbox.getMonthSoFar();
-    const ahorroActual = mes.ganancias - mes.gastos;
-    const compromisos = reminders.getComprisosDelMes();
-    const necesidadTotal = compromisos.total + goals.ahorroMensual;
-    const necesidadFaltante = Math.max(necesidadTotal - ahorroActual, 0);
-    const { diasRestantes } = cashbox.getDiasDelMes();
-    const metaDiariaReal = diasRestantes > 0 ? necesidadFaltante / diasRestantes : necesidadFaltante;
+    const metas = metasAutomaticas.calcular();
     return aplicarPlantilla(intent.respuesta, {
-      metaDiariaReal: formatSoles(metaDiariaReal),
-      necesidadFaltante: formatSoles(necesidadFaltante),
+      metaDiariaReal: formatSoles(metas.diaria),
+      necesidadFaltante: formatSoles(metas.falta),
     });
   }
 
@@ -820,12 +814,11 @@ async function checkMorningSchedule(bot) {
   const ahorroFaltante = Math.max(goals.ahorroMensual - ahorroActual, 0);
   const recomendadoDiario = diasRestantes > 0 ? ahorroFaltante / diasRestantes : ahorroFaltante;
 
-  // Cuanto hay que generar por dia para cubrir los Pendientes del mes mas
-  // el ahorro. Es distinto de la meta de produccion: esa es un objetivo
-  // que se configura a mano y no sabe nada de lo que se debe.
-  const compromisos = reminders.getComprisosDelMes();
-  const necesidadFaltante = Math.max(compromisos.total + goals.ahorroMensual - ahorroActual, 0);
-  const metaDiariaReal = diasRestantes > 0 ? necesidadFaltante / diasRestantes : necesidadFaltante;
+  // Cuanto hay que generar por dia para cubrir todo lo que se debe pagar
+  // de aqui a fin de mes. Misma cuenta que muestra el panel, para que los
+  // dos digan siempre lo mismo. Es distinto de la meta de produccion: esa
+  // se configura a mano y no sabe nada de lo que se debe.
+  const metas = metasAutomaticas.calcular();
 
   // El saludo usa el nombre de la cuenta: estaba fijo como "Patrick", asi
   // que todos los clientes recibian el saludo del duenno.
@@ -841,8 +834,8 @@ async function checkMorningSchedule(bot) {
   } else {
     texto += `No tienes una meta de producción configurada para este mes.\n`;
   }
-  if (compromisos.total > 0) {
-    texto += `🧾 Para cubrir tus pendientes del mes necesitas: ${formatSoles(metaDiariaReal)} por día\n`;
+  if (metas.necesito > 0) {
+    texto += `🧾 Para cubrir todo lo que debes pagar necesitas: ${formatSoles(metas.diaria)} por día\n`;
   }
   if (goals.ahorroMensual > 0) {
     texto += `💰 Deberías ahorrar hoy: ${formatSoles(recomendadoDiario)}\n`;

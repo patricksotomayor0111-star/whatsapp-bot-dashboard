@@ -890,16 +890,14 @@ app.get("/api/finance/goals/progress", (req, res) => {
   const promedioDiario = diaActual > 0 ? ahorroActual / diaActual : 0;
   const proyeccionFinDeMes = ahorroActual + promedioDiario * (diasEnMes - diaActual);
 
-  // Meta diaria "real": en vez de un número a ojo, cuánto hay que generar
-  // por día para cubrir los compromisos fijos del mes (Pendientes) más el
-  // ahorro deseado, restando lo que ya se generó neto este mes.
-  const compromisos = reminders.getComprisosDelMes();
-  const necesidadTotal = compromisos.total + goals.ahorroMensual;
-  const necesidadFaltante = Math.max(necesidadTotal - ahorroActual, 0);
-  const metaDiariaReal = diasRestantes > 0 ? necesidadFaltante / diasRestantes : necesidadFaltante;
+  // Las metas ya vienen calculadas dentro de getGoals(). Se reenvia el
+  // desglose completo para que el panel muestre de donde sale el numero,
+  // y para que panel y bot no puedan decir cifras distintas.
+  const metas = goals.automaticas;
 
   res.json({
     goals,
+    automaticas: metas,
     diaria: { meta: goals.diaria, actual: hoy.ganancias, falta: Math.max(goals.diaria - hoy.ganancias, 0) },
     semanal: { meta: goals.semanal, actual: semana.ganancias, falta: Math.max(goals.semanal - semana.ganancias, 0) },
     mensual: { meta: goals.mensual, actual: mes.ganancias, falta: Math.max(goals.mensual - mes.ganancias, 0) },
@@ -913,11 +911,11 @@ app.get("/api/finance/goals/progress", (req, res) => {
     proyeccion: { finDeMes: proyeccionFinDeMes },
     mesAnterior,
     compromisos: {
-      total: compromisos.total,
-      detalle: compromisos.detalle,
-      necesidadTotal,
-      necesidadFaltante,
-      metaDiariaReal,
+      total: metas.detalle.pendientes.total,
+      detalle: metas.detalle.pendientes.items.map((p) => ({ ...p, subtotal: p.monto })),
+      necesidadTotal: metas.necesito,
+      necesidadFaltante: metas.falta,
+      metaDiariaReal: metas.diaria,
     },
   });
 });
