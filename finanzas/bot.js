@@ -820,7 +820,19 @@ async function checkMorningSchedule(bot) {
   const ahorroFaltante = Math.max(goals.ahorroMensual - ahorroActual, 0);
   const recomendadoDiario = diasRestantes > 0 ? ahorroFaltante / diasRestantes : ahorroFaltante;
 
-  let texto = `☀️ Buenos días, Patrick.\n\n`;
+  // Cuanto hay que generar por dia para cubrir los Pendientes del mes mas
+  // el ahorro. Es distinto de la meta de produccion: esa es un objetivo
+  // que se configura a mano y no sabe nada de lo que se debe.
+  const compromisos = reminders.getComprisosDelMes();
+  const necesidadFaltante = Math.max(compromisos.total + goals.ahorroMensual - ahorroActual, 0);
+  const metaDiariaReal = diasRestantes > 0 ? necesidadFaltante / diasRestantes : necesidadFaltante;
+
+  // El saludo usa el nombre de la cuenta: estaba fijo como "Patrick", asi
+  // que todos los clientes recibian el saludo del duenno.
+  const cuenta = users.getById(bot.userId);
+  const saludo = cuenta && cuenta.nombre ? ", " + cuenta.nombre : "";
+
+  let texto = `☀️ Buenos días${saludo}.\n\n`;
   if (progreso) {
     const faltaMes = Math.max(progreso.metaMensualReferencia - progreso.generadoAcumulado, 0);
     texto +=
@@ -828,6 +840,9 @@ async function checkMorningSchedule(bot) {
       `📅 Te faltan ${formatSoles(faltaMes)} para completar la meta del mes.\n`;
   } else {
     texto += `No tienes una meta de producción configurada para este mes.\n`;
+  }
+  if (compromisos.total > 0) {
+    texto += `🧾 Para cubrir tus pendientes del mes necesitas: ${formatSoles(metaDiariaReal)} por día\n`;
   }
   if (goals.ahorroMensual > 0) {
     texto += `💰 Deberías ahorrar hoy: ${formatSoles(recomendadoDiario)}\n`;

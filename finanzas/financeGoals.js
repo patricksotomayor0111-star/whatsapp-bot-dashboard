@@ -20,12 +20,12 @@ const save = almacen.guardar;
 
 
 function getGoals() {
-  return { ...data };
+  return { ...datos() };
 }
 
 function setGoal(tipo, monto) {
   if (!TIPOS.includes(tipo)) throw new Error("Meta inválida: " + tipo);
-  data[tipo] = Number(monto) || 0;
+  datos()[tipo] = Number(monto) || 0;
   save();
 }
 
