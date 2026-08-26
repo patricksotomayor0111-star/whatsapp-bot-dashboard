@@ -330,7 +330,15 @@
         <div id="financeTabMetas" class="finance-tab-panel hidden space-y-4">
           <section class="card bg-brand-green/5 border border-brand-green/20 py-3">
             <p class="eyebrow text-brand-green"><i class="fa-solid fa-bullseye"></i> TUS METAS</p>
-            <p class="text-xs text-slate-500 mt-1">Se calculan solas: es lo que te falta juntar para cubrir todo lo que tienes que pagar de hoy a fin de mes. Baja sola cada vez que anotas un ingreso.</p>
+            <p class="text-xs text-slate-500 mt-1">Se calculan solas: es lo que te falta juntar para cubrir todo lo que tienes que pagar de hoy hasta la fecha que elijas. Baja sola cada vez que anotas un ingreso.</p>
+
+            <div class="flex gap-1 mt-3">
+              <button data-meta-rango="mes" class="meta-rango-btn flex-1 text-xs rounded-lg px-2 py-2 border transition-all active:scale-95">Fin de mes</button>
+              <button data-meta-rango="quincena" class="meta-rango-btn flex-1 text-xs rounded-lg px-2 py-2 border transition-all active:scale-95">Quincena</button>
+              <button data-meta-rango="fecha" class="meta-rango-btn flex-1 text-xs rounded-lg px-2 py-2 border transition-all active:scale-95">Otra fecha</button>
+            </div>
+            <input id="metaAutoFecha" type="date" class="hidden w-full mt-2 bg-white rounded-xl px-3 py-2 text-sm border border-slate-200" />
+            <p id="metaAutoPeriodo" class="text-xs text-slate-500 mt-2 text-center"></p>
 
             <div id="metaAutoCubierto" class="hidden mt-3 rounded-xl bg-emerald-100 border border-emerald-200 px-3 py-2 text-sm text-emerald-800 font-semibold text-center">
               <i class="fa-solid fa-circle-check"></i> Ya cubriste todo lo del mes
@@ -346,7 +354,7 @@
                 <p id="metaAutoSemanal" class="text-base font-bold text-brand-green leading-tight mt-1">S/ 0</p>
               </div>
               <div class="rounded-xl bg-white border border-slate-200 px-2 py-3 text-center">
-                <p class="text-[10px] text-slate-400 font-semibold tracking-wide">EL MES</p>
+                <p id="metaAutoMensualLabel" class="text-[10px] text-slate-400 font-semibold tracking-wide">EL MES</p>
                 <p id="metaAutoMensual" class="text-base font-bold text-brand-green leading-tight mt-1">S/ 0</p>
               </div>
             </div>

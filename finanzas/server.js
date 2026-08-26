@@ -876,7 +876,9 @@ app.post("/api/finance/goals", (req, res) => {
 // por día para llegar a la meta de ahorro, proyección de cierre de mes y
 // comparación contra el mes anterior.
 app.get("/api/finance/goals/progress", (req, res) => {
-  const goals = financeGoals.getGoals();
+  // ?hasta=YYYY-MM-DD opcional: para preguntar "cuanto necesito por dia
+  // si quiero llegar hasta la quincena" o hasta un dia del mes que viene.
+  const goals = financeGoals.getGoals(req.query.hasta);
   const hoy = cashbox.getToday();
   const semana = cashbox.getWeekSoFar();
   const mes = cashbox.getMonthSoFar();

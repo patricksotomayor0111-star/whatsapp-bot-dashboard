@@ -2398,6 +2398,14 @@ const metaAutoAtrasadosTxt = document.getElementById("metaAutoAtrasadosTxt");
 const metaAutoDetalle = document.getElementById("metaAutoDetalle");
 const metaAutoToggle = document.getElementById("metaAutoToggle");
 const metaAutoToggleTxt = document.getElementById("metaAutoToggleTxt");
+const metaAutoFecha = document.getElementById("metaAutoFecha");
+const metaAutoPeriodo = document.getElementById("metaAutoPeriodo");
+const metaAutoMensualLabel = document.getElementById("metaAutoMensualLabel");
+
+// Hasta que fecha se calculan las metas. null = hasta fin de mes.
+let metaHasta = null;
+let metaRangoActivo = "mes";
+let metaHoyLabel = null; // el hoy del servidor, para no depender del reloj del celular
 const goalSavedMsg = document.getElementById("goalSavedMsg");
 const goalProgressList = document.getElementById("goalProgressList");
 const ahorroMetaTxt = document.getElementById("ahorroMetaTxt");
@@ -2413,7 +2421,7 @@ async function fetchGoalsAndProgress() {
   try {
     const [goalsRes, progressRes] = await Promise.all([
       fetch("/api/finance/goals"),
-      fetch("/api/finance/goals/progress"),
+      fetch("/api/finance/goals/progress" + (metaHasta ? "?hasta=" + encodeURIComponent(metaHasta) : "")),
     ]);
     const goalsData = await goalsRes.json();
     const progressData = await progressRes.json();
@@ -2442,6 +2450,15 @@ function renderMetasAutomaticas(m) {
   metaAutoTengo.textContent = formatSoles(m.tengo);
   metaAutoFalta.textContent = formatSoles(m.falta);
   metaAutoDias.textContent = m.diasRestantes;
+
+  // El hoy viene del servidor: el reloj del celular puede estar corrido.
+  metaHoyLabel = m.desde;
+  metaAutoPeriodo.textContent =
+    "De hoy (" + ddmm(m.desde) + ") al " + ddmm(m.hasta) + " · " +
+    m.diasRestantes + (m.diasRestantes === 1 ? " día" : " días");
+  // El tercer recuadro no siempre es "el mes": depende de hasta cuando pidio.
+  metaAutoMensualLabel.textContent = m.esFinDeMes ? "EL MES" : "HASTA " + ddmm(m.hasta);
+  pintarRangoActivo();
 
   // Los vencidos sin marcar NO suman a la meta (su efectivo de hoy ya
   // refleja lo que pago). Pero se avisan para que no se le pasen.
@@ -2482,6 +2499,68 @@ if (metaAutoToggle) {
   metaAutoToggle.addEventListener("click", () => {
     const oculto = metaAutoDetalle.classList.toggle("hidden");
     metaAutoToggleTxt.textContent = oculto ? "Ver de dónde sale" : "Ocultar";
+  });
+}
+
+function ddmm(label) {
+  return label ? label.slice(8, 10) + "/" + label.slice(5, 7) : "";
+}
+
+// La proxima quincena: la de este mes si todavia no paso, si no la del
+// mes que viene. Sirve para "cuanto tengo que hacer por dia hasta el 15".
+function proximaQuincena(hoyLabel) {
+  const y = Number(hoyLabel.slice(0, 4));
+  const mo = Number(hoyLabel.slice(5, 7));
+  const d = Number(hoyLabel.slice(8, 10));
+  if (d < 15) return hoyLabel.slice(0, 8) + "15";
+  const moSig = mo === 12 ? 1 : mo + 1;
+  const ySig = mo === 12 ? y + 1 : y;
+  return ySig + "-" + String(moSig).padStart(2, "0") + "-15";
+}
+
+function pintarRangoActivo() {
+  document.querySelectorAll(".meta-rango-btn").forEach((b) => {
+    const activo = b.dataset.metaRango === metaRangoActivo;
+    b.className =
+      "meta-rango-btn flex-1 text-xs rounded-lg px-2 py-2 border transition-all active:scale-95 " +
+      (activo
+        ? "bg-brand-green text-white border-brand-green font-semibold"
+        : "bg-white text-slate-600 border-slate-200");
+  });
+}
+
+document.querySelectorAll(".meta-rango-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const rango = btn.dataset.metaRango;
+    metaRangoActivo = rango;
+    if (rango === "mes") {
+      metaHasta = null;
+      metaAutoFecha.classList.add("hidden");
+    } else if (rango === "quincena") {
+      metaHasta = proximaQuincena(metaHoyLabel || new Date().toISOString().slice(0, 10));
+      metaAutoFecha.classList.add("hidden");
+    } else {
+      metaAutoFecha.classList.remove("hidden");
+      if (metaHoyLabel) metaAutoFecha.min = metaHoyLabel;
+      if (!metaAutoFecha.value) {
+        // Todavia no eligio dia: se espera al change para no recalcular.
+        pintarRangoActivo();
+        return;
+      }
+      metaHasta = metaAutoFecha.value;
+    }
+    pintarRangoActivo();
+    fetchGoalsAndProgress();
+  });
+});
+
+if (metaAutoFecha) {
+  metaAutoFecha.addEventListener("change", () => {
+    if (!metaAutoFecha.value) return;
+    metaRangoActivo = "fecha";
+    metaHasta = metaAutoFecha.value;
+    pintarRangoActivo();
+    fetchGoalsAndProgress();
   });
 }
 

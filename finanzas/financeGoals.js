@@ -27,8 +27,10 @@ function getAhorroMensual() {
   return datos().ahorroMensual || 0;
 }
 
-function getGoals() {
-  const metas = require("./metasAutomaticas").calcular();
+// hasta: fecha limite opcional (YYYY-MM-DD). Sin ella va al fin de mes,
+// que es lo que usan el bot y las notificaciones.
+function getGoals(hasta) {
+  const metas = require("./metasAutomaticas").calcular(hasta);
   return {
     diaria: metas.diaria,
     semanal: metas.semanal,
