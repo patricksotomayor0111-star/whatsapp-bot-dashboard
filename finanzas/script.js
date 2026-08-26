@@ -2488,54 +2488,52 @@ if (metaAutoToggle) {
 function renderGoalProgress(data) {
   renderMetasAutomaticas(data.automaticas);
   goalProgressList.innerHTML = "";
-  const filas = [
-    { label: "Diaria", info: data.diaria },
-    { label: "Semanal", info: data.semanal },
-    { label: "Mensual", info: data.mensual },
-  ];
-  filas.forEach(({ label, info }) => {
-    if (!info || info.meta <= 0) return;
-    const pct = Math.min(info.actual / info.meta, 1);
-
-    const row = document.createElement("div");
-    row.className = "text-xs";
+  // Una sola barra: cuanto de lo que necesita ya tiene cubierto.
+  // Antes habia tres (diaria/semanal/mensual) y estaban mal por
+  // construccion: comparaban lo ACUMULADO de la semana o del mes contra
+  // una meta que mira de HOY en adelante, asi que siempre salian llenas.
+  // La diaria ademas se perseguia la cola: ganar mas bajaba la meta.
+  const m = data.automaticas;
+  if (!m || m.necesito <= 0) {
+    const p = document.createElement("p");
+    p.className = "text-xs text-slate-400 text-center py-4";
+    p.textContent = "No tienes nada que pagar de aquí a fin de mes.";
+    goalProgressList.appendChild(p);
+  } else {
+    const pct = Math.min(Math.max(m.tengo / m.necesito, 0), 1);
 
     const header = document.createElement("div");
-    header.className = "flex items-center justify-between mb-1";
+    header.className = "flex items-center justify-between mb-1 text-xs";
     const nombre = document.createElement("span");
     nombre.className = "font-semibold text-slate-700";
-    nombre.textContent = label;
+    nombre.textContent = "Cubierto";
     const valores = document.createElement("span");
     valores.className = "text-slate-500";
-    valores.textContent = `${formatSoles(info.actual)} / ${formatSoles(info.meta)}`;
+    valores.textContent = formatSoles(m.tengo) + " / " + formatSoles(m.necesito);
     header.appendChild(nombre);
     header.appendChild(valores);
 
     const barBg = document.createElement("div");
     barBg.className = "w-full h-2 rounded-full bg-slate-100 overflow-hidden";
     const bar = document.createElement("div");
-    bar.className = "h-full bg-brand-green";
-    bar.style.width = `${Math.round(pct * 100)}%`;
+    bar.className = m.cubierto ? "h-full bg-emerald-500" : "h-full bg-brand-green";
+    bar.style.width = Math.round(pct * 100) + "%";
     barBg.appendChild(bar);
 
-    row.appendChild(header);
-    row.appendChild(barBg);
+    const pie = document.createElement("p");
+    pie.className = m.cubierto ? "text-xs text-emerald-600 mt-1 font-semibold" : "text-xs text-slate-400 mt-1";
+    pie.textContent = m.cubierto
+      ? "Ya cubriste todo lo del mes."
+      : "Te falta " + formatSoles(m.falta) + " para cubrir todo el mes.";
 
-    if (info.falta > 0) {
-      const falta = document.createElement("p");
-      falta.className = "text-slate-400 mt-1";
-      falta.textContent = `Te faltan ${formatSoles(info.falta)}`;
-      row.appendChild(falta);
-    }
+    const hoyTxt = document.createElement("p");
+    hoyTxt.className = "text-xs text-slate-500 mt-2";
+    hoyTxt.textContent = "Hoy llevas ganado " + formatSoles(data.diaria ? data.diaria.actual : 0) + ".";
 
-    goalProgressList.appendChild(row);
-  });
-
-  if (goalProgressList.children.length === 0) {
-    const p = document.createElement("p");
-    p.className = "text-xs text-slate-400 text-center py-4";
-    p.textContent = "Configura al menos una meta arriba para ver el progreso.";
-    goalProgressList.appendChild(p);
+    goalProgressList.appendChild(header);
+    goalProgressList.appendChild(barBg);
+    goalProgressList.appendChild(pie);
+    goalProgressList.appendChild(hoyTxt);
   }
 
   if (data.ahorro) {
