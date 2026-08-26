@@ -2401,6 +2401,7 @@ const metaAutoToggleTxt = document.getElementById("metaAutoToggleTxt");
 const metaAutoFecha = document.getElementById("metaAutoFecha");
 const metaAutoPeriodo = document.getElementById("metaAutoPeriodo");
 const metaAutoMensualLabel = document.getElementById("metaAutoMensualLabel");
+const metaAutoPorCobrar = document.getElementById("metaAutoPorCobrar");
 
 // Hasta que fecha se calculan las metas. null = hasta fin de mes.
 let metaHasta = null;
@@ -2472,11 +2473,19 @@ function renderMetasAutomaticas(m) {
       formatSoles(m.detalle.atrasados.total) + "). No se cuentan en tu meta. Si de verdad no los pagaste, márcalos en Pendientes.";
   }
 
+  // Lo que le deben no entra en la cuenta, pero se avisa: si lo cobra,
+  // su meta baja de verdad.
+  const porCobrar = (m.detalle.porCobrar && m.detalle.porCobrar.total) || 0;
+  metaAutoPorCobrar.classList.toggle("hidden", porCobrar <= 0);
+  if (porCobrar > 0) {
+    metaAutoPorCobrar.textContent =
+      "Además te deben " + formatSoles(porCobrar) + ". No se cuenta acá porque todavía no la tienes; si la cobras, tu meta baja.";
+  }
+
   metaAutoDesglose.innerHTML = "";
   [
     ["Pendientes por pagar", m.detalle.pendientes.total],
     ["Gastos programados", m.detalle.programados.total],
-    ["Deudas que debes", m.detalle.deudas.total],
     ["Tu meta de ahorro", m.detalle.ahorro.total],
   ]
     .filter(([, monto]) => monto > 0)

@@ -84,16 +84,19 @@ function calcular(hastaPedido) {
   const proyeccion = scheduledExpenses.getProyeccion(hoyLabel, hasta);
   const programados = proyeccion.total || 0;
 
-  //    Deudas: solo las que TU debes (saldo a favor de la otra persona).
-  //    No tienen fecha, son un saldo corriente, asi que entran completas.
-  const deudasLista = debts.getDeudas().filter((d) => d.saldo > 0);
-  const deudas = deudasLista.reduce((s, d) => s + d.saldo, 0);
+  //    OJO: el modulo debts es plata que OTROS le deben A EL ("deudas por
+  //    cobrar", el bot dice "Nombre te debe X"). No es plata que el deba.
+  //    Por eso NO entra en lo que tiene que gastar: sumarla era al reves y
+  //    le inflaba la meta. Tampoco se suma a lo que tiene, porque no la
+  //    tiene en mano y puede no cobrarla nunca. Va aparte, como aviso.
+  const porCobrarLista = debts.getDeudas().filter((d) => d.saldo > 0);
+  const porCobrar = porCobrarLista.reduce((s, d) => s + d.saldo, 0);
 
   //    El ahorro es una meta MENSUAL, asi que se cuenta una sola vez
   //    aunque el periodo pedido pase a otro mes.
   const ahorro = financeGoals.getAhorroMensual();
 
-  const necesito = pendientes + programados + deudas + ahorro;
+  const necesito = pendientes + programados + ahorro;
   const falta = Math.max(necesito - tengo, 0);
 
   // 3. Repartirlo en el tiempo que queda.
@@ -119,7 +122,8 @@ function calcular(hastaPedido) {
     detalle: {
       pendientes: { total: r2(pendientes), items: pagos },
       programados: { total: r2(programados), items: proyeccion.detalle || [] },
-      deudas: { total: r2(deudas), items: deudasLista },
+      // No suma ni resta: es plata que le deben, todavia no la tiene.
+      porCobrar: { total: r2(porCobrar), items: porCobrarLista },
       ahorro: { total: r2(ahorro) },
       // No suman a la meta; solo para avisarle que los revise.
       atrasados: { total: r2(atrasadosTotal), items: atrasados },
