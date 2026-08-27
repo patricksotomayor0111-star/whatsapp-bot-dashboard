@@ -92,9 +92,11 @@ function calcular(hastaPedido) {
   const porCobrarLista = debts.getDeudas().filter((d) => d.saldo > 0);
   const porCobrar = porCobrarLista.reduce((s, d) => s + d.saldo, 0);
 
-  //    El ahorro es una meta MENSUAL, asi que se cuenta una sola vez
-  //    aunque el periodo pedido pase a otro mes.
-  const ahorro = financeGoals.getAhorroMensual();
+  //    El ahorro ya no es "del mes": es un plan con su propia fecha. Si
+  //    el corte pedido llega al final del plan entra completo; si queda
+  //    antes, solo la parte proporcional que toca hasta ahi. Asi cambiar
+  //    la meta de ahorro o su fecha recalcula todo lo demas solo.
+  const ahorro = financeGoals.ahorroRequeridoHasta(hasta);
 
   const necesito = pendientes + programados + ahorro;
   const falta = Math.max(necesito - tengo, 0);

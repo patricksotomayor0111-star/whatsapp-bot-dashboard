@@ -236,7 +236,7 @@ function calcularMargenHoy() {
   const promedioDiario = diaActual > 0 ? (mes.ganancias - mes.gastos) / diaActual : 0;
   const gananciaProyectadaResto = promedioDiario * diasRestantes;
   const recursos = hoy.esperado + gananciaProyectadaResto;
-  const necesidad = pendientesTotal + goals.ahorroMensual;
+  const necesidad = pendientesTotal + goals.ahorro.falta;
   const margen = recursos - necesidad;
   return { hoy, pendientesTotal, goals, margen };
 }
@@ -277,7 +277,7 @@ function calcularRespuestaConsulta(intent, variable) {
 
   if (intent.id === "gastarHoy") {
     const { hoy, pendientesTotal, goals, margen } = calcularMargenHoy();
-    const lineaAhorro = goals.ahorroMensual > 0 ? ` y tu meta de ahorro (${formatSoles(goals.ahorroMensual)})` : "";
+    const lineaAhorro = goals.ahorro.monto > 0 ? ` y tu meta de ahorro (${formatSoles(goals.ahorro.monto)})` : "";
 
     const vars = {
       caja: formatSoles(hoy.esperado),
@@ -812,11 +812,6 @@ async function checkMorningSchedule(bot) {
 
   const progreso = productionGoals.getProgresoMes(cashbox.getMesActualLabel());
   const { goals, margen } = calcularMargenHoy();
-  const { diasRestantes } = cashbox.getDiasDelMes();
-  const mes = cashbox.getMonthSoFar();
-  const ahorroActual = mes.ganancias - mes.gastos;
-  const ahorroFaltante = Math.max(goals.ahorroMensual - ahorroActual, 0);
-  const recomendadoDiario = diasRestantes > 0 ? ahorroFaltante / diasRestantes : ahorroFaltante;
 
   // Cuanto hay que generar por dia para cubrir todo lo que se debe pagar
   // de aqui a fin de mes. Misma cuenta que muestra el panel, para que los
@@ -841,8 +836,8 @@ async function checkMorningSchedule(bot) {
   if (metas.necesito > 0) {
     texto += `🧾 Para cubrir todo lo que debes pagar necesitas: ${formatSoles(metas.diaria)} por día\n`;
   }
-  if (goals.ahorroMensual > 0) {
-    texto += `💰 Deberías ahorrar hoy: ${formatSoles(recomendadoDiario)}\n`;
+  if (goals.ahorro.activo) {
+    texto += `💰 Deberías ahorrar hoy: ${formatSoles(goals.ahorro.porDia)}\n`;
   }
   texto +=
     margen >= 0

@@ -858,15 +858,17 @@ app.put("/api/finance/cierres/:fecha", (req, res) => {
   res.json({ ok: true, cierre });
 });
 
-// Metas de ganancia (diaria/semanal/mensual) y de ahorro mensual.
+// Metas de ganancia (diaria/semanal/mensual) y plan de ahorro.
 app.get("/api/finance/goals", (req, res) => {
   res.json({ goals: financeGoals.getGoals() });
 });
 
-app.post("/api/finance/goals", (req, res) => {
+// El plan de ahorro: cuanto y hasta cuando. Lo unico que se escribe a
+// mano; el resto de las metas sale de aca calculado.
+app.post("/api/finance/ahorro", (req, res) => {
   try {
-    financeGoals.setGoal(req.body.tipo, req.body.monto);
-    res.json({ ok: true, goals: financeGoals.getGoals() });
+    const plan = financeGoals.setAhorro(req.body || {});
+    res.json({ ok: true, plan, goals: financeGoals.getGoals() });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -883,12 +885,11 @@ app.get("/api/finance/goals/progress", (req, res) => {
   const semana = cashbox.getWeekSoFar();
   const mes = cashbox.getMonthSoFar();
   const mesAnterior = cashbox.getPreviousMonthTotals();
-  const { diaActual, diasEnMes, diasRestantes } = cashbox.getDiasDelMes();
+  const { diaActual, diasEnMes } = cashbox.getDiasDelMes();
 
+  // El progreso del plan de ahorro ya viene resuelto en goals.ahorro.
+  // Esto es el neto del mes, que se usa solo para la proyeccion.
   const ahorroActual = mes.ganancias - mes.gastos;
-  const ahorroFaltante = Math.max(goals.ahorroMensual - ahorroActual, 0);
-  const recomendadoDiario = diasRestantes > 0 ? ahorroFaltante / diasRestantes : ahorroFaltante;
-
   const promedioDiario = diaActual > 0 ? ahorroActual / diaActual : 0;
   const proyeccionFinDeMes = ahorroActual + promedioDiario * (diasEnMes - diaActual);
 
@@ -903,13 +904,7 @@ app.get("/api/finance/goals/progress", (req, res) => {
     diaria: { meta: goals.diaria, actual: hoy.ganancias, falta: Math.max(goals.diaria - hoy.ganancias, 0) },
     semanal: { meta: goals.semanal, actual: semana.ganancias, falta: Math.max(goals.semanal - semana.ganancias, 0) },
     mensual: { meta: goals.mensual, actual: mes.ganancias, falta: Math.max(goals.mensual - mes.ganancias, 0) },
-    ahorro: {
-      meta: goals.ahorroMensual,
-      actual: ahorroActual,
-      falta: ahorroFaltante,
-      diasRestantes,
-      recomendadoDiario,
-    },
+    ahorro: goals.ahorro,
     proyeccion: { finDeMes: proyeccionFinDeMes },
     mesAnterior,
     compromisos: {

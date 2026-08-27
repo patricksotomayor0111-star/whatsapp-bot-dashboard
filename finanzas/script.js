@@ -2390,7 +2390,13 @@ function renderChartProduccion(progreso) {
 }
 
 // ---------- Finanzas: Metas ----------
-const goalAhorroInput = document.getElementById("goalAhorroInput");
+const ahorroMontoInput = document.getElementById("ahorroMontoInput");
+const ahorroPlanDesde = document.getElementById("ahorroPlanDesde");
+const ahorroPlanHasta = document.getElementById("ahorroPlanHasta");
+const ahorroGuardarBtn = document.getElementById("ahorroGuardarBtn");
+const ahorroProgreso = document.getElementById("ahorroProgreso");
+const ahorroPlanPeriodo = document.getElementById("ahorroPlanPeriodo");
+const ahorroEstado = document.getElementById("ahorroEstado");
 const metaAutoDiaria = document.getElementById("metaAutoDiaria");
 const metaAutoSemanal = document.getElementById("metaAutoSemanal");
 const metaAutoMensual = document.getElementById("metaAutoMensual");
@@ -2443,10 +2449,21 @@ async function fetchGoalsAndProgress() {
   }
 }
 
+// Solo se escribe el plan de ahorro; las metas las calcula la app sola.
+// No se pisan las casillas mientras el usuario las esta editando: si ya
+// escribio algo y todavia no guardo, se respeta lo suyo.
+let ahorroEditando = false;
 function renderGoalInputs(goals) {
-  // Diaria/semanal/mensual ya no se escriben: las calcula la app sola.
-  goalAhorroInput.value = goals.ahorroMensual || "";
+  const plan = goals.ahorro || {};
+  if (ahorroEditando) return;
+  ahorroMontoInput.value = plan.monto || "";
+  ahorroPlanDesde.value = plan.desde || "";
+  ahorroPlanHasta.value = plan.hasta || "";
 }
+
+[ahorroMontoInput, ahorroPlanDesde, ahorroPlanHasta].forEach((el) => {
+  if (el) el.addEventListener("input", () => { ahorroEditando = true; });
+});
 
 // Las tres metas y el desglose de donde sale el numero. Todo viene ya
 // calculado del servidor para que el panel y el bot digan lo mismo.
@@ -2666,11 +2683,30 @@ function renderGoalProgress(data) {
     goalProgressList.appendChild(hoyTxt);
   }
 
-  if (data.ahorro) {
-    ahorroMetaTxt.textContent = formatSoles(data.ahorro.meta);
-    ahorroActualTxt.textContent = formatSoles(data.ahorro.actual);
-    ahorroFaltaTxt.textContent = formatSoles(data.ahorro.falta);
-    ahorroRecomendadoTxt.textContent = formatSoles(data.ahorro.recomendadoDiario) + " / día";
+  // Progreso del plan de ahorro. Si no puso ninguno, no se muestra nada.
+  const plan = data.ahorro;
+  if (plan) {
+    ahorroProgreso.classList.toggle("hidden", !plan.activo);
+    if (plan.activo) {
+      ahorroPlanPeriodo.textContent =
+        "Del " + ddmm(plan.desde) + " al " + ddmm(plan.hasta) + " · quedan " +
+        plan.diasRestantes + (plan.diasRestantes === 1 ? " día" : " días");
+      ahorroMetaTxt.textContent = formatSoles(plan.monto);
+      ahorroActualTxt.textContent = formatSoles(plan.logrado);
+      ahorroFaltaTxt.textContent = formatSoles(plan.falta);
+      ahorroRecomendadoTxt.textContent = formatSoles(plan.porDia) + " / día";
+
+      const cumplido = plan.cumplido;
+      const vencido = plan.vencido && !cumplido;
+      ahorroEstado.classList.toggle("hidden", !cumplido && !vencido);
+      if (cumplido) {
+        ahorroEstado.className = "text-xs font-semibold text-emerald-700";
+        ahorroEstado.textContent = "Ya cumpliste tu plan de ahorro.";
+      } else if (vencido) {
+        ahorroEstado.className = "text-xs font-semibold text-brand-red";
+        ahorroEstado.textContent = "La fecha del plan ya pasó y te faltaron " + formatSoles(plan.falta) + ". Ponle una fecha nueva.";
+      }
+    }
   }
 
   if (data.proyeccion) {
@@ -2716,24 +2752,26 @@ function renderGoalProgress(data) {
   }
 }
 
-document.querySelectorAll(".goal-save-btn").forEach((btn) => {
-  btn.addEventListener("click", async () => {
-    const tipo = btn.dataset.goalSave;
-    const inputMap = {
-      ahorroMensual: goalAhorroInput,
+if (ahorroGuardarBtn) {
+  ahorroGuardarBtn.addEventListener("click", async () => {
+    const cuerpo = {
+      monto: parseFloat(ahorroMontoInput.value) || 0,
+      desde: ahorroPlanDesde.value || null,
+      hasta: ahorroPlanHasta.value || null,
     };
-    const input = inputMap[tipo];
-    const monto = parseFloat(input.value) || 0;
-    await fetch("/api/finance/goals", {
+    await fetch("/api/finance/ahorro", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tipo, monto }),
+      body: JSON.stringify(cuerpo),
     });
     goalSavedMsg.classList.remove("hidden");
     setTimeout(() => goalSavedMsg.classList.add("hidden"), 2000);
+    // Ya guardo: a partir de aca el servidor manda otra vez, y todas las
+    // metas se recalculan con el plan nuevo.
+    ahorroEditando = false;
     await fetchGoalsAndProgress();
   });
-});
+}
 
 // ---------- Finanzas: Meta de producción ----------
 const productionGoalHoy = document.getElementById("productionGoalHoy");

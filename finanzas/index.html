@@ -378,31 +378,32 @@
           </section>
 
           <section>
-            <p class="eyebrow text-brand-green"><i class="fa-solid fa-piggy-bank"></i> AHORRO DEL MES</p>
-            <p class="text-xs text-slate-500 mt-1 mb-2">Cuánto quieres juntar este mes además de cubrir tus gastos. Se suma a tus metas de arriba.</p>
-            <div class="flex items-center gap-2">
-              <span class="text-xs text-slate-500 w-20 shrink-0">Ahorro/mes</span>
-              <input id="goalAhorroInput" type="number" placeholder="S/" class="flex-1 min-w-0 bg-white rounded-xl px-3 py-2 text-sm border border-slate-200" />
-              <button data-goal-save="ahorroMensual" class="goal-save-btn shrink-0 w-9 h-9 rounded-xl bg-brand-green text-white flex items-center justify-center active:scale-90 transition-all">
-                <i class="fa-solid fa-check"></i>
-              </button>
-            </div>
-            <p id="goalSavedMsg" class="hidden text-xs text-brand-green mt-2">Guardado</p>
-          </section>
-
-          <section>
             <p class="eyebrow text-brand-green"><i class="fa-solid fa-gauge-high"></i> PROGRESO</p>
             <p class="text-xs text-slate-500 mt-1 mb-2">Cuánto de todo lo que tienes que pagar este mes ya lo tienes cubierto.</p>
             <div id="goalProgressList" class="space-y-2 mt-2"></div>
           </section>
 
           <section class="card bg-emerald-50 border border-emerald-100 py-3">
-            <p class="eyebrow text-emerald-700"><i class="fa-solid fa-piggy-bank"></i> AHORRO</p>
-            <div class="text-sm space-y-1 mt-1">
-              <p>Meta del mes: <span id="ahorroMetaTxt" class="font-semibold">S/ 0</span></p>
+            <p class="eyebrow text-emerald-700"><i class="fa-solid fa-piggy-bank"></i> MI PLAN DE AHORRO</p>
+            <p class="text-xs text-slate-500 mt-1 mb-2">Desde qué día, hasta qué día y cuánto quieres ahorrar. Las metas de arriba se recalculan solas con esto.</p>
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-slate-500 w-24 shrink-0">Quiero ahorrar</span>
+              <input id="ahorroMontoInput" type="number" placeholder="S/" class="flex-1 min-w-0 bg-white rounded-xl px-3 py-2 text-sm border border-emerald-200" />
+            </div>
+            <div class="grid grid-cols-2 gap-2 mt-2">
+              <label class="text-[10px] text-slate-400 font-semibold">Desde<input id="ahorroPlanDesde" type="date" class="w-full mt-0.5 bg-white rounded-xl px-3 py-2 text-xs border border-emerald-200" /></label>
+              <label class="text-[10px] text-slate-400 font-semibold">Hasta<input id="ahorroPlanHasta" type="date" class="w-full mt-0.5 bg-white rounded-xl px-3 py-2 text-xs border border-emerald-200" /></label>
+            </div>
+            <button id="ahorroGuardarBtn" class="w-full mt-2 rounded-xl px-4 py-2 text-sm font-semibold bg-emerald-600 text-white active:scale-95 transition-all">Guardar plan</button>
+            <p id="goalSavedMsg" class="hidden text-xs text-emerald-700 mt-2 text-center">Guardado</p>
+
+            <div id="ahorroProgreso" class="hidden mt-3 pt-3 border-t border-emerald-200 text-sm space-y-1">
+              <p id="ahorroPlanPeriodo" class="text-xs text-slate-500"></p>
+              <p>Meta: <span id="ahorroMetaTxt" class="font-semibold">S/ 0</span></p>
               <p>Llevas ahorrado: <span id="ahorroActualTxt" class="font-semibold">S/ 0</span></p>
               <p>Te falta: <span id="ahorroFaltaTxt" class="font-semibold text-emerald-700">S/ 0</span></p>
-              <p>Ahorro diario recomendado: <span id="ahorroRecomendadoTxt" class="font-semibold text-emerald-700">S/ 0</span></p>
+              <p>Tienes que ahorrar: <span id="ahorroRecomendadoTxt" class="font-semibold text-emerald-700">S/ 0</span></p>
+              <p id="ahorroEstado" class="hidden text-xs font-semibold"></p>
             </div>
             <div class="mt-3 pt-3 border-t border-emerald-200">
               <p class="text-xs font-semibold text-emerald-700">Ver cuánto ahorraste entre dos fechas</p>
