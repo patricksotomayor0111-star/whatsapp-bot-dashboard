@@ -1,5 +1,7 @@
 const express = require("express");
 const path = require("path");
+const fsSync = require("fs");
+const { userDataPath } = require("./dataDir");
 const { startBot, startBotsGuardados, estadoDe, logoutBot, getSock, avisarAlGrupo, chatsDisponibles } = require("./bot");
 const cashbox = require("./cashbox");
 const pushSubscriptions = require("./pushSubscriptions");
@@ -864,6 +866,18 @@ app.put("/api/finance/cierres/:fecha", (req, res) => {
 // Metas de ganancia (diaria/semanal/mensual) y plan de ahorro.
 app.get("/api/finance/goals", (req, res) => {
   res.json({ goals: financeGoals.getGoals() });
+});
+
+// La foto de la boleta que se mando junto con el gasto. Se sirve desde el
+// disco del usuario en sesion: nunca se arma la ruta con algo que venga
+// del pedido sin filtrar, para que nadie pueda pedir un archivo de afuera
+// de su carpeta.
+app.get("/api/recibos/:id", (req, res) => {
+  const id = String(req.params.id || "");
+  if (!/^mov_[0-9]+_[0-9]+$/.test(id)) return res.status(400).json({ error: "Id inválido." });
+  const ruta = path.join(userDataPath(contexto.usuarioActual(), "recibos"), id + ".jpg");
+  if (!fsSync.existsSync(ruta)) return res.status(404).json({ error: "No hay foto para ese movimiento." });
+  res.sendFile(ruta);
 });
 
 // Cuanto genera por cada sol de gasolina: esta semana, este mes y el mes

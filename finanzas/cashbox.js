@@ -81,8 +81,22 @@ function registrarMovimiento(tipo, monto, descripcion) {
 
 function addGanancia(monto, descripcion) {
   datos().todayGanancias += monto;
-  registrarMovimiento("ganancia", monto, descripcion);
+  const movimiento = registrarMovimiento("ganancia", monto, descripcion);
   save();
+  // Devuelve el id igual que addGasto: hace falta para colgarle la foto de
+  // la boleta al movimiento que se acaba de crear.
+  return movimiento.id;
+}
+
+// Marca que ese movimiento tiene una foto guardada. La imagen vive en el
+// disco (recibos/<id>.jpg); aca solo queda la senal para que el panel sepa
+// que hay algo que mostrar sin tener que revisar el disco por cada fila.
+function marcarRecibo(id) {
+  const m = datos().movimientos.find((x) => x.id === id);
+  if (!m) return false;
+  m.recibo = true;
+  save();
+  return true;
 }
 
 // Devuelve el id del movimiento creado, para poder enlazarlo después
@@ -535,6 +549,7 @@ function getQuincenaSoFar() {
 module.exports = {
   addGanancia,
   addGasto,
+  marcarRecibo,
   setCaja,
   getToday,
   closeDay,

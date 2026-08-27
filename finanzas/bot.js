@@ -8,6 +8,7 @@ const { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = b
 const P = require("pino");
 const qrcode = require("qrcode-terminal");
 const fs = require("fs");
+const path = require("path");
 const cashbox = require("./cashbox");
 const pushSubscriptions = require("./pushSubscriptions");
 const reminders = require("./reminders");
@@ -528,11 +529,14 @@ function responderConsultaFinanciera(rawText) {
 // de las 7am y el resumen semanal del domingo.
 // Devuelve los avisos que hay que mandar al grupo (hoy solo los de pagos
 // pendientes que se marcaron solos); el que llama se encarga de enviarlos.
-function handleCashboxEntries(entradas) {
+// idsCreados (opcional): se le empujan los ids de los movimientos de caja
+// que se van creando, para poder colgarles la foto de la boleta despues.
+function handleCashboxEntries(entradas, idsCreados) {
+  const anotarId = (id) => { if (id && Array.isArray(idsCreados)) idsCreados.push(id); };
   const avisos = [];
   entradas.forEach((entrada) => {
     if (entrada.type === "gasto") {
-      cashbox.addGasto(entrada.monto, entrada.descripcion);
+      anotarId(cashbox.addGasto(entrada.monto, entrada.descripcion));
       // Si ese gasto corresponde a un pago pendiente, se marca solo: así da
       // igual anotarlo acá o tocar "Ya pagué" en el panel, los dos lados
       // quedan sincronizados.
@@ -562,11 +566,12 @@ function handleCashboxEntries(entradas) {
       // Los dos quedan enlazados por el id del gasto, para poder
       // corregirlos juntos después desde el panel.
       const movimientoId = cashbox.addGasto(entrada.monto, entrada.descripcion);
+      anotarId(movimientoId);
       shortfalls.addFaltante(entrada.monto, entrada.descripcion, movimientoId);
     } else if (entrada.type === "referencia") {
       referenceAccounts.addEntrada(entrada.cuenta, entrada.monto, entrada.descripcion);
     } else {
-      cashbox.addGanancia(entrada.monto, entrada.descripcion);
+      anotarId(cashbox.addGanancia(entrada.monto, entrada.descripcion));
     }
   });
   return avisos;
@@ -611,6 +616,58 @@ function botsActivos() {
 
 // Cada cuenta guarda su sesión de WhatsApp en su propia carpeta: son las
 // credenciales de SU número y no pueden compartirse.
+// ---------- Foto de la boleta ----------
+// Si manda una foto CON texto que se entiende como movimiento, la imagen
+// se guarda y queda colgada de ese movimiento. Sirve para cuadrar cuando
+// algo no coincide: se ve la boleta sin salir del panel.
+const MAX_RECIBO_BYTES = 8 * 1024 * 1024;
+
+function recibosDir(userId) {
+  const dir = userDataPath(userId, "recibos");
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function imagenDelMensaje(msg) {
+  const m =
+    msg.message.ephemeralMessage?.message ||
+    msg.message.viewOnceMessage?.message ||
+    msg.message.viewOnceMessageV2?.message ||
+    msg.message;
+  return m.imageMessage || null;
+}
+
+async function guardarRecibo(bot, msg, movimientoIds) {
+  if (!movimientoIds.length) return;
+  const imagen = imagenDelMensaje(msg);
+  if (!imagen) return;
+  if (imagen.fileLength && Number(imagen.fileLength) > MAX_RECIBO_BYTES) {
+    console.log(`[${bot.userId}] Foto de boleta demasiado grande, no se guarda.`);
+    return;
+  }
+  try {
+    const buffer = await baileysLib.downloadMediaMessage(
+      msg,
+      "buffer",
+      {},
+      { reuploadRequest: bot.sock.updateMediaMessage }
+    );
+    if (!buffer || !buffer.length) return;
+    const dir = recibosDir(bot.userId);
+    // Si el mensaje traia varios movimientos, la misma foto queda colgada
+    // de todos: no hay forma de saber a cual de las lineas corresponde.
+    for (const id of movimientoIds) {
+      fs.writeFileSync(path.join(dir, id + ".jpg"), buffer);
+      cashbox.marcarRecibo(id);
+    }
+    console.log(`[${bot.userId}] Boleta guardada para ${movimientoIds.length} movimiento(s).`);
+  } catch (err) {
+    // Que falle la descarga no puede tumbar el registro del gasto, que ya
+    // quedo hecho arriba.
+    console.error(`[${bot.userId}] No se pudo guardar la foto de la boleta:`, err.message);
+  }
+}
+
 function sessionPathDe(userId) {
   return userDataPath(userId, "session");
 }
@@ -1096,7 +1153,9 @@ async function procesarMensajes(bot, messages) {
 
       const entradas = parseCashboxMessage(rawText);
       if (entradas.length > 0) {
-        const avisos = handleCashboxEntries(entradas);
+        const idsCreados = [];
+        const avisos = handleCashboxEntries(entradas, idsCreados);
+        await guardarRecibo(bot, msg, idsCreados);
         for (const aviso of avisos) {
           try {
             await enviarMensaje(bot, chatId, { text: aviso });

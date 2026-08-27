@@ -1282,6 +1282,16 @@ function renderMovimientos() {
       info.appendChild(linea1);
       info.appendChild(linea2);
 
+      // Si mando la foto de la boleta junto con el gasto, se puede ver acá
+      // mismo sin salir del panel.
+      if (m.recibo) {
+        const verBoleta = document.createElement("button");
+        verBoleta.className = "text-xs text-blue-600 font-semibold mt-1";
+        verBoleta.innerHTML = '<i class="fa-solid fa-receipt"></i> Ver boleta';
+        verBoleta.addEventListener("click", () => abrirRecibo(m.id));
+        info.appendChild(verBoleta);
+      }
+
       const acciones = document.createElement("div");
       acciones.className = "flex items-center gap-1 shrink-0";
 
@@ -4078,3 +4088,20 @@ if (combustibleAddBtn) {
 }
 
 cargarCombustible();
+
+// Muestra la foto de la boleta en grande. Se cierra tocando cualquier
+// parte, que en el celular es lo mas natural.
+function abrirRecibo(id) {
+  const fondo = document.createElement("div");
+  fondo.className = "fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4";
+  const img = document.createElement("img");
+  img.src = "/api/recibos/" + encodeURIComponent(id);
+  img.alt = "Boleta";
+  img.className = "max-w-full max-h-full rounded-xl";
+  img.addEventListener("error", () => {
+    fondo.innerHTML = '<p class="text-white text-sm">No se pudo cargar la foto.</p>';
+  });
+  fondo.appendChild(img);
+  fondo.addEventListener("click", () => fondo.remove());
+  document.body.appendChild(fondo);
+}
