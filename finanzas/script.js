@@ -1242,7 +1242,14 @@ function renderMovimientos() {
     if (desde && m.fecha < desde) return false;
     if (hasta && m.fecha > hasta) return false;
     if (tipo && m.tipo !== tipo) return false;
-    if (texto && !(m.descripcion || "").toLowerCase().includes(texto)) return false;
+    if (texto) {
+      // Tambien por monto: el numero que uno recuerda suele ser la cifra,
+      // no la descripcion. Buscar "345" no encontraba +S/345.45 porque
+      // ese numero no esta en el texto del movimiento.
+      const enTexto = (m.descripcion || "").toLowerCase().includes(texto);
+      const enMonto = String(m.monto).includes(texto);
+      if (!enTexto && !enMonto) return false;
+    }
     return true;
   });
 
