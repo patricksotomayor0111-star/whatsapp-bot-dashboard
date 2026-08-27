@@ -22,6 +22,8 @@ const contexto = require("./contexto");
 const chatConfig = require("./chatConfig");
 const custodias = require("./custodias");
 const diasLibres = require("./diasLibres");
+const combustible = require("./combustible");
+const businessDay = require("./businessDay");
 const marca = require("./marca");
 
 // Crea la cuenta del dueño y le pasa los datos que hoy están sueltos en el
@@ -862,6 +864,42 @@ app.put("/api/finance/cierres/:fecha", (req, res) => {
 // Metas de ganancia (diaria/semanal/mensual) y plan de ahorro.
 app.get("/api/finance/goals", (req, res) => {
   res.json({ goals: financeGoals.getGoals() });
+});
+
+// Cuanto genera por cada sol de gasolina: esta semana, este mes y el mes
+// pasado, para que se note si el rendimiento bajo.
+app.get("/api/finance/combustible", (req, res) => {
+  const movimientos = cashbox.getMovimientos();
+  const hoy = businessDay.businessDayLabel();
+
+  // Semana de lunes a domingo.
+  const dow = businessDay.ymdToUtc(hoy).getUTCDay();
+  const lunes = businessDay.addDays(hoy, -(dow === 0 ? 6 : dow - 1));
+
+  const [y, mo] = hoy.split("-").map(Number);
+  const anteriorAnio = mo === 1 ? y - 1 : y;
+  const anteriorMes = mo === 1 ? 12 : mo - 1;
+  const mesAnt = anteriorAnio + "-" + String(anteriorMes).padStart(2, "0");
+  const finMesAnt = mesAnt + "-" + String(businessDay.diasEnMes(anteriorAnio, anteriorMes)).padStart(2, "0");
+
+  res.json({
+    palabras: combustible.getPalabras(),
+    semana: combustible.getRendimiento(movimientos, lunes, hoy),
+    mes: combustible.getRendimiento(movimientos, hoy.slice(0, 7) + "-01", hoy),
+    mesAnterior: combustible.getRendimiento(movimientos, mesAnt + "-01", finMesAnt),
+  });
+});
+
+app.post("/api/finance/combustible/palabras", (req, res) => {
+  try {
+    res.json({ palabras: combustible.addPalabra(req.body && req.body.palabra) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete("/api/finance/combustible/palabras/:palabra", (req, res) => {
+  res.json({ palabras: combustible.removePalabra(req.params.palabra) });
 });
 
 // Dias que NO trabaja. La meta diaria se reparte solo entre los que si.

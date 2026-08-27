@@ -3978,3 +3978,103 @@ if (diaLibreAddBtn) {
 }
 
 cargarDiasLibres();
+
+// ---------- Rendimiento de la gasolina ----------
+const combustibleResumen = document.getElementById("combustibleResumen");
+const combustiblePalabras = document.getElementById("combustiblePalabras");
+const combustiblePalabra = document.getElementById("combustiblePalabra");
+const combustibleAddBtn = document.getElementById("combustibleAddBtn");
+
+function filaCombustible(titulo, d, comparar) {
+  const row = document.createElement("div");
+  row.className = "rounded-xl border border-slate-100 bg-slate-50 px-3 py-2";
+
+  const top = document.createElement("div");
+  top.className = "flex items-center justify-between gap-2 text-xs";
+  const t = document.createElement("span");
+  t.className = "font-semibold text-slate-700";
+  t.textContent = titulo;
+  const cifras = document.createElement("span");
+  cifras.className = "text-slate-500";
+  cifras.textContent = formatSoles(d.combustible) + " de gasolina → " + formatSoles(d.ganancias);
+  top.appendChild(t);
+  top.appendChild(cifras);
+  row.appendChild(top);
+
+  const abajo = document.createElement("p");
+  abajo.className = "text-sm font-bold mt-0.5 " + (d.porSol === null ? "text-slate-400" : "text-slate-800");
+  if (d.porSol === null) {
+    // Sin gasto de gasolina no hay division posible: se dice, en vez de
+    // mostrar un 0 que parecería un dato real.
+    abajo.textContent = "Todavía no anotaste gasolina en este periodo.";
+  } else {
+    abajo.textContent = formatSoles(d.porSol) + " por cada sol";
+  }
+  row.appendChild(abajo);
+
+  if (comparar && comparar.porSol !== null && d.porSol !== null && comparar.porSol > 0) {
+    const pct = Math.round(((d.porSol - comparar.porSol) / comparar.porSol) * 100);
+    if (pct !== 0) {
+      const cmp = document.createElement("p");
+      const mejor = pct > 0;
+      cmp.className = "text-xs mt-0.5 " + (mejor ? "text-emerald-600" : "text-brand-red");
+      cmp.textContent = (mejor ? "↑ " : "↓ ") + Math.abs(pct) + "% que el mes pasado";
+      row.appendChild(cmp);
+    }
+  }
+
+  if (d.porReparto !== null) {
+    const pr = document.createElement("p");
+    pr.className = "text-xs text-slate-400 mt-0.5";
+    pr.textContent = formatSoles(d.porReparto) + " de gasolina por pedido (" + d.repartos + " pedidos)";
+    row.appendChild(pr);
+  }
+  return row;
+}
+
+function pintarPalabrasCombustible(palabras) {
+  combustiblePalabras.innerHTML = "";
+  (palabras || []).forEach((p) => {
+    const chip = document.createElement("button");
+    chip.className = "rounded-full px-2.5 py-1 text-xs bg-slate-100 text-slate-600 border border-slate-200 active:scale-95 transition-all";
+    chip.textContent = p + " ×";
+    chip.title = "Quitar";
+    chip.addEventListener("click", async () => {
+      await fetch("/api/finance/combustible/palabras/" + encodeURIComponent(p), { method: "DELETE" });
+      cargarCombustible();
+    });
+    combustiblePalabras.appendChild(chip);
+  });
+}
+
+async function cargarCombustible() {
+  if (!combustibleResumen) return;
+  try {
+    const res = await fetch("/api/finance/combustible");
+    const d = await res.json();
+    combustibleResumen.innerHTML = "";
+    combustibleResumen.appendChild(filaCombustible("Esta semana", d.semana));
+    combustibleResumen.appendChild(filaCombustible("Este mes", d.mes, d.mesAnterior));
+    combustibleResumen.appendChild(filaCombustible("Mes pasado", d.mesAnterior));
+    pintarPalabrasCombustible(d.palabras);
+  } catch (err) {
+    console.error("No se pudo cargar el rendimiento de la gasolina:", err);
+  }
+}
+
+if (combustibleAddBtn) {
+  combustibleAddBtn.addEventListener("click", async () => {
+    if (!combustiblePalabra.value.trim()) return;
+    const res = await fetch("/api/finance/combustible/palabras", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ palabra: combustiblePalabra.value }),
+    });
+    if (res.ok) {
+      combustiblePalabra.value = "";
+      cargarCombustible();
+    }
+  });
+}
+
+cargarCombustible();
