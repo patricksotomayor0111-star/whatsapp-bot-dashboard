@@ -52,13 +52,26 @@ function removeNombre(nombre) {
   save();
 }
 
-// Un mensaje es una nota de referencia si, después de sacarle el número, lo
-// que queda es EXACTAMENTE uno de los nombres de cuenta configurados (ej.
-// "416.14 yape" -> resto "yape"). Se recibe ya normalizado (sin tildes,
-// en minúsculas).
+// Un mensaje es una nota de referencia si NOMBRA una de las cuentas
+// configuradas en cualquier parte de la frase: al inicio, en medio o al
+// final. Son anotaciones, no movimientos, asi que no tocan la caja.
+//
+// Antes se exigia que despues del numero quedara EXACTAMENTE el nombre.
+// Con eso "345.45 yape" andaba, pero "345.45 - 454.55 yape" no calzaba y
+// el bot se quedaba con el primer numero y lo sumaba como ganancia.
+//
+// Se compara por palabra completa para que "yapeando" o "efectivamente"
+// no disparen por casualidad. Los nombres de varias palabras tienen que
+// aparecer seguidos y en orden.
 function matchNombre(restoNorm) {
-  const texto = String(restoNorm || "").trim();
-  return datos().nombres.find((n) => texto === n) || null;
+  const palabras = String(restoNorm || "").split(/[^a-z0-9]+/).filter(Boolean);
+  return (
+    datos().nombres.find((n) => {
+      const partes = String(n).split(/[^a-z0-9]+/).filter(Boolean);
+      if (!partes.length) return false;
+      return palabras.some((_, i) => partes.every((p, j) => palabras[i + j] === p));
+    }) || null
+  );
 }
 
 // Solo queda registrada como nota (fecha/hora/monto/descripción); no afecta

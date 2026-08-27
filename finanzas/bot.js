@@ -110,6 +110,17 @@ function parseCashboxLine(rawLine) {
   // El nombre ya no está fijo: cada cuenta arma su propia lista de
   // personas, así que esto funciona igual con "mamá" o "mi socio".
   const norm = normalizeText(text);
+
+  // Cuentas de referencia (Yape/Plin/Sip/Efectivo, configurables desde el
+  // panel). Se pregunta PRIMERO: si la frase nombra una cuenta es una
+  // anotacion suya, no un movimiento, asi que no suma ni resta ni sale en
+  // Movimientos. Se guarda con el primer numero que traiga, o sin monto
+  // si no trae ninguno.
+  const cuentaRef = referenceAccounts.matchNombre(norm);
+  if (cuentaRef) {
+    const numRef = text.match(/(\d+(?:\.\d+)?)/);
+    return { type: "referencia", monto: numRef ? parseFloat(numRef[1]) : 0, cuenta: cuentaRef, descripcion: text };
+  }
   if (/\bguardo\b/.test(norm)) {
     const persona = custodias.personaEnTexto(text);
     const num = text.match(/(\d+(?:\.\d+)?)\s*(mil)?/i);
@@ -157,13 +168,6 @@ function parseCashboxLine(rawLine) {
     // físico de la caja (borrón y cuenta nueva, ver cashbox.setCaja).
     if (descNorm === "caja" || descNorm === "caja chica") {
       return { type: "caja", monto, descripcion: descNorm };
-    }
-
-    // Cuentas de referencia (Yape/Plin/Sip/Efectivo, configurables desde el
-    // panel): solo una nota, no afecta caja ni ganancia.
-    const cuenta = referenceAccounts.matchNombre(descNorm);
-    if (cuenta) {
-      return { type: "referencia", monto, cuenta, descripcion };
     }
 
     return { type: "ganancia", monto, descripcion };
