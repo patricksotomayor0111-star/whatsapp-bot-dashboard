@@ -363,6 +363,12 @@ function editMovimiento(indice, cambios) {
     if (cambios.categoriaId) mov.categoriaId = cambios.categoriaId;
     else delete mov.categoriaId;
   }
+  // Lo mismo para las ganancias: de donde vino esa plata (delivery, otro
+  // trabajo). Es independiente del local que dio el pedido.
+  if (cambios.fuenteId !== undefined) {
+    if (cambios.fuenteId) mov.fuenteId = cambios.fuenteId;
+    else delete mov.fuenteId;
+  }
 
   const nuevo = efectoDelta(mov.tipo, mov.monto, 1);
   ajustarTotalesPorFecha(mov.fecha, nuevo.g, nuevo.gs);

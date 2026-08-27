@@ -1225,6 +1225,57 @@ function crearSelectorCategoria(categoriaActualId, movIndex, categorias, onCambi
   return select;
 }
 
+// Igual que el selector de categorias pero del lado de las ganancias:
+// de donde vino esa plata. Se mantiene aparte del local, que dice que
+// restaurante dio el pedido.
+let fuentesCache = [];
+
+function crearSelectorFuente(fuenteActualId, movIndex, fuentes, onCambiado) {
+  const select = document.createElement("select");
+  select.className = "w-full bg-white rounded-lg px-2 py-1.5 text-xs border border-slate-200";
+  fuentes.forEach((f) => {
+    const opt = document.createElement("option");
+    opt.value = f.id;
+    opt.textContent = f.label;
+    if (f.id === fuenteActualId) opt.selected = true;
+    select.appendChild(opt);
+  });
+  const optNueva = document.createElement("option");
+  optNueva.value = "__nueva__";
+  optNueva.textContent = "+ Fuente nueva...";
+  select.appendChild(optNueva);
+
+  select.addEventListener("change", async () => {
+    let destino = select.value;
+    if (destino === "__nueva__") {
+      const nombre = prompt("¿De dónde viene esta ganancia? (ej: Otro trabajo)");
+      if (!nombre || !nombre.trim()) {
+        select.value = fuenteActualId;
+        return;
+      }
+      const creada = await fetch("/api/finance/fuentes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label: nombre.trim(), keywords: [] }),
+      }).then((r) => r.json());
+      if (!creada.fuente) {
+        select.value = fuenteActualId;
+        return;
+      }
+      destino = creada.fuente.id;
+      await cargarFuentes();
+    }
+    await fetch(`/api/finance/movements/${movIndex}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fuenteId: destino }),
+    });
+    if (onCambiado) await onCambiado();
+  });
+
+  return select;
+}
+
 function tipoLabel(tipo) {
   if (tipo === "ganancia") return "Ganancia";
   if (tipo === "gasto") return "Gasto";
@@ -1329,6 +1380,17 @@ function renderMovimientos() {
       top.appendChild(info);
       top.appendChild(acciones);
       row.appendChild(top);
+
+      if (m.tipo === "ganancia" && fuentesCache.length) {
+        const selectFuente = crearSelectorFuente(
+          m.fuenteEfectiva || fuentesCache[0].id,
+          m.index,
+          fuentesCache,
+          fetchMovimientos
+        );
+        selectFuente.classList.add("mt-1.5");
+        row.appendChild(selectFuente);
+      }
 
       if (m.tipo === "gasto") {
         const selectCategoria = crearSelectorCategoria(
@@ -4105,3 +4167,150 @@ function abrirRecibo(id) {
   fondo.addEventListener("click", () => fondo.remove());
   document.body.appendChild(fondo);
 }
+
+// ---------- De dónde vienen las ganancias ----------
+const fuentesResumen = document.getElementById("fuentesResumen");
+const fuentesLista = document.getElementById("fuentesLista");
+const fuenteNueva = document.getElementById("fuenteNueva");
+const fuenteAddBtn = document.getElementById("fuenteAddBtn");
+
+function pintarResumenFuentes(resumen) {
+  fuentesResumen.innerHTML = "";
+  if (!resumen || !resumen.detalle.length) {
+    const p = document.createElement("p");
+    p.className = "text-xs text-slate-400";
+    p.textContent = "Todavía no hay ganancias este mes.";
+    fuentesResumen.appendChild(p);
+    return;
+  }
+  resumen.detalle.forEach((f) => {
+    const row = document.createElement("div");
+    const top = document.createElement("div");
+    top.className = "flex items-center justify-between gap-2 text-xs mb-1";
+    const nombre = document.createElement("span");
+    nombre.className = "font-semibold text-slate-700";
+    nombre.textContent = f.label + " (" + f.cantidad + ")";
+    const monto = document.createElement("span");
+    monto.className = "text-slate-500 shrink-0";
+    monto.textContent = formatSoles(f.monto) + " · " + f.porcentaje + "%";
+    top.appendChild(nombre);
+    top.appendChild(monto);
+    const barBg = document.createElement("div");
+    barBg.className = "w-full h-2 rounded-full bg-slate-100 overflow-hidden";
+    const bar = document.createElement("div");
+    bar.className = "h-full bg-brand-green";
+    bar.style.width = f.porcentaje + "%";
+    barBg.appendChild(bar);
+    row.appendChild(top);
+    row.appendChild(barBg);
+    fuentesResumen.appendChild(row);
+  });
+}
+
+function pintarListaFuentes(fuentes) {
+  fuentesLista.innerHTML = "";
+  fuentes.forEach((f) => {
+    const card = document.createElement("div");
+    card.className = "rounded-xl border border-slate-200 p-2";
+
+    const top = document.createElement("div");
+    top.className = "flex items-center justify-between gap-2";
+    const nombre = document.createElement("span");
+    nombre.className = "text-xs font-semibold text-slate-700";
+    nombre.textContent = f.label + (f.porDefecto ? " (por defecto)" : "");
+    top.appendChild(nombre);
+
+    if (!f.porDefecto) {
+      const del = document.createElement("button");
+      del.innerHTML = '<i class="fa-solid fa-trash text-rose-400"></i>';
+      del.className = "w-6 h-6 flex items-center justify-center shrink-0";
+      del.addEventListener("click", async () => {
+        if (!confirm("¿Borrar la fuente \"" + f.label + "\"? Sus ganancias vuelven a la fuente por defecto.")) return;
+        await fetch("/api/finance/fuentes/" + encodeURIComponent(f.id), { method: "DELETE" });
+        cargarFuentes();
+        fetchMovimientos();
+      });
+      top.appendChild(del);
+    }
+    card.appendChild(top);
+
+    const chips = document.createElement("div");
+    chips.className = "flex flex-wrap gap-1 mt-1";
+    (f.keywords || []).forEach((kw) => {
+      const chip = document.createElement("button");
+      chip.className = "rounded-full px-2 py-0.5 text-xs bg-slate-100 text-slate-600 border border-slate-200 active:scale-95";
+      chip.textContent = kw + " ×";
+      chip.addEventListener("click", async () => {
+        await guardarKeywords(f, (f.keywords || []).filter((x) => x !== kw));
+      });
+      chips.appendChild(chip);
+    });
+    if (!(f.keywords || []).length) {
+      const vacio = document.createElement("span");
+      vacio.className = "text-xs text-slate-400";
+      vacio.textContent = f.porDefecto ? "Acá cae todo lo que no matchee con otra." : "Sin palabras todavía.";
+      chips.appendChild(vacio);
+    }
+    card.appendChild(chips);
+
+    const fila = document.createElement("div");
+    fila.className = "flex gap-1 mt-1";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.placeholder = "palabra que la detecte";
+    input.className = "flex-1 min-w-0 bg-white rounded-lg px-2 py-1 text-xs border border-slate-200";
+    const add = document.createElement("button");
+    add.textContent = "+";
+    add.className = "shrink-0 w-7 rounded-lg text-xs font-bold bg-slate-200 text-slate-600 active:scale-90";
+    add.addEventListener("click", async () => {
+      if (!input.value.trim()) return;
+      await guardarKeywords(f, [...(f.keywords || []), input.value.trim()]);
+    });
+    fila.appendChild(input);
+    fila.appendChild(add);
+    card.appendChild(fila);
+
+    fuentesLista.appendChild(card);
+  });
+}
+
+async function guardarKeywords(fuente, keywords) {
+  await fetch("/api/finance/fuentes/" + encodeURIComponent(fuente.id), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ keywords }),
+  });
+  await cargarFuentes();
+  fetchMovimientos();
+}
+
+async function cargarFuentes() {
+  if (!fuentesResumen) return;
+  try {
+    const res = await fetch("/api/finance/fuentes");
+    const d = await res.json();
+    fuentesCache = d.fuentes || [];
+    pintarResumenFuentes(d.mes);
+    pintarListaFuentes(fuentesCache);
+  } catch (err) {
+    console.error("No se pudieron cargar las fuentes:", err);
+  }
+}
+
+if (fuenteAddBtn) {
+  fuenteAddBtn.addEventListener("click", async () => {
+    if (!fuenteNueva.value.trim()) return;
+    const res = await fetch("/api/finance/fuentes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label: fuenteNueva.value.trim(), keywords: [] }),
+    });
+    if (res.ok) {
+      fuenteNueva.value = "";
+      await cargarFuentes();
+      fetchMovimientos();
+    }
+  });
+}
+
+cargarFuentes();

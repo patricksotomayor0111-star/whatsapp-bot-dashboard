@@ -293,6 +293,20 @@
               <div id="combustiblePalabras" class="flex flex-wrap gap-1 mt-2"></div>
             </details>
           </section>
+
+          <section class="card bg-white border border-slate-200 py-3">
+            <p class="eyebrow text-slate-600"><i class="fa-solid fa-layer-group"></i> DE DÓNDE VIENEN TUS GANANCIAS</p>
+            <p class="text-xs text-slate-500 mt-1 mb-2">Clasifica tus ingresos por tipo: delivery, otro trabajo, una venta. Es distinto del local, que dice qué restaurante te dio el pedido. El de cada movimiento se cambia en la pestaña Movimientos.</p>
+            <div id="fuentesResumen" class="space-y-2"></div>
+            <details class="mt-3 pt-3 border-t border-slate-100">
+              <summary class="text-xs text-slate-400 cursor-pointer">Administrar fuentes y sus palabras</summary>
+              <div id="fuentesLista" class="space-y-2 mt-2"></div>
+              <div class="flex gap-2 mt-2">
+                <input id="fuenteNueva" type="text" placeholder="Nombre (ej: Otro trabajo)" class="flex-1 min-w-0 bg-white rounded-xl px-3 py-2 text-xs border border-slate-200" />
+                <button id="fuenteAddBtn" class="shrink-0 rounded-xl px-3 py-2 text-xs font-semibold bg-slate-700 text-white active:scale-95 transition-all">Crear</button>
+              </div>
+            </details>
+          </section>
           <section>
             <div class="flex items-center justify-between gap-2 flex-wrap">
               <p class="eyebrow text-brand-green"><i class="fa-solid fa-chart-pie"></i> GASTO POR CATEGORÍA</p>
