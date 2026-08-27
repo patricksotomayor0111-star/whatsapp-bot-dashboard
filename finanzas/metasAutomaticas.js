@@ -51,6 +51,7 @@ function calcular(hastaPedido) {
   const debts = require("./debts");
   const financeGoals = require("./financeGoals");
   const businessDay = require("./businessDay");
+  const diasLibres = require("./diasLibres");
 
   const hoyLabel = businessDay.businessDayLabel();
   const { hasta, finDeMes, esFinDeMes } = resolverHasta(hastaPedido, hoyLabel, businessDay);
@@ -101,9 +102,18 @@ function calcular(hastaPedido) {
   const necesito = pendientes + programados + ahorro;
   const falta = Math.max(necesito - tengo, 0);
 
-  // 3. Repartirlo en el tiempo que queda.
-  const diasSemana = Math.min(diasQueQuedanDeLaSemana(hoyLabel), diasRestantes);
-  const diaria = diasRestantes > 0 ? falta / diasRestantes : falta;
+  // 3. Repartirlo en los dias que VA A TRABAJAR, no en todos los del
+  //    calendario. Si descansa domingos y se divide entre todos, la app
+  //    le pide menos por dia del que necesita y el ultimo domingo lo
+  //    agarra corto. Sin dias libres configurados esto da igual que antes.
+  const diasHabiles = diasLibres.contarHabiles(hoyLabel, hasta);
+  const diaria = falta / diasHabiles;
+
+  //    Para la semanal: cuantos de esos dias de trabajo caen en lo que
+  //    queda de esta semana, sin pasarse de la fecha limite.
+  const finDeSemana = businessDay.addDays(hoyLabel, diasQueQuedanDeLaSemana(hoyLabel) - 1);
+  const corteSemana = finDeSemana < hasta ? finDeSemana : hasta;
+  const diasSemana = diasLibres.contarHabiles(hoyLabel, corteSemana);
 
   const r2 = (n) => Math.round(n * 100) / 100;
 
@@ -117,6 +127,7 @@ function calcular(hastaPedido) {
     falta: r2(falta),
     cubierto: falta <= 0,
     diasRestantes,
+    diasHabiles,
     diasSemana,
     diaria: r2(diaria),
     semanal: r2(diaria * diasSemana),

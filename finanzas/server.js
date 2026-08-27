@@ -21,6 +21,7 @@ const users = require("./users");
 const contexto = require("./contexto");
 const chatConfig = require("./chatConfig");
 const custodias = require("./custodias");
+const diasLibres = require("./diasLibres");
 const marca = require("./marca");
 
 // Crea la cuenta del dueño y le pasa los datos que hoy están sueltos en el
@@ -861,6 +862,27 @@ app.put("/api/finance/cierres/:fecha", (req, res) => {
 // Metas de ganancia (diaria/semanal/mensual) y plan de ahorro.
 app.get("/api/finance/goals", (req, res) => {
   res.json({ goals: financeGoals.getGoals() });
+});
+
+// Dias que NO trabaja. La meta diaria se reparte solo entre los que si.
+app.get("/api/finance/dias-libres", (req, res) => {
+  res.json(diasLibres.getConfig());
+});
+
+app.post("/api/finance/dias-libres/semanales", (req, res) => {
+  res.json(diasLibres.setSemanales(req.body && req.body.dias));
+});
+
+app.post("/api/finance/dias-libres/fechas", (req, res) => {
+  try {
+    res.json(diasLibres.addFecha(req.body && req.body.fecha));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete("/api/finance/dias-libres/fechas/:fecha", (req, res) => {
+  res.json(diasLibres.removeFecha(req.params.fecha));
 });
 
 // El plan de ahorro: cuanto y hasta cuando. Lo unico que se escribe a

@@ -2397,6 +2397,10 @@ const ahorroGuardarBtn = document.getElementById("ahorroGuardarBtn");
 const ahorroProgreso = document.getElementById("ahorroProgreso");
 const ahorroPlanPeriodo = document.getElementById("ahorroPlanPeriodo");
 const ahorroEstado = document.getElementById("ahorroEstado");
+const diasLibresSemana = document.getElementById("diasLibresSemana");
+const diasLibresFechas = document.getElementById("diasLibresFechas");
+const diaLibreFecha = document.getElementById("diaLibreFecha");
+const diaLibreAddBtn = document.getElementById("diaLibreAddBtn");
 const metaAutoDiaria = document.getElementById("metaAutoDiaria");
 const metaAutoSemanal = document.getElementById("metaAutoSemanal");
 const metaAutoMensual = document.getElementById("metaAutoMensual");
@@ -2477,7 +2481,12 @@ function renderMetasAutomaticas(m) {
   metaAutoNecesito.textContent = formatSoles(m.necesito);
   metaAutoTengo.textContent = formatSoles(m.tengo);
   metaAutoFalta.textContent = formatSoles(m.falta);
-  metaAutoDias.textContent = m.diasRestantes;
+  // Si descansa algun dia, se aclara: no es lo mismo "6 dias que quedan"
+  // que "5 dias que vas a trabajar", y la meta se divide entre los de
+  // trabajo.
+  const habiles = m.diasHabiles || m.diasRestantes;
+  metaAutoDias.textContent =
+    habiles === m.diasRestantes ? m.diasRestantes : habiles + " que trabajas, de " + m.diasRestantes;
 
   // El hoy viene del servidor: el reloj del celular puede estar corrido.
   metaHoyLabel = m.desde;
@@ -3887,3 +3896,85 @@ document.addEventListener("DOMContentLoaded", () => {
   showFinanceTab("financeTabResumen");
   updatePushStatus();
 });
+
+// ---------- Días que no trabaja ----------
+// La meta diaria se reparte solo entre los dias que si sale. Cada cambio
+// vuelve a pedir las metas para que el numero de arriba se actualice al
+// toque.
+const NOMBRES_DIAS = ["D", "L", "M", "M", "J", "V", "S"];
+const NOMBRES_DIAS_LARGO = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+
+function pintarDiasLibres(config) {
+  if (!diasLibresSemana) return;
+  diasLibresSemana.innerHTML = "";
+  NOMBRES_DIAS.forEach((letra, i) => {
+    const b = document.createElement("button");
+    const libre = (config.semanales || []).includes(i);
+    b.className =
+      "rounded-lg py-2 text-xs font-bold border transition-all active:scale-90 " +
+      (libre ? "bg-slate-700 text-white border-slate-700" : "bg-white text-slate-500 border-slate-200");
+    b.textContent = letra;
+    b.title = libre ? "Descansas los " + NOMBRES_DIAS_LARGO[i] : "Trabajas los " + NOMBRES_DIAS_LARGO[i];
+    b.addEventListener("click", async () => {
+      const actuales = new Set(config.semanales || []);
+      if (actuales.has(i)) actuales.delete(i);
+      else actuales.add(i);
+      const res = await fetch("/api/finance/dias-libres/semanales", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dias: [...actuales] }),
+      });
+      pintarDiasLibres(await res.json());
+      fetchGoalsAndProgress();
+    });
+    diasLibresSemana.appendChild(b);
+  });
+
+  diasLibresFechas.innerHTML = "";
+  (config.fechas || []).forEach((fecha) => {
+    const chip = document.createElement("button");
+    chip.className =
+      "rounded-full px-2.5 py-1 text-xs bg-slate-100 text-slate-600 border border-slate-200 active:scale-95 transition-all";
+    chip.textContent = ddmm(fecha) + " ×";
+    chip.title = "Quitar";
+    chip.addEventListener("click", async () => {
+      const res = await fetch("/api/finance/dias-libres/fechas/" + encodeURIComponent(fecha), { method: "DELETE" });
+      pintarDiasLibres(await res.json());
+      fetchGoalsAndProgress();
+    });
+    diasLibresFechas.appendChild(chip);
+  });
+  if (!(config.fechas || []).length) {
+    const p = document.createElement("p");
+    p.className = "text-xs text-slate-400";
+    p.textContent = "Ninguno por ahora.";
+    diasLibresFechas.appendChild(p);
+  }
+}
+
+async function cargarDiasLibres() {
+  try {
+    const res = await fetch("/api/finance/dias-libres");
+    pintarDiasLibres(await res.json());
+  } catch (err) {
+    console.error("No se pudo cargar los días libres:", err);
+  }
+}
+
+if (diaLibreAddBtn) {
+  diaLibreAddBtn.addEventListener("click", async () => {
+    if (!diaLibreFecha.value) return;
+    const res = await fetch("/api/finance/dias-libres/fechas", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fecha: diaLibreFecha.value }),
+    });
+    if (res.ok) {
+      pintarDiasLibres(await res.json());
+      diaLibreFecha.value = "";
+      fetchGoalsAndProgress();
+    }
+  });
+}
+
+cargarDiasLibres();
