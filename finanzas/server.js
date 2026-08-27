@@ -922,6 +922,30 @@ app.get("/api/finance/goals/progress", (req, res) => {
   });
 });
 
+// Cuanto ahorro entre dos fechas cualesquiera ("del 1 al 15, cuanto
+// junte"). Ahorro = lo neto: ganancias menos gastos de esos dias.
+function esFechaLabel(v) {
+  if (typeof v !== "string" || v.length !== 10) return false;
+  const p = v.split("-");
+  if (p.length !== 3 || p[0].length !== 4 || p[1].length !== 2 || p[2].length !== 2) return false;
+  return p.every((x) => x !== "" && Number.isFinite(Number(x)));
+}
+
+app.get("/api/finance/ahorro-rango", (req, res) => {
+  let desde = req.query.desde;
+  let hasta = req.query.hasta;
+  if (!esFechaLabel(desde) || !esFechaLabel(hasta)) {
+    return res.status(400).json({ error: "Manda desde y hasta con formato AAAA-MM-DD." });
+  }
+  // Si las pone al reves, se acomodan solas en vez de devolver cero.
+  if (desde > hasta) {
+    const t = desde;
+    desde = hasta;
+    hasta = t;
+  }
+  res.json(cashbox.getRangoTotals(desde, hasta));
+});
+
 // Presupuesto: límites mensuales por categoría y metas de deudas (Junta,
 // Caja Cuzco, Universidad), calculados a partir del registro de gastos.
 app.get("/api/budget/categories", (req, res) => {

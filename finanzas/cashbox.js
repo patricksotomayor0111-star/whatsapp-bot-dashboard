@@ -496,6 +496,26 @@ function getDiasDelMes() {
 
 // Lo acumulado de la quincena en curso (días 1-15, o 16 hasta fin de mes)
 // más lo que va del día de hoy, para medir progreso a mitad de mes.
+// Cuanto se gano, gasto y ahorro entre dos fechas cualesquiera. Los dias
+// ya cerrados salen de los cierres; el dia en curso todavia no tiene
+// cierre, asi que se suma aparte cuando cae dentro del rango.
+function getRangoTotals(desde, hasta) {
+  const hoy = businessDayLabel();
+  let ganancias = 0;
+  let gastos = 0;
+  datos().cierres.forEach((c) => {
+    if (c.fecha >= desde && c.fecha <= hasta) {
+      ganancias += c.ganancias;
+      gastos += c.gastos;
+    }
+  });
+  if (hoy >= desde && hoy <= hasta) {
+    ganancias += datos().todayGanancias;
+    gastos += datos().todayGastos;
+  }
+  return { desde, hasta, ganancias, gastos, ahorro: ganancias - gastos };
+}
+
 function getQuincenaSoFar() {
   const hoy = businessDayLabel();
   const [, , d] = hoy.split("-").map(Number);
@@ -530,6 +550,7 @@ module.exports = {
   getMonthSoFar,
   getPreviousMonthTotals,
   getDiasDelMes,
+  getRangoTotals,
   getQuincenaSoFar,
   addAnaGuardo,
   addAnaGasto,

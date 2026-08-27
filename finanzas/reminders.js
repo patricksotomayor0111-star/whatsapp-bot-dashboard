@@ -161,23 +161,37 @@ function getPendientes() {
 }
 
 // Lista completa para el panel de gestión (incluye estado y próxima fecha).
+// Primero lo que vence mas pronto, del mas cercano al mas lejano. Los
+// desactivados van al final: no hay nada que pagar aunque su fecha caiga
+// cerca. Se ordena aca y no en el panel para que cualquiera que pida la
+// lista la reciba ya en orden.
+function porCercania(a, b) {
+  if (a.activo !== b.activo) return a.activo ? -1 : 1;
+  const fa = a.vence || a.proxima || "9999-12-31";
+  const fb = b.vence || b.proxima || "9999-12-31";
+  if (fa !== fb) return fa.localeCompare(fb);
+  return String(a.label).localeCompare(String(b.label));
+}
+
 function getAll() {
   const hoy = fechaLabelPeru();
-  return datos().reminders.map((r) => {
-    const due = estaPendiente(r, hoy);
-    return {
-      id: r.id,
-      label: r.label,
-      monto: r.monto,
-      tipo: r.tipo,
-      dia: r.dia ?? null,
-      fecha: r.fecha ?? null,
-      activo: r.activo !== false,
-      pendiente: !!due,
-      vence: due || null,
-      proxima: proximaFecha(r, hoy),
-    };
-  });
+  return datos()
+    .reminders.map((r) => {
+      const due = estaPendiente(r, hoy);
+      return {
+        id: r.id,
+        label: r.label,
+        monto: r.monto,
+        tipo: r.tipo,
+        dia: r.dia ?? null,
+        fecha: r.fecha ?? null,
+        activo: r.activo !== false,
+        pendiente: !!due,
+        vence: due || null,
+        proxima: proximaFecha(r, hoy),
+      };
+    })
+    .sort(porCercania);
 }
 
 function getById(id) {

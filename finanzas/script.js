@@ -2420,6 +2420,9 @@ const ahorroMetaTxt = document.getElementById("ahorroMetaTxt");
 const ahorroActualTxt = document.getElementById("ahorroActualTxt");
 const ahorroFaltaTxt = document.getElementById("ahorroFaltaTxt");
 const ahorroRecomendadoTxt = document.getElementById("ahorroRecomendadoTxt");
+const ahorroDesde = document.getElementById("ahorroDesde");
+const ahorroHasta = document.getElementById("ahorroHasta");
+const ahorroRangoTxt = document.getElementById("ahorroRangoTxt");
 const proyeccionTxt = document.getElementById("proyeccionTxt");
 const comparativaTxt = document.getElementById("comparativaTxt");
 const compromisosList = document.getElementById("compromisosList");
@@ -2579,6 +2582,38 @@ if (metaAutoFecha) {
     fetchGoalsAndProgress();
   });
 }
+
+// Cuanto ahorro entre dos fechas que el elige. Ahorro = ganancias menos
+// gastos de esos dias, o sea lo que de verdad le quedo.
+async function cargarAhorroRango() {
+  if (!ahorroDesde.value || !ahorroHasta.value) {
+    ahorroRangoTxt.className = "text-xs text-slate-500 mt-2";
+    ahorroRangoTxt.textContent = "Elige las dos fechas.";
+    return;
+  }
+  ahorroRangoTxt.className = "text-xs text-slate-400 mt-2";
+  ahorroRangoTxt.textContent = "Calculando...";
+  try {
+    const res = await fetch(
+      "/api/finance/ahorro-rango?desde=" + encodeURIComponent(ahorroDesde.value) +
+        "&hasta=" + encodeURIComponent(ahorroHasta.value)
+    );
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || "error");
+    const guardo = d.ahorro >= 0;
+    ahorroRangoTxt.className = "text-xs mt-2 " + (guardo ? "text-emerald-700" : "text-brand-red");
+    ahorroRangoTxt.textContent =
+      "Del " + ddmm(d.desde) + " al " + ddmm(d.hasta) + " " +
+      (guardo ? "ahorraste " : "gastaste de más ") + formatSoles(Math.abs(d.ahorro)) + ". " +
+      "Ganaste " + formatSoles(d.ganancias) + " y gastaste " + formatSoles(d.gastos) + ".";
+  } catch (err) {
+    ahorroRangoTxt.className = "text-xs text-slate-400 mt-2";
+    ahorroRangoTxt.textContent = "No se pudo calcular.";
+  }
+}
+
+if (ahorroDesde) ahorroDesde.addEventListener("change", cargarAhorroRango);
+if (ahorroHasta) ahorroHasta.addEventListener("change", cargarAhorroRango);
 
 function renderGoalProgress(data) {
   renderMetasAutomaticas(data.automaticas);
