@@ -128,6 +128,8 @@ function calcular(hastaPedido) {
     cubierto: falta <= 0,
     diasRestantes,
     diasHabiles,
+    // Que dias NO trabaja dentro de este periodo, para poder mostrarselos.
+    diasLibresEnPeriodo: diasLibres.listarLibres(hoyLabel, hasta),
     diasSemana,
     diaria: r2(diaria),
     semanal: r2(diaria * diasSemana),

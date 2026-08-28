@@ -2470,6 +2470,7 @@ const ahorroProgreso = document.getElementById("ahorroProgreso");
 const ahorroPlanPeriodo = document.getElementById("ahorroPlanPeriodo");
 const ahorroEstado = document.getElementById("ahorroEstado");
 const diasLibresSemana = document.getElementById("diasLibresSemana");
+const diasLibresConteo = document.getElementById("diasLibresConteo");
 const diasLibresFechas = document.getElementById("diasLibresFechas");
 const diaLibreFecha = document.getElementById("diaLibreFecha");
 const diaLibreAddBtn = document.getElementById("diaLibreAddBtn");
@@ -2568,6 +2569,7 @@ function renderMetasAutomaticas(m) {
   // El tercer recuadro no siempre es "el mes": depende de hasta cuando pidio.
   metaAutoMensualLabel.textContent = m.esFinDeMes ? "EL MES" : "HASTA " + ddmm(m.hasta);
   pintarRangoActivo();
+  pintarConteoLibres(m);
 
   // Los vencidos sin marcar NO suman a la meta (su efectivo de hoy ya
   // refleja lo que pago). Pero se avisan para que no se le pasen.
@@ -4314,3 +4316,47 @@ if (fuenteAddBtn) {
 }
 
 cargarFuentes();
+
+// Que dias NO trabaja dentro del periodo que se esta calculando, y de
+// donde sale cada uno. Sin esto es facil creer que solo cuentan las
+// fechas agregadas a mano y no darse cuenta de que un boton de la semana
+// esta descontando dias de mas.
+function pintarConteoLibres(m) {
+  if (!diasLibresConteo || !m) return;
+  const libres = m.diasLibresEnPeriodo || [];
+  diasLibresConteo.innerHTML = "";
+
+  const resumen = document.createElement("p");
+  resumen.className = "font-semibold text-slate-700";
+  if (!libres.length) {
+    resumen.textContent =
+      "De hoy al " + ddmm(m.hasta) + " trabajas los " + m.diasRestantes + " días. No hay ninguno marcado como libre.";
+    diasLibresConteo.appendChild(resumen);
+    return;
+  }
+  resumen.textContent =
+    "De hoy al " + ddmm(m.hasta) + " descansas " + libres.length +
+    (libres.length === 1 ? " día" : " días") + " y trabajas " + m.diasHabiles + ":";
+  diasLibresConteo.appendChild(resumen);
+
+  const lista = document.createElement("div");
+  lista.className = "flex flex-wrap gap-1 mt-1";
+  libres.forEach((d) => {
+    const chip = document.createElement("span");
+    const porBoton = d.motivo === "semanal";
+    chip.className =
+      "rounded-full px-2 py-0.5 border " +
+      (porBoton ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-white text-slate-600 border-slate-200");
+    chip.textContent = ddmm(d.fecha);
+    chip.title = porBoton ? "Sale del botón del día de la semana" : "Fecha que agregaste a mano";
+    lista.appendChild(chip);
+  });
+  diasLibresConteo.appendChild(lista);
+
+  if (libres.some((d) => d.motivo === "semanal")) {
+    const nota = document.createElement("p");
+    nota.className = "text-amber-700 mt-1";
+    nota.textContent = "Los amarillos vienen de un botón de la semana, no de tus fechas.";
+    diasLibresConteo.appendChild(nota);
+  }
+}

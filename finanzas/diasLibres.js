@@ -86,4 +86,25 @@ function contarHabiles(desde, hasta) {
   return n > 0 ? n : 1;
 }
 
-module.exports = { getConfig, setSemanales, addFecha, removeFecha, esLibre, contarHabiles };
+// Que dias exactamente quedan libres en un tramo. Sirve para mostrarselos:
+// como los dias libres salen de DOS lados (los botones de la semana y las
+// fechas sueltas), sin ver la lista es facil creer que solo cuentan las
+// fechas que uno agrego a mano.
+function listarLibres(desde, hasta) {
+  if (!esFechaLabel(desde) || !esFechaLabel(hasta) || hasta < desde) return [];
+  const lista = [];
+  let cursor = desde;
+  while (cursor <= hasta) {
+    if (esLibre(cursor)) {
+      lista.push({
+        fecha: cursor,
+        // De donde sale: del boton del dia de la semana o de una fecha suelta.
+        motivo: (datos().fechas || []).includes(cursor) ? "fecha" : "semanal",
+      });
+    }
+    cursor = businessDay.addDays(cursor, 1);
+  }
+  return lista;
+}
+
+module.exports = { getConfig, setSemanales, addFecha, removeFecha, esLibre, contarHabiles, listarLibres };
