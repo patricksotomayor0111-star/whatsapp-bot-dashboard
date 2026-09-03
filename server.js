@@ -85,7 +85,11 @@ app.use((req, res, next) => {
 
   if (auth.haySesion(req)) return next();
 
-  return req.path.startsWith("/api/") ? res.status(401).json({ error: "Sesión expirada." }) : res.redirect("/login");
+  if (req.path.startsWith("/api/")) return res.status(401).json({ error: "Sesión expirada." });
+  // Se recuerda a donde queria entrar (ej. /tracker desde el segundo
+  // celular): sin esto, despues de la contrasena siempre caia en el panel
+  // y habia que volver a escribir la direccion a mano.
+  return res.redirect("/login?ir=" + encodeURIComponent(req.originalUrl));
 });
 
 // Solo se exponen estos 3 archivos del panel (no todo el proyecto,
@@ -110,6 +114,14 @@ app.get("/icon-192.png", (req, res) => {
 });
 app.get("/icon-512.png", (req, res) => {
   res.sendFile(path.join(__dirname, "icon-512.png"));
+});
+
+// Rastreador de Clash Royale por voz (pagina suelta, sin relacion con el bot).
+// Va detras de la sesion como todo lo demas, y se sirve desde aca porque el
+// microfono del navegador solo funciona en una pagina con HTTPS: abriendo el
+// archivo directo en el celular Chrome no siempre da permiso.
+app.get(["/tracker", "/tracker.html"], (req, res) => {
+  res.sendFile(path.join(__dirname, "tracker.html"));
 });
 
 // Endpoint minimo para medir la calidad de conexion real del celular/PC

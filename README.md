@@ -76,3 +76,35 @@ Para evitarlo:
 Railway te da una URL pública (`https://tuapp.up.railway.app`). Ahí se
 muestra el dashboard, que consulta `/api/status` para saber si el bot está
 conectado y cuál fue la última palabra clave detectada.
+
+## 5. Rastreador de Clash Royale por voz (`tracker.html`)
+
+Página aparte, sin relación con el bot: se abre en un **segundo celular** y
+lleva la cuenta del rival mientras juegas en el principal. No toca el juego
+ni lee la pantalla; solo escucha lo que dices tú.
+
+Entra a `https://TU-DOMINIO.up.railway.app/tracker` — **tu** URL de Railway,
+la misma con la que abres el panel; `tuapp.up.railway.app` es solo un ejemplo
+y es la app de otra persona. Pide la misma contraseña del panel. Toca **Iniciar batalla / micrófono** y permite el micrófono. Cada vez
+que el rival suelte una carta, la dices en voz alta ("monta", "mega
+caballero", "tronco") y la app:
+
+- resta el elixir del rival y lo regenera sola (1 gota cada 2.8 s);
+- arma el mazo de 8 y calcula el **ciclo**: qué 4 cartas tiene en la mano
+  ahora mismo y en qué orden le vuelven las otras 4;
+- avisa cuándo la próxima Montapuercos, Caballero, etc. le sale
+  **evolucionada**, contando los ciclos que lleva jugados;
+- **pita** una sola vez cuando el rival se queda en 0 de elixir.
+
+Comandos de voz: `elixir por dos` / `doble elixir` (x2), `elixir por tres`
+(x3), `elixir normal` (x1), `elixir cinco` (corrige la cuenta si se desfasó),
+`deshacer` o `me equivoqué`, y `nueva partida`.
+
+Si la voz falla (ruido, música del juego), abre **Teclado de cartas** y
+tócalas a mano: hace exactamente lo mismo. Manteniendo pulsada una carta se
+corrige su costo o sus ciclos de evolución, y eso queda guardado en el
+celular: si Supercell cambia un balance, lo ajustas una vez.
+
+Conviene abrirlo en **Chrome**; es el que mejor reconoce voz. Y hay que
+abrirlo por la URL (`https://…`), no como archivo suelto: el navegador solo
+da permiso de micrófono a páginas seguras.
