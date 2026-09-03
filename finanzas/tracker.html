@@ -248,6 +248,15 @@
     width:74px;padding:8px;border-radius:8px;text-align:center;font-size:15px;font-weight:800;
     background:#05050c;border:1px solid var(--borde);color:var(--texto)
   }
+  .campo select{
+    padding:8px;border-radius:8px;font-size:13px;font-weight:700;
+    background:#05050c;border:1px solid var(--borde);color:var(--texto)
+  }
+  .campo input[type=checkbox]{width:26px;height:26px;accent-color:var(--elixir)}
+  .campo input[type=text]{
+    width:120px;padding:8px;border-radius:8px;font-size:14px;
+    background:#05050c;border:1px solid var(--borde);color:var(--texto)
+  }
   .modal-botones{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:14px}
   .modal-botones .ancho{grid-column:1 / -1}
   .peligro{background:#3a1620;border-color:#6d2233;color:#ff8f9c}
@@ -322,6 +331,7 @@
   <div id="panel-teclado" hidden>
     <input id="buscar" placeholder="Buscar carta…" autocomplete="off">
     <div class="lista-cartas" id="lista-cartas"></div>
+    <button class="mini" id="btn-nueva-carta" style="margin-top:8px;width:100%">+ Agregar una carta que falta</button>
   </div>
 </div>
 
@@ -359,6 +369,23 @@
   Con 3 cartas o más te dice qué mazo clásico parece estar jugando y cuáles
   todavía no le viste. Es una pista, no una certeza.<br><br>
 
+  <b>Si falta una carta o no te entiende</b><br>
+  El juego saca cartas nuevas seguido y cada uno les dice como quiere. Abrí
+  <b>Teclado de cartas</b> y usá <code>+ Agregar una carta que falta</code>:
+  nombre, costo y qué es, y queda guardada en este celular para siempre.<br>
+  Si la carta está pero no te entiende cómo la decís, mantenela pulsada y
+  escribí tu nombre en <b>Cómo la digo</b> (por ejemplo <code>chancho</code>
+  para el Montapuercos). También queda guardado.<br><br>
+
+  <b>Campeones y héroes</b><br>
+  Los <b>campeones</b> (Reina Arquera, Rey Esqueleto, Monje…) se quedan en el
+  campo hasta que mueren: la app los muestra aparte y el ciclo pasa a 7 cartas.
+  Tocá la carta o decí <code>murió</code> cuando caiga.<br>
+  Las cartas <b>héroe</b> (las de casilla dorada) ciclan como cualquier otra,
+  así que no hay nada especial que hacer. Lo único que cuesta elixir aparte es
+  su habilidad: decí <code>habilidad</code> (resta 2) o
+  <code>habilidad tres</code> para restar otro valor.<br><br>
+
   <b>Corregir a mano</b><br>
   Mantén pulsada una carta para cambiar su costo, sus ciclos de evolución o sacarla del mazo.
   Los costos quedan guardados en este celular, así que si Supercell cambia un balance lo ajustas una vez y listo.<br><br>
@@ -371,11 +398,37 @@
     <div class="campo"><span>Costo de elixir</span><input type="number" id="modal-costo" min="0" max="12" step="1"></div>
     <div class="campo"><span>Ciclos para evolucionar<br><small>0 = no tiene evolución</small></span><input type="number" id="modal-evo" min="0" max="5" step="1"></div>
     <div class="campo"><span>Jugadas acumuladas</span><input type="number" id="modal-conteo" min="0" max="9" step="1"></div>
+    <div class="campo"><span>Cómo la digo<br><small id="modal-alias-actual"></small></span><input type="text" id="modal-alias" placeholder="otro nombre" autocomplete="off"></div>
     <div class="modal-botones">
       <button class="ancho" id="modal-marcar-evo">Marcar como evolución</button>
       <button class="ancho peligro" id="modal-quitar">Sacar del mazo del rival</button>
       <button id="modal-cancelar">Cancelar</button>
       <button class="btn-principal" style="grid-column:auto" id="modal-guardar">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="modal-nueva" hidden>
+  <div class="modal-caja">
+    <h3>Agregar una carta</h3>
+    <div class="campo"><span>Nombre</span><input type="text" id="nueva-nombre" placeholder="como la llamás" autocomplete="off"></div>
+    <div class="campo"><span>Costo de elixir</span><input type="number" id="nueva-costo" min="0" max="12" step="1" value="4"></div>
+    <div class="campo"><span>Qué es</span>
+      <select id="nueva-tipo">
+        <option value="tropa">Tropa de tierra</option>
+        <option value="aire">Tropa que vuela</option>
+        <option value="hechizo">Hechizo</option>
+        <option value="edificio">Edificio defensivo</option>
+        <option value="amenaza">Carta de ataque principal</option>
+      </select>
+    </div>
+    <div class="campo"><span>Le pega al aire</span><input type="checkbox" id="nueva-pegaaire"></div>
+    <div class="campo"><span>Daño en área</span><input type="checkbox" id="nueva-area"></div>
+    <div class="campo"><span>Son varias (enjambre)</span><input type="checkbox" id="nueva-masa"></div>
+    <div class="campo"><span>Mucha vida (tanque)</span><input type="checkbox" id="nueva-tanque"></div>
+    <div class="modal-botones">
+      <button id="nueva-cancelar">Cancelar</button>
+      <button class="btn-principal" style="grid-column:auto" id="nueva-guardar">Agregar</button>
     </div>
   </div>
 </div>
@@ -421,7 +474,7 @@ const DATOS = [
   ["bandida","Bandida",3,0,"bandida|bandit"],
   ["fantasma_real","Fantasma Real",3,0,"fantasma real|fantasma|royal ghost"],
   ["pescador","Pescador",3,0,"pescador|fisherman"],
-  ["petardera","Petardera",3,2,"petardera|petardo|firecracker"],
+  ["petardera","Lanzafuegos",3,2,"lanzafuegos|lanza fuegos|petardera|petardo|firecracker"],
   ["principito","Principito",3,0,"principito|little prince"],
   ["ejercito_esqueletos","Ejército de Esqueletos",3,0,"ejercito de esqueletos|ejercito|skeleton army|escarmi"],
   ["barril_esqueletos","Barril de Esqueletos",3,0,"barril de esqueletos|skeleton barrel"],
@@ -496,6 +549,12 @@ const DATOS = [
   ["gigante_duende","Gigante Duende",6,0,"gigante duende|goblin giant"],
   ["gigante_esqueletico","Gigante Esquelético",6,0,"gigante esqueletico|giant skeleton"],
   ["chispitas","Chispitas",6,0,"chispitas|sparky"],
+  ["lanzarrocas","Lanzarrocas",6,0,"lanzarrocas|lanza rocas|bowler"],
+  ["maquina_goblin","Máquina Goblin",5,0,"maquina goblin|goblin machine"],
+  ["demoledor_goblin","Demoledor Goblin",4,0,"demoledor goblin|demoledor|goblin demolisher"],
+  ["gigante_runico","Gigante Rúnico",4,0,"gigante runico|rune giant"],
+  ["arbusto","Arbusto Sospechoso",2,0,"arbusto sospechoso|arbusto|suspicious bush"],
+  ["berserker","Berserker",2,0,"berserker|bersequer"],
   ["ballesta","Ballesta",6,0,"ballesta|x bow|equis bow"],
   ["recolector","Recolector de Elixir",6,0,"recolector de elixir|recolector|bomba de elixir|elixir collector"],
   ["cohete","Cohete",6,0,"cohete|rocket"],
@@ -560,6 +619,8 @@ const TAGS = {
   pekka: "tanque dps", megacaballero: "tanque area", sabueso: "aire tanque amenaza",
   reclutas_reales: "masa tanque", choza_barbaros: "edificio masa", golem: "tanque amenaza",
   gigante_electrico: "tanque area pegaaire", tres_mosqueteras: "masa pegaaire dps",
+  lanzarrocas: "area tanque", maquina_goblin: "tanque dps", demoledor_goblin: "amenaza area",
+  gigante_runico: "tanque amenaza apoyo", arbusto: "masa", berserker: "dps",
   espejo: "apoyo",
 };
 
@@ -583,29 +644,71 @@ const MAZOS = [
   ["Mega caballero cebo", ["megacaballero","barril_duendes","princesa","pandilla_duendes","cohete","tronco","esqueletos","mago_hielo"]],
 ];
 
-/* Los heroes no vuelven al mazo cuando los jugas: se quedan en el campo hasta
-   que mueren, y mientras tanto ese lugar de la mano lo ocupa el boton de la
-   habilidad. Por eso el ciclo pasa a ser de 7 cartas hasta que caen. */
-const HEROES = new Set(["reina_arquera", "rey_esqueleto", "caballero_dorado", "minero_poderoso", "monje", "principito", "goblinstein"]);
+/* CAMPEONES (los de casilla dorada que se quedan en el campo). No vuelven al
+   mazo cuando los jugas: siguen ahi hasta que los matan, y mientras tanto su
+   lugar en la mano lo ocupa el boton de la habilidad, asi que el ciclo pasa a
+   ser de 7 cartas.
+   Ojo, no confundir con las cartas HEROE (las de diciembre de 2025): esas son
+   cartas normales en version heroe, ciclan como cualquier otra y no hace falta
+   tratarlas distinto. Lo unico suyo que importa aca es que su habilidad gasta
+   elixir aparte: para eso esta el comando "habilidad". */
+const CAMPEONES = new Set(["reina_arquera", "rey_esqueleto", "caballero_dorado", "minero_poderoso", "monje", "principito", "goblinstein"]);
 
 const CARTAS = {};
 DATOS.forEach(([id, nombre, costo, evo, alias]) => {
   CARTAS[id] = { id, nombre, costo, evo, alias: alias.split("|") };
 });
 
-/* Índice de alias ordenado del más largo al más corto: así "gigante noble"
-   gana antes que "gigante", y "mini pekka" antes que "pekka". */
-const INDICE = [];
-for (const id in CARTAS) {
-  for (const alias of CARTAS[id].alias) INDICE.push({ alias, id, re: new RegExp("\\b" + alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b") });
-}
-INDICE.sort((a, b) => b.alias.length - a.alias.length);
+/* Cartas y nombres que agrega el usuario. El juego saca cartas nuevas todo el
+   tiempo y ademas cada uno le dice a las cartas como quiere ("monta", "peca"),
+   asi que la lista de aca es un punto de partida, no una jaula: lo que falte se
+   agrega desde el celular y queda guardado. */
+const LS_MIS_CARTAS = "crv_cartas_propias";
+const LS_ALIAS = "crv_alias";
+let cartasPropias = {};
+let aliasPropios = {};
 
-/* Un alias es "ambiguo" si otro alias empieza igual ("gigante" → "gigante noble").
-   Esos esperan al resultado final del micrófono; el resto se disparan al vuelo. */
-for (const entrada of INDICE) {
-  entrada.ambiguo = INDICE.some((o) => o !== entrada && o.alias.startsWith(entrada.alias + " "));
+function cargarCartasPropias() {
+  try { cartasPropias = JSON.parse(localStorage.getItem(LS_MIS_CARTAS)) || {}; } catch (e) { cartasPropias = {}; }
+  try { aliasPropios = JSON.parse(localStorage.getItem(LS_ALIAS)) || {}; } catch (e) { aliasPropios = {}; }
+  for (const id in cartasPropias) {
+    const c = cartasPropias[id];
+    CARTAS[id] = { id, nombre: c.nombre, costo: c.costo, evo: c.evo || 0, alias: c.alias || [] };
+    TAGS[id] = c.tags || "";
+  }
+  reconstruirIndice();
 }
+
+function guardarCartasPropias() {
+  try {
+    localStorage.setItem(LS_MIS_CARTAS, JSON.stringify(cartasPropias));
+    localStorage.setItem(LS_ALIAS, JSON.stringify(aliasPropios));
+  } catch (e) {}
+  reconstruirIndice();
+}
+
+/* Índice de alias ordenado del más largo al más corto: así "gigante noble"
+   gana antes que "gigante", y "mini pekka" antes que "pekka". Se rearma cada
+   vez que se agrega una carta o un nombre nuevo. */
+let INDICE = [];
+function reconstruirIndice() {
+  INDICE = [];
+  for (const id in CARTAS) {
+    const todos = CARTAS[id].alias.concat(aliasPropios[id] || []);
+    for (const alias of todos) {
+      INDICE.push({ alias, id, re: new RegExp("\\b" + alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b") });
+    }
+  }
+  INDICE.sort((a, b) => b.alias.length - a.alias.length);
+
+  // Un alias es "ambiguo" si otro alias empieza igual ("gigante" -> "gigante
+  // noble"). Esos esperan al resultado final del microfono; el resto se
+  // disparan al vuelo.
+  for (const entrada of INDICE) {
+    entrada.ambiguo = INDICE.some((o) => o !== entrada && o.alias.startsWith(entrada.alias + " "));
+  }
+}
+reconstruirIndice();
 
 /* ===========================================================
    2. ESTADO
@@ -784,7 +887,7 @@ function jugarCarta(id, origen) {
 
   snapshot();
 
-  const esHeroe = HEROES.has(id);
+  const esHeroe = CAMPEONES.has(id);
   const res = rotar(id, esHeroe);
   if (!res.ok) {
     historial.pop();
@@ -1045,6 +1148,18 @@ function interpretarComando(frase) {
   if (/\b(doble elixir|elixir doble|elixir (por|x) ?(dos|2))\b/.test(frase)) { ponerMultiplicador(2); return true; }
   if (/\b(triple elixir|elixir triple|elixir (por|x) ?(tres|3))\b/.test(frase)) { ponerMultiplicador(3); return true; }
   if (/\b(elixir normal|elixir simple|elixir (por|x) ?(uno|1))\b/.test(frase)) { ponerMultiplicador(1); return true; }
+  // Las habilidades de campeones y heroes gastan elixir aparte de la carta.
+  const hab = frase.match(/\bhabilidad( (\d|uno|dos|tres|cuatro|cinco))?\b/);
+  if (hab) {
+    const dicho = hab[2];
+    const costo = dicho ? (NUMEROS[dicho] !== undefined ? NUMEROS[dicho] : Number(dicho)) : 2;
+    snapshot();
+    estado.elixir = Math.max(0, estado.elixir - costo);
+    log("Habilidad −" + costo, "warn");
+    revisarCero();
+    pintarTodo();
+    return true;
+  }
   if (/\b(murio|murió|cayo|cayó|lo mataron|la mataron)\b/.test(frase)) {
     // El heroe del rival primero: es el que importa seguir.
     if (murioHeroe(false) || murioHeroe(true)) return true;
@@ -1208,7 +1323,7 @@ function jugarMia(id) {
   if (id === estado.miEnCampo) { log(CARTAS[id].nombre + " ya está en el campo (avisá cuando muera)", "warn"); return; }
 
   snapshot();
-  const esHeroe = HEROES.has(id);
+  const esHeroe = CAMPEONES.has(id);
   const r = rotarEn(estado.miDeck, id, esHeroe);
   if (!r.ok) { historial.pop(); return; }
   if (esHeroe) estado.miEnCampo = id;
@@ -1670,8 +1785,8 @@ $lista.addEventListener("pointerup", (ev) => {
     const i = miMazo.indexOf(id);
     if (i >= 0) miMazo.splice(i, 1);
     else if (miMazo.length >= 8) { log("Ya tenés 8 cartas: sacá una antes de agregar otra.", "warn"); return; }
-    else if (HEROES.has(id) && miMazo.some((c) => HEROES.has(c))) {
-      log("Solo se puede llevar un héroe por mazo.", "warn"); return;
+    else if (CAMPEONES.has(id) && miMazo.some((c) => CAMPEONES.has(c))) {
+      log("Solo se puede llevar un campeón por mazo.", "warn"); return;
     }
     else miMazo.push(id);
     guardarPreferencias();
@@ -1683,6 +1798,58 @@ $lista.addEventListener("pointerup", (ev) => {
 
   if (!estado.activa) iniciar();
   jugarCarta(b.dataset.id, "toque");
+});
+
+/* --- Agregar una carta que no está en la lista --- */
+const $modalNueva = document.getElementById("modal-nueva");
+
+document.getElementById("btn-nueva-carta").addEventListener("click", () => {
+  document.getElementById("nueva-nombre").value = $buscar.value;
+  $modalNueva.hidden = false;
+});
+document.getElementById("nueva-cancelar").addEventListener("click", () => { $modalNueva.hidden = true; });
+$modalNueva.addEventListener("click", (e) => { if (e.target === $modalNueva) $modalNueva.hidden = true; });
+
+document.getElementById("nueva-guardar").addEventListener("click", () => {
+  const nombre = document.getElementById("nueva-nombre").value.trim();
+  if (!nombre) { log("Ponele un nombre a la carta.", "warn"); return; }
+
+  const alias = normalizar(nombre);
+  const yaEsta = INDICE.find((e) => e.alias === alias);
+  if (yaEsta) { log("Esa carta ya está: " + CARTAS[yaEsta.id].nombre, "warn"); return; }
+
+  const tipo = document.getElementById("nueva-tipo").value;
+  const marca = (idCampo) => document.getElementById(idCampo).checked;
+  const tags = [
+    tipo === "aire" ? "aire" : "",
+    tipo === "hechizo" ? "hechizo hchico" : "",
+    tipo === "edificio" ? "edificio" : "",
+    tipo === "amenaza" ? "amenaza" : "",
+    marca("nueva-pegaaire") ? "pegaaire" : "",
+    marca("nueva-area") ? "area" : "",
+    marca("nueva-masa") ? "masa" : "",
+    marca("nueva-tanque") ? "tanque" : "",
+  ].filter(Boolean).join(" ");
+
+  // El id se arma del nombre, con un numero al final si ya existiera.
+  let id = "propia_" + alias.replace(/ /g, "_");
+  while (CARTAS[id]) id += "_1";
+
+  cartasPropias[id] = {
+    nombre,
+    costo: Math.max(0, Math.min(12, Number(document.getElementById("nueva-costo").value) || 4)),
+    evo: 0,
+    tags,
+    alias: [alias],
+  };
+  CARTAS[id] = { id, nombre, costo: cartasPropias[id].costo, evo: 0, alias: [alias] };
+  TAGS[id] = tags;
+  guardarCartasPropias();
+
+  log("Agregada: " + nombre + " (" + cartasPropias[id].costo + " de elixir)", "warn");
+  $modalNueva.hidden = true;
+  $buscar.value = "";
+  pintarLista();
 });
 
 /* --- Interruptores: voz, vibración y multiplicadores automáticos --- */
@@ -1723,6 +1890,9 @@ function abrirModal(id, pos, zona) {
   document.getElementById("modal-costo").value = costoDe(id);
   document.getElementById("modal-evo").value = evoDe(id);
   document.getElementById("modal-conteo").value = (mio ? estado.miEvo[id] : estado.evo[id]) || 0;
+  document.getElementById("modal-alias").value = "";
+  const propios = aliasPropios[id] || [];
+  document.getElementById("modal-alias-actual").textContent = propios.length ? "ya: " + propios.join(", ") : "para que el micro la entienda";
   document.getElementById("modal-quitar").hidden = modalZona !== "rival" || pos === null;
 
   const btnEvo = document.getElementById("modal-marcar-evo");
@@ -1744,6 +1914,13 @@ document.getElementById("modal-guardar").addEventListener("click", () => {
   const costo = Math.max(0, Math.min(12, Number(document.getElementById("modal-costo").value) || 0));
   const evo = Math.max(0, Math.min(5, Number(document.getElementById("modal-evo").value) || 0));
   const conteo = Math.max(0, Math.min(9, Number(document.getElementById("modal-conteo").value) || 0));
+  const alias = normalizar(document.getElementById("modal-alias").value);
+  if (alias) {
+    aliasPropios[modalId] = (aliasPropios[modalId] || []).concat([alias]);
+    if (cartasPropias[modalId]) cartasPropias[modalId].alias = (cartasPropias[modalId].alias || []).concat([alias]);
+    guardarCartasPropias();
+    log('Ahora también entiende "' + alias + '" para ' + CARTAS[modalId].nombre, "tenue");
+  }
   config[modalId] = { costo, evo };
   estado.evo[modalId] = conteo;
   guardarConfig();
@@ -1784,6 +1961,7 @@ document.getElementById("modal-quitar").addEventListener("click", () => {
 
 /* --- Arranque --- */
 cargarConfig();
+cargarCartasPropias();
 cargarPreferencias();
 pintarChips();
 pintarBotonMazo();
