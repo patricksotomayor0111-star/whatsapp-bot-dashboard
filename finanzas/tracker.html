@@ -25,6 +25,7 @@
     font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
     background:radial-gradient(1200px 600px at 50% -10%,#241a3d 0%,var(--fondo) 60%);
     color:var(--texto);min-height:100vh;
+    max-width:560px;margin:0 auto;   /* en la compu queda centrado, en el celular no cambia nada */
   }
   header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
   .marca{font-size:13px;font-weight:800;letter-spacing:.5px;color:var(--tenue);text-transform:uppercase}
@@ -68,6 +69,57 @@
   .marcas{position:absolute;inset:0;display:grid;grid-template-columns:repeat(10,1fr)}
   .marcas span{border-right:1px solid rgba(255,255,255,.13)}
   .marcas span:last-child{border-right:none}
+
+  /* ---------- Reloj de la batalla ---------- */
+  .fila-reloj{display:flex;align-items:center;gap:9px;margin-top:11px}
+  #reloj{
+    font-size:21px;font-weight:900;font-variant-numeric:tabular-nums;letter-spacing:.5px
+  }
+  #reloj-fase{font-size:10.5px;color:var(--tenue);font-weight:700}
+  button.mini{
+    padding:6px 11px;font-size:11.5px;border-radius:8px;background:var(--panel2);
+    border:1px solid var(--borde)
+  }
+  button.mini.on{background:linear-gradient(135deg,#6d28d9,var(--elixir));border-color:transparent}
+
+  /* ---------- Con que defender ---------- */
+  .defensa-lista{display:flex;flex-direction:column;gap:6px;margin-top:9px}
+  .sugerencia{
+    display:flex;align-items:center;gap:9px;padding:9px 11px;border-radius:11px;
+    background:var(--panel);border:1px solid var(--borde);cursor:pointer
+  }
+  .sugerencia:active{transform:scale(.98)}
+  .sugerencia.en-mano{border-color:var(--mano);background:linear-gradient(90deg,rgba(34,211,122,.12),var(--panel))}
+  .sugerencia .nom{font-weight:800;font-size:13.5px}
+  .sugerencia .porque{font-size:10.5px;color:var(--tenue);font-weight:600}
+  .sugerencia .der{margin-left:auto;text-align:right;display:flex;flex-direction:column;gap:3px;align-items:flex-end}
+  .marca-mano{
+    font-size:8.5px;font-weight:900;letter-spacing:.5px;color:var(--mano);
+    border:1px solid var(--mano);border-radius:5px;padding:1px 5px;white-space:nowrap
+  }
+  .marca-espera{font-size:9px;color:#5f5f85;font-weight:800}
+  .cambio{font-size:10.5px;font-weight:900}
+  .cambio.bueno{color:var(--mano)} .cambio.malo{color:var(--peligro)}
+
+  /* ---------- Mazo probable del rival ---------- */
+  .probable{
+    margin-top:12px;background:var(--panel);border:1px solid var(--borde);
+    border-radius:12px;padding:11px 13px;font-size:12px
+  }
+  .probable b{color:var(--texto);font-size:13px}
+  .probable .faltan{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+  .probable .faltan span{
+    background:var(--panel2);border:1px solid var(--borde);border-radius:7px;
+    padding:4px 8px;font-size:10.5px;font-weight:800;color:var(--tenue)
+  }
+
+  /* ---------- Interruptores ---------- */
+  .ajustes{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+  .chip{
+    padding:7px 11px;font-size:11.5px;border-radius:999px;background:var(--panel2);
+    border:1px solid var(--borde);color:var(--tenue);font-weight:800
+  }
+  .chip.on{background:linear-gradient(135deg,#6d28d9,var(--elixir));color:#fff;border-color:transparent}
 
   /* ---------- Cartas ---------- */
   h2.titulo{
@@ -162,6 +214,7 @@
   .lista-cartas{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:6px;max-height:230px;overflow-y:auto}
   .lista-cartas button{padding:9px 6px;font-size:11.5px;line-height:1.2;background:var(--panel2)}
   .lista-cartas button b{color:var(--elixir)}
+  .lista-cartas button.elegida{border-color:var(--mano);color:var(--mano)}
   .ayuda{
     margin-top:16px;background:var(--panel);border:1px solid var(--borde);
     border-radius:12px;padding:12px 14px;font-size:12.5px;line-height:1.7;color:var(--tenue)
@@ -210,6 +263,11 @@
     <div id="relleno"></div>
     <div class="marcas"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
   </div>
+  <div class="fila-reloj">
+    <button class="mini" id="btn-reloj">▶ Tiempo</button>
+    <span id="reloj">0:00</span>
+    <span id="reloj-fase">x2 a los 2:00 · x3 a los 4:00</span>
+  </div>
 </section>
 
 <h2 class="titulo">Mano del rival <small>puede jugarlas ahora · toca para registrar</small></h2>
@@ -217,6 +275,20 @@
 
 <h2 class="titulo">En ciclo <small>orden en que le vuelven a la mano</small></h2>
 <div class="grid4" id="cola"></div>
+
+<section id="panel-defensa" hidden>
+  <h2 class="titulo"><span>Con qué defender <small id="defensa-vs"></small></span></h2>
+  <div class="defensa-lista" id="defensa-lista"></div>
+</section>
+
+<h2 class="titulo">
+  <span>Mi mazo <small>toca la que jugaste vos</small></span>
+  <button class="mini" id="btn-mi-mazo">Elegir mis 8</button>
+</h2>
+<div class="grid4" id="mi-mano"></div>
+<div class="grid4" id="mi-cola"></div>
+
+<section class="probable" id="panel-probable" hidden></section>
 
 <div class="controles">
   <button class="btn-principal" id="btn-micro">▶ Iniciar batalla / micrófono</button>
@@ -231,6 +303,12 @@
 
 <div id="estado-micro" class="status pausado">Micrófono apagado</div>
 <div class="consola" id="consola"></div>
+
+<div class="ajustes">
+  <button class="chip" id="tg-voz">Avisos por voz</button>
+  <button class="chip on" id="tg-vibrar">Vibrar</button>
+  <button class="chip on" id="tg-reloj">x2 y x3 solos</button>
+</div>
 
 <div class="plegable">
   <button id="btn-teclado">⌨️ Teclado de cartas (si la voz falla) ▾</button>
@@ -251,6 +329,29 @@
   <code>elixir cinco</code> → corrige el elixir a ese número<br>
   <code>deshacer</code> / <code>me equivoqué</code> → borra la última carta<br>
   <code>nueva partida</code> → reinicia todo<br><br>
+  <b>Tu mazo y la defensa</b><br>
+  Tocá <b>Elegir mis 8</b> y marcá tus cartas en la lista de abajo. Desde ahí,
+  cada vez que el rival suelte algo, arriba te aparece <b>con qué defender</b>:
+  las tres mejores de tu mazo, por qué sirven, cuánto elixir ganás o perdés en
+  el cambio, y si la tenés en la mano ahora mismo.<br>
+  Tocá la carta tuya que jugaste (o la sugerencia) y la app también lleva
+  <b>tu</b> ciclo, así sabés qué te vuelve a vos.<br><br>
+
+  <b>Reloj</b><br>
+  Con <code>x2 y x3 solos</code> activado, la app pasa sola a doble elixir a los
+  2:00 y a triple a los 4:00. Igual podés cambiarlo por voz o con los botones
+  cuando quieras.<br><br>
+
+  <b>Avisos</b><br>
+  <code>Vibrar</code> avisa sin sonido. <code>Avisos por voz</code> te dice en
+  voz alta cuando el rival queda sin elixir, cuando le vuelve una carta de
+  ataque fuerte y cuando la próxima le sale evolucionada. Mientras la app
+  habla, el micrófono se ignora para que no se escuche a sí misma.<br><br>
+
+  <b>Mazo probable</b><br>
+  Con 3 cartas o más te dice qué mazo clásico parece estar jugando y cuáles
+  todavía no le viste. Es una pista, no una certeza.<br><br>
+
   <b>Corregir a mano</b><br>
   Mantén pulsada una carta para cambiar su costo, sus ciclos de evolución o sacarla del mazo.
   Los costos quedan guardados en este celular, así que si Supercell cambia un balance lo ajustas una vez y listo.<br><br>
@@ -402,6 +503,78 @@ const DATOS = [
   ["espejo","Espejo",0,0,"espejo|mirror"],
 ];
 
+/* Que hace cada carta. Con esto se calcula con cual conviene defender.
+   aire = vuela | pegaaire = puede atacar a lo que vuela | area = dano en area
+   masa = enjambre | tanque = mucha vida | dps = mucho dano a un objetivo
+   edificio = edificio defensivo | hechizo (hchico / hgrande) | amenaza = carta
+   de ataque principal (win condition) | apoyo = tropa de rango */
+const TAGS = {
+  esqueletos: "masa", espiritu_hielo: "pegaaire area", espiritu_fuego: "pegaaire area",
+  espiritu_electrico: "pegaaire area", espiritu_sanador: "apoyo",
+  murcielagos: "aire masa pegaaire", duendes: "masa dps", duendes_lanza: "masa pegaaire",
+  rompemuros: "amenaza", golem_hielo: "tanque", bombardero: "area",
+  descarga: "hechizo hchico area pegaaire", tronco: "hechizo hchico area",
+  bola_nieve: "hechizo hchico area pegaaire", barril_barbaros: "hechizo hchico area",
+  furia: "hechizo apoyo",
+  esbirros: "aire masa pegaaire", megaesbirro: "aire pegaaire dps", caballero: "tanque",
+  arqueras: "pegaaire apoyo", minero: "amenaza tanque", princesa: "pegaaire area apoyo",
+  mago_hielo: "pegaaire area apoyo", bandida: "dps", fantasma_real: "area dps",
+  pescador: "apoyo dps", petardera: "pegaaire area apoyo", principito: "pegaaire apoyo",
+  ejercito_esqueletos: "masa", barril_esqueletos: "aire masa amenaza", barril_duendes: "amenaza",
+  pandilla_duendes: "masa pegaaire", duende_cerbatana: "pegaaire apoyo", guardias: "masa",
+  golem_elixir: "tanque", canon: "edificio", lapida: "edificio masa",
+  flechas: "hechizo hchico area pegaaire", tornado: "hechizo hchico area pegaaire apoyo",
+  terremoto: "hechizo hchico area", clonacion: "hechizo apoyo",
+  entrega_real: "hechizo hchico area pegaaire", vacio: "hechizo area pegaaire",
+  mosquetera: "pegaaire dps apoyo", minipekka: "dps", valquiria: "area tanque",
+  montapuercos: "amenaza", ariete: "amenaza", principe_oscuro: "area",
+  bruja_nocturna: "masa apoyo", bruja_madre: "pegaaire area apoyo",
+  mago_electrico: "pegaaire area apoyo", bebe_dragon: "aire pegaaire area",
+  dragon_infernal: "aire pegaaire dps", dragones_esqueleticos: "aire masa pegaaire area",
+  lenador: "dps", cazador: "pegaaire area dps", maquina_voladora: "aire pegaaire apoyo",
+  electrochispas: "pegaaire apoyo", arquero_magico: "pegaaire area apoyo", sanadora: "apoyo",
+  caballero_dorado: "dps", rey_esqueleto: "masa tanque", minero_poderoso: "dps amenaza",
+  fenix: "aire pegaaire dps", torre_tesla: "edificio pegaaire", torre_bombas: "edificio area",
+  horno: "edificio masa", jaula_duendes: "edificio", taladro_duendes: "amenaza",
+  mortero: "edificio amenaza", bola_fuego: "hechizo hgrande area pegaaire",
+  veneno: "hechizo hgrande area pegaaire", congelacion: "hechizo apoyo",
+  gigante: "tanque amenaza", globo: "aire amenaza", mago: "pegaaire area apoyo",
+  bruja: "masa pegaaire area apoyo", barbaros: "masa dps", horda_esbirros: "aire masa pegaaire",
+  principe: "dps", verdugo: "pegaaire area", dragon_electrico: "aire pegaaire area",
+  cerdos_reales: "masa amenaza", jinete_ariete: "amenaza", carrito_canon: "tanque dps",
+  pillos: "masa pegaaire", monje: "tanque pegaaire area", reina_arquera: "pegaaire dps apoyo",
+  goblinstein: "pegaaire dps", cementerio: "hechizo amenaza masa", cabana_duendes: "edificio masa",
+  torre_infernal: "edificio pegaaire dps",
+  gigante_noble: "tanque amenaza", barbaros_elite: "dps", gigante_duende: "tanque pegaaire",
+  gigante_esqueletico: "tanque area", chispitas: "area dps", ballesta: "edificio amenaza",
+  recolector: "edificio apoyo", cohete: "hechizo hgrande area pegaaire",
+  rayo: "hechizo hgrande area pegaaire",
+  pekka: "tanque dps", megacaballero: "tanque area", sabueso: "aire tanque amenaza",
+  reclutas_reales: "masa tanque", choza_barbaros: "edificio masa", golem: "tanque amenaza",
+  gigante_electrico: "tanque area pegaaire", tres_mosqueteras: "masa pegaaire dps",
+  espejo: "apoyo",
+};
+
+/* Mazos clasicos, para adivinar cual esta jugando el rival con las cartas que
+   ya solto. Son arquetipos conocidos, no la lista del meta de hoy: sirven para
+   anticipar, no como verdad absoluta. */
+const MAZOS = [
+  ["Montapuercos 2.6", ["montapuercos","canon","esqueletos","espiritu_hielo","mosquetera","tronco","cohete","bola_fuego"]],
+  ["Cebo de tronco", ["barril_duendes","princesa","pandilla_duendes","torre_infernal","caballero","cohete","tronco","espiritu_hielo"]],
+  ["Gigante beatdown", ["gigante","verdugo","mosquetera","esbirros","bola_fuego","descarga","canon","minipekka"]],
+  ["Golem beatdown", ["golem","bruja_nocturna","bebe_dragon","mago_electrico","rayo","tornado","esbirros","lenador"]],
+  ["Sabueso + globo", ["sabueso","globo","esbirros","mago_electrico","flechas","lapida","megaesbirro","descarga"]],
+  ["Ballesta 2.9", ["ballesta","torre_tesla","esqueletos","espiritu_hielo","arqueras","caballero","tronco","cohete"]],
+  ["Mortero cebo", ["mortero","caballero","pandilla_duendes","duende_cerbatana","murcielagos","cohete","tronco","esqueletos"]],
+  ["P.E.K.K.A puente", ["pekka","ariete","murcielagos","mago_electrico","bandida","veneno","descarga","fantasma_real"]],
+  ["Gigante noble", ["gigante_noble","cazador","bruja_madre","pescador","rayo","tronco","esqueletos","fenix"]],
+  ["Cementerio control", ["cementerio","caballero","veneno","tornado","mago_hielo","bebe_dragon","barril_barbaros","esqueletos"]],
+  ["Minero veneno", ["minero","veneno","murcielagos","valquiria","mosquetera","tronco","canon","esqueletos"]],
+  ["Gigante electrico", ["gigante_electrico","tornado","rayo","bruja_madre","mago_electrico","esbirros","descarga","lenador"]],
+  ["Tres mosqueteras", ["tres_mosqueteras","ariete","golem_hielo","recolector","descarga","tronco","esbirros","bandida"]],
+  ["Mega caballero cebo", ["megacaballero","barril_duendes","princesa","pandilla_duendes","cohete","tronco","esqueletos","mago_hielo"]],
+];
+
 const CARTAS = {};
 DATOS.forEach(([id, nombre, costo, evo, alias]) => {
   CARTAS[id] = { id, nombre, costo, evo, alias: alias.split("|") };
@@ -431,6 +604,7 @@ const LS_PARTIDA = "crv_partida";
 
 const estado = {
   deck: [null, null, null, null, null, null, null, null],
+  miDeck: [null, null, null, null, null, null, null, null],
   elixir: 5,
   mult: 1,
   evo: {},          // id -> jugadas acumuladas
@@ -461,8 +635,8 @@ function guardarConfig() {
 function guardarPartida() {
   try {
     localStorage.setItem(LS_PARTIDA, JSON.stringify({
-      deck: estado.deck, elixir: estado.elixir, mult: estado.mult,
-      evo: estado.evo, ultimoCosto: estado.ultimoCosto, ts: Date.now(),
+      deck: estado.deck, miDeck: estado.miDeck, elixir: estado.elixir, mult: estado.mult,
+      evo: estado.evo, ultimoCosto: estado.ultimoCosto, relojMs, ts: Date.now(),
     }));
   } catch (e) {}
 }
@@ -473,6 +647,8 @@ function restaurarPartida() {
   const segundos = (Date.now() - (g.ts || 0)) / 1000;
   if (segundos > 600 || g.deck.every((c) => c === null)) return false;
   estado.deck = g.deck.map((c) => (c && CARTAS[c] ? c : null));
+  if (Array.isArray(g.miDeck) && g.miDeck.length === 8) estado.miDeck = g.miDeck.map((c) => (c && CARTAS[c] ? c : null));
+  relojMs = g.relojMs || 0;
   estado.evo = g.evo || {};
   estado.mult = g.mult || 1;
   estado.ultimoCosto = g.ultimoCosto ?? 3;
@@ -486,8 +662,9 @@ function restaurarPartida() {
    cola. Como el mazo son 8 posiciones fijas, vuelve a la mano
    después de que el rival juegue otras 4 cartas distintas.
    =========================================================== */
-function rotar(id) {
-  const d = estado.deck;
+function rotar(id) { return rotarEn(estado.deck, id); }
+
+function rotarEn(d, id) {
   let idx = d.indexOf(id);
   let aviso = null;
 
@@ -504,13 +681,16 @@ function rotar(id) {
 
   d.splice(idx, 1);
   d.push(id);
-  return { ok: true, aviso };
+  // Al salir una carta de la mano, entra la primera de la cola: es la que el
+  // rival acaba de recuperar.
+  const entroAMano = idx < 4 ? d[3] : null;
+  return { ok: true, aviso, entroAMano };
 }
 
 function snapshot() {
   historial.push(JSON.stringify({
-    deck: estado.deck, elixir: estado.elixir, mult: estado.mult,
-    evo: estado.evo, ultimoCosto: estado.ultimoCosto,
+    deck: estado.deck, miDeck: estado.miDeck, elixir: estado.elixir, mult: estado.mult,
+    evo: estado.evo, ultimoCosto: estado.ultimoCosto, ultimaDelRival,
   }));
   if (historial.length > 40) historial.shift();
 }
@@ -520,6 +700,8 @@ function deshacer() {
   if (!prev) { log("Nada que deshacer", "tenue"); return; }
   const s = JSON.parse(prev);
   estado.deck = s.deck;
+  estado.miDeck = s.miDeck || estado.miDeck;
+  ultimaDelRival = s.ultimaDelRival || null;
   estado.elixir = s.elixir;
   estado.mult = s.mult;
   estado.evo = s.evo;
@@ -565,6 +747,7 @@ function jugarCarta(id, origen) {
 
   ultimaJugada = { id, t: ahora };
   if (esEvo) evoDestello = { id, hasta: ahora + 3000 };
+  alJugarRival(id, esEvo, res.entroAMano);
 
   let texto = (origen === "voz" ? "🎙️ " : "👆 ") + CARTAS[id].nombre + " −" + costo;
   if (esEvo) texto += "  ⚡EVOLUCIONADA";
@@ -593,6 +776,7 @@ function arrancarElixir() {
     const delta = (ahora - ultimoTick) / 1000;
     ultimoTick = ahora;
     if (!estado.activa) return;
+    avanzarReloj(delta);
     if (estado.elixir < 10) {
       estado.elixir = Math.min(10, estado.elixir + (delta * estado.mult) / 2.8);
       pintarElixir();
@@ -653,7 +837,8 @@ function revisarCero() {
   if (estado.elixir <= 0.05 && !alertaCero) {
     alertaCero = true;
     pitido();
-    if (navigator.vibrate) navigator.vibrate([90, 60, 90]);
+    vibrar([90, 60, 90]);
+    decir("sin elixir");
     log("🔊 ¡Rival en 0 de elixir!", "warn");
   } else if (estado.elixir >= 1) {
     alertaCero = false;
@@ -717,7 +902,14 @@ function pintarMazo() {
   $cola.innerHTML = estado.deck.slice(4).map((id, i) => htmlCarta(id, "cola", i + 4)).join("");
 }
 
-function pintarTodo() { pintarElixir(); pintarMazo(); }
+function pintarTodo() {
+  pintarElixir();
+  pintarMazo();
+  pintarMiMazo();
+  pintarDefensa();
+  pintarProbable();
+  pintarReloj();
+}
 
 function log(texto, clase) {
   const linea = document.createElement("div");
@@ -778,6 +970,7 @@ function interpretarComando(frase) {
   if (/\b(doble elixir|elixir doble|elixir (por|x) ?(dos|2))\b/.test(frase)) { ponerMultiplicador(2); return true; }
   if (/\b(triple elixir|elixir triple|elixir (por|x) ?(tres|3))\b/.test(frase)) { ponerMultiplicador(3); return true; }
   if (/\b(elixir normal|elixir simple|elixir (por|x) ?(uno|1))\b/.test(frase)) { ponerMultiplicador(1); return true; }
+  if (/\b(empieza el tiempo|arranca el tiempo|empezar tiempo|reloj)\b/.test(frase)) { arrancarReloj(true); log("Reloj en 0:00", "warn"); return true; }
   if (/\belixir lleno\b/.test(frase)) { snapshot(); estado.elixir = 10; alertaCero = false; pintarTodo(); log("Elixir del rival a 10", "warn"); return true; }
 
   // "elixir cinco" / "elixir a 7": corrige la cuenta si se desfaso
@@ -798,6 +991,7 @@ function interpretarComando(frase) {
 
 function procesarFrase(frase, indice, esFinal) {
   if (!estado.activa) return;
+  if (hablando) return;   // se estaria escuchando a si misma
   if (esFinal && interpretarComando(frase)) return;
 
   let yaHechas = disparados.get(indice);
@@ -892,7 +1086,277 @@ document.addEventListener("visibilitychange", () => {
 });
 
 /* ===========================================================
-   8. BOTONES Y ARRANQUE
+   8. MI MAZO, DEFENSA, RELOJ Y AVISOS
+   =========================================================== */
+const LS_MIMAZO = "crv_mi_mazo";
+const LS_AJUSTES = "crv_ajustes";
+
+let miMazo = [];                                    // los 8 ids que elijo yo
+let ajustes = { voz: false, vibrar: true, relojAuto: true, x2: 120, x3: 240 };
+let ultimaDelRival = null;
+let modoElegirMazo = false;
+let hablando = false;                               // mientras la app habla, el micro se ignora
+
+function cargarPreferencias() {
+  try { miMazo = JSON.parse(localStorage.getItem(LS_MIMAZO)) || []; } catch (e) { miMazo = []; }
+  miMazo = miMazo.filter((id) => CARTAS[id]).slice(0, 8);
+  try { Object.assign(ajustes, JSON.parse(localStorage.getItem(LS_AJUSTES)) || {}); } catch (e) {}
+}
+function guardarPreferencias() {
+  try {
+    localStorage.setItem(LS_MIMAZO, JSON.stringify(miMazo));
+    localStorage.setItem(LS_AJUSTES, JSON.stringify(ajustes));
+  } catch (e) {}
+}
+
+/* ---------- Mi ciclo ---------- */
+// Mismo calculo que el del rival, pero con mis cartas: cuando juego una, se va
+// al final y vuelve a mi mano despues de que juegue otras 4.
+function jugarMia(id) {
+  if (!CARTAS[id]) return;
+  if (miMazo.length && !miMazo.includes(id)) {
+    log("Esa carta no está en tu mazo. Tocá \"Elegir mis 8\" si te falta.", "warn");
+    return;
+  }
+  snapshot();
+  const r = rotarEn(estado.miDeck, id);
+  if (!r.ok) { historial.pop(); return; }
+  log("Jugaste " + CARTAS[id].nombre, "tenue");
+  pintarTodo();
+  guardarPartida();
+}
+
+// Donde esta una carta mia segun el ciclo: en la mano, o a cuantas jugadas de
+// volver. null = todavia no se sabe (no la jugue en esta partida).
+function estadoDeMiCarta(id) {
+  const i = estado.miDeck.indexOf(id);
+  if (i >= 0) return { conocido: true, enMano: i < 4, turnos: i - 3 };
+
+  // Todavia no la jugaste. Pero si ya jugaste 4 cartas distintas, esas cuatro
+  // estan haciendo cola: las que te faltan por jugar solo pueden estar en tu
+  // mano. Con menos de 4 no se puede saber, alguna puede venir en camino.
+  if (miMazo.includes(id) && estado.miDeck.filter(Boolean).length >= 4) {
+    return { conocido: true, enMano: true, turnos: 0 };
+  }
+  return { conocido: false };
+}
+
+/* ---------- Con que defender ---------- */
+function tagsDe(id) { return new Set((TAGS[id] || "").split(" ").filter(Boolean)); }
+
+// Puntaje de que tan bien mi carta responde a la del rival. Es una guia rapida
+// armada con lo que hace cada carta (vuela, es enjambre, es tanque...), no un
+// analisis fino de la partida: la ultima palabra siempre es tuya.
+function analizarDefensa(rivalId, mioId) {
+  if (rivalId === mioId) return null;
+  const R = tagsDe(rivalId), M = tagsDe(mioId);
+  let p, porque;
+
+  if (M.has("hechizo")) {
+    if (R.has("masa")) { p = 74; porque = "hechizo: barre el enjambre"; }
+    else if (R.has("edificio") && M.has("hgrande")) { p = 62; porque = "hechizo grande contra el edificio"; }
+    else if (R.has("tanque")) return null;
+    else if (M.has("hgrande")) { p = 40; porque = "se la puede bajar de un hechizo"; }
+    else { p = 22; porque = "sirve para rematarla"; }
+  } else if (R.has("hechizo")) {
+    return null;                                    // a un hechizo no se le pone una tropa
+  } else if (R.has("aire") && !M.has("pegaaire")) {
+    return null;                                    // ni la alcanza
+  } else if (R.has("masa")) {
+    if (M.has("area")) { p = 76; porque = "dano en area contra el enjambre"; }
+    else { p = 16; porque = "la aguanta, pero tarda"; }
+  } else if (R.has("tanque")) {
+    if (M.has("edificio")) { p = 80; porque = "el edificio lo desvia y lo frena"; }
+    else if (M.has("dps")) { p = 72; porque = "mucho dano a un solo objetivo"; }
+    else if (M.has("masa")) { p = 52; porque = "lo rodean y lo bajan"; }
+    else { p = 22; porque = "solo lo entretiene"; }
+  } else if (R.has("amenaza")) {
+    if (M.has("edificio")) { p = 78; porque = "el edificio le cambia el objetivo"; }
+    else if (M.has("dps")) { p = 70; porque = "lo baja rapido"; }
+    else if (M.has("masa")) { p = 62; porque = "lo rodean"; }
+    else { p = 32; porque = "lo frena un poco"; }
+  } else {
+    if (M.has("dps")) { p = 56; porque = "le gana cuerpo a cuerpo"; }
+    else if (M.has("area")) { p = 50; porque = "le pega en area"; }
+    else if (M.has("masa")) { p = 46; porque = "lo rodean"; }
+    else { p = 34; porque = "sirve para frenarla"; }
+  }
+
+  if (R.has("aire") && M.has("pegaaire") && !M.has("hechizo")) porque += " y llega al aire";
+
+  const dif = costoDe(rivalId) - costoDe(mioId);
+  p += Math.max(-12, Math.min(12, dif * 4));        // gastar menos que el rival suma
+  return { p, porque, dif };
+}
+
+function sugerenciasDefensa(rivalId) {
+  if (!rivalId || !miMazo.length) return [];
+  const lista = [];
+  for (const mioId of miMazo) {
+    const a = analizarDefensa(rivalId, mioId);
+    if (!a || a.p < 25) continue;
+    const est = estadoDeMiCarta(mioId);
+    lista.push({ id: mioId, ...a, est, orden: a.p + (est.conocido && est.enMano ? 30 : 0) });
+  }
+  return lista.sort((x, y) => y.orden - x.orden).slice(0, 3);
+}
+
+function pintarDefensa() {
+  const caja = document.getElementById("panel-defensa");
+  const lista = sugerenciasDefensa(ultimaDelRival);
+  if (!lista.length) { caja.hidden = true; return; }
+
+  document.getElementById("defensa-vs").textContent = "contra " + CARTAS[ultimaDelRival].nombre;
+  document.getElementById("defensa-lista").innerHTML = lista.map((s) => {
+    let marca = "";
+    if (s.est.conocido) {
+      marca = s.est.enMano
+        ? '<span class="marca-mano">EN MANO</span>'
+        : '<span class="marca-espera">vuelve en ' + s.est.turnos + "</span>";
+    }
+    const signo = s.dif > 0 ? "+" : "";
+    const cambio = s.dif === 0 ? "" :
+      '<span class="cambio ' + (s.dif > 0 ? "bueno" : "malo") + '">' + signo + s.dif + " elixir</span>";
+    return '<div class="sugerencia' + (s.est.conocido && s.est.enMano ? " en-mano" : "") + '" data-id="' + s.id + '">' +
+      '<span class="costo">' + costoDe(s.id) + "</span>" +
+      '<span><span class="nom">' + CARTAS[s.id].nombre + '</span><br><span class="porque">' + s.porque + "</span></span>" +
+      '<span class="der">' + marca + cambio + "</span></div>";
+  }).join("");
+  caja.hidden = false;
+}
+
+/* ---------- Mi mazo en pantalla ---------- */
+// Se dibujan siempre en el mismo orden (por costo) para que los botones no se
+// muevan de lugar en plena partida: hay que poder tocarlos sin mirar.
+function htmlMiCarta(id) {
+  const est = estadoDeMiCarta(id);
+  const clases = ["carta"];
+  let etiqueta = "";
+  if (est.conocido && est.enMano) { clases.push("mano"); etiqueta = '<div class="etiqueta">EN MANO</div>'; }
+  else if (est.conocido) { clases.push("cola"); etiqueta = '<div class="etiqueta turno">en ' + est.turnos + "</div>"; }
+  if (CARTAS[id].nombre.length > 11) clases.push("largo");
+  return '<div class="' + clases.join(" ") + '" data-id="' + id + '">' + etiqueta +
+    '<span class="nombre">' + CARTAS[id].nombre + "</span>" +
+    '<span class="costo">' + costoDe(id) + "</span></div>";
+}
+
+function pintarMiMazo() {
+  const orden = miMazo.slice().sort((a, b) => costoDe(a) - costoDe(b));
+  const vacia = '<div class="carta vacia">?</div>';
+  const fila = (desde) => {
+    let html = "";
+    for (let i = desde; i < desde + 4; i++) html += orden[i] ? htmlMiCarta(orden[i]) : vacia;
+    return html;
+  };
+  document.getElementById("mi-mano").innerHTML = fila(0);
+  document.getElementById("mi-cola").innerHTML = fila(4);
+}
+
+/* ---------- Mazo probable del rival ---------- */
+function adivinarMazo() {
+  const vistas = estado.deck.filter(Boolean);
+  if (vistas.length < 3) return null;
+  let mejor = null;
+  for (const [nombre, cartas] of MAZOS) {
+    const n = vistas.filter((c) => cartas.includes(c)).length;
+    if (!mejor || n > mejor.n) mejor = { nombre, cartas, n };
+  }
+  if (!mejor || mejor.n < 3) return null;
+  return { ...mejor, faltan: mejor.cartas.filter((c) => !vistas.includes(c)) };
+}
+
+function pintarProbable() {
+  const caja = document.getElementById("panel-probable");
+  const m = adivinarMazo();
+  if (!m) { caja.hidden = true; return; }
+  caja.innerHTML = "Parece <b>" + m.nombre + "</b> · coinciden " + m.n + " de 8" +
+    (m.faltan.length
+      ? '<div class="faltan">Cuidado con: ' + m.faltan.map((c) => "<span>" + CARTAS[c].nombre + "</span>").join("") + "</div>"
+      : "");
+  caja.hidden = false;
+}
+
+/* ---------- Reloj de la batalla ---------- */
+let relojMs = 0;
+let relojAndando = false;
+
+function formatoReloj(ms) {
+  const t = Math.floor(ms / 1000);
+  return Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0");
+}
+
+function pintarReloj() {
+  document.getElementById("reloj").textContent = formatoReloj(relojMs);
+  document.getElementById("btn-reloj").textContent = relojAndando ? "⏸ Tiempo" : "▶ Tiempo";
+  document.getElementById("btn-reloj").classList.toggle("on", relojAndando);
+  const fase = !ajustes.relojAuto ? "a mano"
+    : relojMs / 1000 >= ajustes.x3 ? "triple elixir"
+    : relojMs / 1000 >= ajustes.x2 ? "doble elixir"
+    : "x2 a los " + formatoReloj(ajustes.x2 * 1000) + " · x3 a los " + formatoReloj(ajustes.x3 * 1000);
+  document.getElementById("reloj-fase").textContent = fase;
+}
+
+// Lo llama el mismo bucle del elixir, para no tener dos relojes desincronizados.
+function avanzarReloj(delta) {
+  if (!relojAndando) return;
+  const antes = relojMs / 1000;
+  relojMs += delta * 1000;
+  const ahora = relojMs / 1000;
+  if (ajustes.relojAuto) {
+    if (antes < ajustes.x3 && ahora >= ajustes.x3) { ponerMultiplicador(3); avisar("triple elixir", [80, 60, 80]); }
+    else if (antes < ajustes.x2 && ahora >= ajustes.x2) { ponerMultiplicador(2); avisar("doble elixir", [80, 60, 80]); }
+  }
+  pintarReloj();
+}
+
+function arrancarReloj(reiniciando) {
+  if (reiniciando) relojMs = 0;
+  relojAndando = true;
+  pintarReloj();
+}
+
+/* ---------- Avisos (voz artificial + vibracion) ---------- */
+function vibrar(patron) {
+  if (ajustes.vibrar && navigator.vibrate) { try { navigator.vibrate(patron); } catch (e) {} }
+}
+
+// Mientras la app habla, se ignora lo que entra por el microfono: si no, se
+// escucharia a si misma y registraria la carta que acaba de nombrar.
+function decir(texto) {
+  if (!ajustes.voz || !window.speechSynthesis) return;
+  try {
+    hablando = true;
+    const u = new SpeechSynthesisUtterance(texto);
+    u.lang = "es-ES";
+    u.rate = 1.2;
+    u.onend = () => setTimeout(() => { hablando = false; }, 700);
+    u.onerror = () => { hablando = false; };
+    speechSynthesis.cancel();
+    speechSynthesis.speak(u);
+  } catch (e) { hablando = false; }
+}
+
+function avisar(texto, patron) {
+  vibrar(patron || [60]);
+  decir(texto);
+}
+
+/* Lo que se revisa cada vez que el rival suelta una carta. */
+function alJugarRival(id, esEvo, entroAMano) {
+  ultimaDelRival = id;
+
+  if (esEvo) avisar("evolucionada", [40, 40, 40, 40, 120]);
+
+  // Si le vuelve a la mano una carta de ataque fuerte, conviene saberlo sin
+  // tener que mirar la pantalla.
+  if (entroAMano && tagsDe(entroAMano).has("amenaza")) {
+    log("Le vuelve " + CARTAS[entroAMano].nombre, "warn");
+    avisar("vuelve " + CARTAS[entroAMano].nombre, [50, 50, 120]);
+  }
+}
+
+/* ===========================================================
+   9. BOTONES Y ARRANQUE
    =========================================================== */
 const $btnMicro = document.getElementById("btn-micro");
 
@@ -911,6 +1375,7 @@ function iniciar() {
     estadoMicro("Este navegador no reconoce voz: usa Chrome (o el teclado de cartas)", "error");
   }
 
+  arrancarReloj(relojMs === 0);
   $btnMicro.textContent = "⏸ Pausar micrófono";
   $btnMicro.classList.add("on");
   pintarTodo();
@@ -919,6 +1384,8 @@ function iniciar() {
 function pausar() {
   estado.activa = false;
   estado.escuchando = false;
+  relojAndando = false;
+  pintarReloj();
   pararElixir();
   pantallaEncendida(false);
   if (rec) { try { rec.stop(); } catch (e) {} }
@@ -932,6 +1399,10 @@ function pausar() {
 function reiniciar() {
   const seguiaActiva = estado.activa;
   estado.deck = [null, null, null, null, null, null, null, null];
+  estado.miDeck = [null, null, null, null, null, null, null, null];
+  ultimaDelRival = null;
+  relojMs = 0;
+  relojAndando = seguiaActiva;
   estado.elixir = 5;
   estado.evo = {};
   estado.ultimoCosto = 3;
@@ -950,6 +1421,10 @@ function reiniciar() {
 }
 
 $btnMicro.addEventListener("click", () => (estado.activa ? pausar() : iniciar()));
+document.getElementById("btn-reloj").addEventListener("click", () => {
+  if (relojAndando) { relojAndando = false; } else { arrancarReloj(false); }
+  pintarReloj();
+});
 document.getElementById("btn-deshacer").addEventListener("click", deshacer);
 document.getElementById("btn-reiniciar").addEventListener("click", reiniciar);
 document.querySelectorAll(".mults button").forEach((b) => {
@@ -977,6 +1452,29 @@ function alSoltar(ev) {
   if (!estado.activa) iniciar();
   jugarCarta(carta.dataset.id, "toque");
 }
+const $miMano = document.getElementById("mi-mano");
+const $miCola = document.getElementById("mi-cola");
+
+function alSoltarMia(ev) {
+  clearTimeout(tempPulsado);
+  const carta = ev.target.closest(".carta");
+  if (!carta || !carta.dataset.id || huboPulsadoLargo) return;
+  if (!estado.activa) iniciar();
+  jugarMia(carta.dataset.id);
+}
+[$miMano, $miCola].forEach((zona) => {
+  zona.addEventListener("pointerdown", alPulsar);
+  zona.addEventListener("pointerup", alSoltarMia);
+  zona.addEventListener("pointerleave", () => clearTimeout(tempPulsado));
+  zona.addEventListener("contextmenu", (e) => e.preventDefault());
+});
+
+// Tocar una sugerencia de defensa cuenta como que la jugaste.
+document.getElementById("defensa-lista").addEventListener("click", (ev) => {
+  const fila = ev.target.closest(".sugerencia");
+  if (fila) jugarMia(fila.dataset.id);
+});
+
 [$mano, $cola].forEach((zona) => {
   zona.addEventListener("pointerdown", alPulsar);
   zona.addEventListener("pointerup", alSoltar);
@@ -994,9 +1492,11 @@ function pintarLista() {
   const ids = Object.keys(CARTAS)
     .filter((id) => !filtro || CARTAS[id].alias.some((a) => a.includes(filtro)))
     .sort((a, b) => costoDe(a) - costoDe(b) || CARTAS[a].nombre.localeCompare(CARTAS[b].nombre));
-  $lista.innerHTML = ids.map((id) =>
-    '<button data-id="' + id + '">' + CARTAS[id].nombre + " <b>" + costoDe(id) + "</b></button>"
-  ).join("");
+  $lista.innerHTML = ids.map((id) => {
+    const elegida = modoElegirMazo && miMazo.includes(id);
+    return '<button data-id="' + id + '"' + (elegida ? ' class="elegida"' : "") + ">" +
+      (elegida ? "✔ " : "") + CARTAS[id].nombre + " <b>" + costoDe(id) + "</b></button>";
+  }).join("");
 }
 
 document.getElementById("btn-teclado").addEventListener("click", (e) => {
@@ -1005,6 +1505,29 @@ document.getElementById("btn-teclado").addEventListener("click", (e) => {
   e.target.textContent = "⌨️ Teclado de cartas (si la voz falla) " + (abierto ? "▾" : "▴");
   if (!abierto) pintarLista();
 });
+const $btnMiMazo = document.getElementById("btn-mi-mazo");
+
+function pintarBotonMazo() {
+  $btnMiMazo.textContent = modoElegirMazo ? "Listo (" + miMazo.length + "/8)" : (miMazo.length ? "Cambiar mis 8" : "Elegir mis 8");
+  $btnMiMazo.classList.toggle("on", modoElegirMazo);
+}
+
+$btnMiMazo.addEventListener("click", () => {
+  modoElegirMazo = !modoElegirMazo;
+  if (modoElegirMazo) {
+    $panelTeclado.hidden = false;
+    $buscar.value = "";
+    pintarLista();
+    log("Tocá tus 8 cartas en la lista de abajo.", "warn");
+    $panelTeclado.scrollIntoView({ behavior: "smooth", block: "center" });
+  } else {
+    guardarPreferencias();
+    log("Mazo guardado: " + miMazo.length + " cartas.", "tenue");
+  }
+  pintarBotonMazo();
+  pintarTodo();
+});
+
 $buscar.addEventListener("input", pintarLista);
 $lista.addEventListener("pointerdown", (ev) => {
   const b = ev.target.closest("button");
@@ -1019,9 +1542,43 @@ $lista.addEventListener("pointerup", (ev) => {
   clearTimeout(tempPulsado);
   const b = ev.target.closest("button");
   if (!b || huboPulsadoLargo) return;
+
+  if (modoElegirMazo) {
+    const id = b.dataset.id;
+    const i = miMazo.indexOf(id);
+    if (i >= 0) miMazo.splice(i, 1);
+    else if (miMazo.length >= 8) { log("Ya tenés 8 cartas: sacá una antes de agregar otra.", "warn"); return; }
+    else miMazo.push(id);
+    guardarPreferencias();
+    pintarBotonMazo();
+    pintarLista();
+    pintarMiMazo();
+    return;
+  }
+
   if (!estado.activa) iniciar();
   jugarCarta(b.dataset.id, "toque");
 });
+
+/* --- Interruptores: voz, vibración y multiplicadores automáticos --- */
+const CHIPS = { "tg-voz": "voz", "tg-vibrar": "vibrar", "tg-reloj": "relojAuto" };
+
+function pintarChips() {
+  for (const idBoton in CHIPS) {
+    document.getElementById(idBoton).classList.toggle("on", !!ajustes[CHIPS[idBoton]]);
+  }
+}
+
+for (const idBoton in CHIPS) {
+  document.getElementById(idBoton).addEventListener("click", () => {
+    const clave = CHIPS[idBoton];
+    ajustes[clave] = !ajustes[clave];
+    guardarPreferencias();
+    pintarChips();
+    pintarReloj();
+    if (clave === "voz" && ajustes.voz) decir("avisos activados");
+  });
+}
 
 /* --- Modal: corregir costo, ciclos de evolución o sacar la carta --- */
 const $modal = document.getElementById("modal");
@@ -1071,6 +1628,9 @@ document.getElementById("modal-quitar").addEventListener("click", () => {
 
 /* --- Arranque --- */
 cargarConfig();
+cargarPreferencias();
+pintarChips();
+pintarBotonMazo();
 if (restaurarPartida()) {
   log("Partida recuperada (el celular recargó la página).", "warn");
 } else {
