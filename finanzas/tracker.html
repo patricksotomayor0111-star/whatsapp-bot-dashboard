@@ -298,7 +298,7 @@
 </section>
 
 <h2 class="titulo">
-  <span>Mi mazo <small>toca la que jugaste vos</small></span>
+  <span>Mi mazo <small id="pista-mazo">toca la que jugaste vos</small></span>
   <button class="mini" id="btn-mi-mazo">Elegir mis 8</button>
 </h2>
 <div class="grid4" id="mi-mano"></div>
@@ -1695,6 +1695,20 @@ function alSoltarMia(ev) {
   clearTimeout(tempPulsado);
   const carta = ev.target.closest(".carta");
   if (!carta || !carta.dataset.id || huboPulsadoLargo) return;
+
+  // Mientras se esta armando el mazo, tocar una carta propia la saca.
+  if (modoElegirMazo) {
+    const id = carta.dataset.id;
+    miMazo = miMazo.filter((c) => c !== id);
+    miEvos = miEvos.filter((c) => c !== id);
+    guardarPreferencias();
+    log("Sacada del mazo: " + CARTAS[id].nombre, "tenue");
+    pintarBotonMazo();
+    pintarLista();
+    pintarTodo();
+    return;
+  }
+
   if (carta.dataset.campo) { murioHeroe(true); return; }
   if (!estado.activa) iniciar();
   jugarMia(carta.dataset.id);
@@ -1747,6 +1761,9 @@ const $btnMiMazo = document.getElementById("btn-mi-mazo");
 function pintarBotonMazo() {
   $btnMiMazo.textContent = modoElegirMazo ? "Listo (" + miMazo.length + "/8)" : (miMazo.length ? "Cambiar mis 8" : "Elegir mis 8");
   $btnMiMazo.classList.toggle("on", modoElegirMazo);
+  document.getElementById("pista-mazo").textContent = modoElegirMazo
+    ? "tocá una para sacarla del mazo"
+    : "toca la que jugaste vos";
 }
 
 $btnMiMazo.addEventListener("click", () => {
