@@ -156,6 +156,13 @@
     background:#f0b429;color:#231a00;white-space:nowrap
   }
   .etiqueta.turno{background:#2a2a48;color:var(--tenue)}
+  .etiqueta.enmano{background:var(--mano);color:#03230f}
+  .etiqueta.campo{background:#f0b429;color:#231a00}
+  .carta.campo{
+    border-color:#f0b429;background:linear-gradient(160deg,#3a2c12,#1d1608);
+    animation:latir 1.6s infinite
+  }
+  .carta.campo .pista{font-size:8.5px;color:#c9a227;font-weight:800;line-height:1.1}
   .evo-chip{
     font-size:8.5px;font-weight:900;letter-spacing:.5px;padding:1px 5px;border-radius:5px;
     border:1px solid var(--evo);color:var(--evo);
@@ -365,6 +372,7 @@
     <div class="campo"><span>Ciclos para evolucionar<br><small>0 = no tiene evolución</small></span><input type="number" id="modal-evo" min="0" max="5" step="1"></div>
     <div class="campo"><span>Jugadas acumuladas</span><input type="number" id="modal-conteo" min="0" max="9" step="1"></div>
     <div class="modal-botones">
+      <button class="ancho" id="modal-marcar-evo">Marcar como evolución</button>
       <button class="ancho peligro" id="modal-quitar">Sacar del mazo del rival</button>
       <button id="modal-cancelar">Cancelar</button>
       <button class="btn-principal" style="grid-column:auto" id="modal-guardar">Guardar</button>
@@ -575,6 +583,11 @@ const MAZOS = [
   ["Mega caballero cebo", ["megacaballero","barril_duendes","princesa","pandilla_duendes","cohete","tronco","esqueletos","mago_hielo"]],
 ];
 
+/* Los heroes no vuelven al mazo cuando los jugas: se quedan en el campo hasta
+   que mueren, y mientras tanto ese lugar de la mano lo ocupa el boton de la
+   habilidad. Por eso el ciclo pasa a ser de 7 cartas hasta que caen. */
+const HEROES = new Set(["reina_arquera", "rey_esqueleto", "caballero_dorado", "minero_poderoso", "monje", "principito", "goblinstein"]);
+
 const CARTAS = {};
 DATOS.forEach(([id, nombre, costo, evo, alias]) => {
   CARTAS[id] = { id, nombre, costo, evo, alias: alias.split("|") };
@@ -605,6 +618,10 @@ const LS_PARTIDA = "crv_partida";
 const estado = {
   deck: [null, null, null, null, null, null, null, null],
   miDeck: [null, null, null, null, null, null, null, null],
+  enCampo: null,        // heroe del rival que esta en el campo
+  miEnCampo: null,      // heroe mio en el campo
+  evoRival: [],         // cuales son las 2 evoluciones del rival (cuando se ven)
+  miEvo: {},            // jugadas acumuladas de MIS evoluciones
   elixir: 5,
   mult: 1,
   evo: {},          // id -> jugadas acumuladas
@@ -620,6 +637,14 @@ let alertaCero = false;
 let evoDestello = null;
 
 function costoDe(id) { return config[id]?.costo ?? CARTAS[id].costo; }
+
+// Solo las cartas marcadas como evolucion llevan contador. Mientras no se sepa
+// cuales son (empezando la partida contra un desconocido), se cuentan todas las
+// que podrian serlo; apenas se marca una, el resto deja de molestar.
+function cuentaComoEvo(id, marcadas) {
+  if (!marcadas || !marcadas.length) return true;
+  return marcadas.includes(id);
+}
 function evoDe(id) { return config[id]?.evo ?? CARTAS[id].evo; }
 
 function cargarConfig() {
@@ -636,7 +661,9 @@ function guardarPartida() {
   try {
     localStorage.setItem(LS_PARTIDA, JSON.stringify({
       deck: estado.deck, miDeck: estado.miDeck, elixir: estado.elixir, mult: estado.mult,
-      evo: estado.evo, ultimoCosto: estado.ultimoCosto, relojMs, ts: Date.now(),
+      evo: estado.evo, miEvo: estado.miEvo, evoRival: estado.evoRival,
+      enCampo: estado.enCampo, miEnCampo: estado.miEnCampo,
+      ultimoCosto: estado.ultimoCosto, relojMs, ts: Date.now(),
     }));
   } catch (e) {}
 }
@@ -650,6 +677,10 @@ function restaurarPartida() {
   if (Array.isArray(g.miDeck) && g.miDeck.length === 8) estado.miDeck = g.miDeck.map((c) => (c && CARTAS[c] ? c : null));
   relojMs = g.relojMs || 0;
   estado.evo = g.evo || {};
+  estado.miEvo = g.miEvo || {};
+  estado.evoRival = Array.isArray(g.evoRival) ? g.evoRival : [];
+  estado.enCampo = g.enCampo && CARTAS[g.enCampo] ? g.enCampo : null;
+  estado.miEnCampo = g.miEnCampo && CARTAS[g.miEnCampo] ? g.miEnCampo : null;
   estado.mult = g.mult || 1;
   estado.ultimoCosto = g.ultimoCosto ?? 3;
   estado.elixir = Math.min(10, (g.elixir || 0) + (segundos * estado.mult) / 2.8);
@@ -662,35 +693,58 @@ function restaurarPartida() {
    cola. Como el mazo son 8 posiciones fijas, vuelve a la mano
    después de que el rival juegue otras 4 cartas distintas.
    =========================================================== */
-function rotar(id) { return rotarEn(estado.deck, id); }
+function rotar(id, sacarDelCiclo) { return rotarEn(estado.deck, id, sacarDelCiclo); }
 
-function rotarEn(d, id) {
+// La cola siempre son 4 cartas; la mano es lo que sobra. Con las 8 completas la
+// mano es de 4, y con un heroe en el campo queda de 3 (su lugar lo ocupa la
+// habilidad), que es justo como funciona en la partida.
+function manoDe(d) { return d.length - 4; }
+
+function rotarEn(d, id, sacarDelCiclo) {
+  const mano = manoDe(d);
   let idx = d.indexOf(id);
   let aviso = null;
 
   if (idx === -1) {
     // Carta nueva: tuvo que salir de una posición todavía desconocida de la mano.
-    const libre = d.slice(0, 4).indexOf(null);
+    const libre = d.slice(0, mano).indexOf(null);
     if (libre === -1) return { ok: false, motivo: "novena" }; // ya conocemos las 8
     d[libre] = id;
     idx = libre;
-  } else if (idx >= 4) {
+  } else if (idx >= mano) {
     // La teníamos en la cola: se nos escapó alguna jugada. Se reacomoda igual.
     aviso = "desfase";
   }
 
   d.splice(idx, 1);
-  d.push(id);
-  // Al salir una carta de la mano, entra la primera de la cola: es la que el
-  // rival acaba de recuperar.
-  const entroAMano = idx < 4 ? d[3] : null;
+  if (!sacarDelCiclo) d.push(id);
+
+  // Al salir una carta de la mano entra la primera de la cola: es la que el
+  // rival acaba de recuperar. Con un heroe no entra nada, porque ese lugar
+  // queda ocupado por su habilidad.
+  const entroAMano = idx < mano && !sacarDelCiclo ? d[manoDe(d) - 1] : null;
   return { ok: true, aviso, entroAMano };
+}
+
+// El heroe vuelve al final del ciclo recien cuando lo matan.
+function murioHeroe(mio) {
+  const id = mio ? estado.miEnCampo : estado.enCampo;
+  if (!id) return false;
+  snapshot();
+  (mio ? estado.miDeck : estado.deck).push(id);
+  if (mio) estado.miEnCampo = null; else estado.enCampo = null;
+  log("Murió " + CARTAS[id].nombre + ": vuelve al final del ciclo", "warn");
+  pintarTodo();
+  guardarPartida();
+  return true;
 }
 
 function snapshot() {
   historial.push(JSON.stringify({
     deck: estado.deck, miDeck: estado.miDeck, elixir: estado.elixir, mult: estado.mult,
-    evo: estado.evo, ultimoCosto: estado.ultimoCosto, ultimaDelRival,
+    evo: estado.evo, miEvo: estado.miEvo, evoRival: estado.evoRival,
+    enCampo: estado.enCampo, miEnCampo: estado.miEnCampo,
+    ultimoCosto: estado.ultimoCosto, ultimaDelRival,
   }));
   if (historial.length > 40) historial.shift();
 }
@@ -701,6 +755,10 @@ function deshacer() {
   const s = JSON.parse(prev);
   estado.deck = s.deck;
   estado.miDeck = s.miDeck || estado.miDeck;
+  estado.miEvo = s.miEvo || {};
+  estado.evoRival = s.evoRival || [];
+  estado.enCampo = s.enCampo || null;
+  estado.miEnCampo = s.miEnCampo || null;
   ultimaDelRival = s.ultimaDelRival || null;
   estado.elixir = s.elixir;
   estado.mult = s.mult;
@@ -722,9 +780,12 @@ function jugarCarta(id, origen) {
   const ahora = Date.now();
   if (id === ultimaJugada.id && ahora - ultimaJugada.t < 2000) return;
 
+  if (id === estado.enCampo) { log(CARTAS[id].nombre + " ya está en el campo (avisá cuando muera)", "warn"); return; }
+
   snapshot();
 
-  const res = rotar(id);
+  const esHeroe = HEROES.has(id);
+  const res = rotar(id, esHeroe);
   if (!res.ok) {
     historial.pop();
     log("⚠ " + CARTAS[id].nombre + ": el rival ya tiene 8 cartas conocidas. Ignorada (mantén pulsada una carta para corregir el mazo)", "err");
@@ -737,8 +798,10 @@ function jugarCarta(id, origen) {
 
   // Evolución: se cuentan las jugadas y, al llegar a los ciclos que pide
   // la carta, la siguiente sale EVO y el contador vuelve a cero.
+  if (esHeroe) estado.enCampo = id;
+
   let esEvo = false;
-  const ciclos = evoDe(id);
+  const ciclos = cuentaComoEvo(id, estado.evoRival) ? evoDe(id) : 0;
   if (ciclos > 0) {
     const acum = estado.evo[id] || 0;
     if (acum >= ciclos) { esEvo = true; estado.evo[id] = 0; }
@@ -869,13 +932,13 @@ function htmlCarta(id, zona, posicion) {
 
   const c = CARTAS[id];
   const costo = id === "espejo" ? (estado.ultimoCosto || 3) + 1 : costoDe(id);
-  const ciclos = evoDe(id);
+  const ciclos = cuentaComoEvo(id, estado.evoRival) ? evoDe(id) : 0;
   const acum = estado.evo[id] || 0;
   const clases = ["carta", zona];
 
   let etiqueta = "";
   if (zona === "cola") {
-    const turnos = posicion - 3; // 4 -> le vuelve a la mano con la proxima carta que juegue
+    const turnos = posicion - manoDe(estado.deck) + 1; // 1 = le vuelve con la proxima que juegue
     if (turnos === 1) { clases.push("siguiente"); etiqueta = '<div class="etiqueta">SIGUIENTE</div>'; }
     else etiqueta = '<div class="etiqueta turno">en ' + turnos + '</div>';
   }
@@ -897,9 +960,21 @@ function htmlCarta(id, zona, posicion) {
     "</div>";
 }
 
+// Un heroe en el campo ocupa un lugar de la mano hasta que muere: se dibuja
+// como una carta aparte, para tocarla en cuanto caiga.
+function htmlEnCampo(id, mio) {
+  return '<div class="carta campo" data-id="' + id + '" data-campo="' + (mio ? "mio" : "rival") + '">' +
+    '<div class="etiqueta campo">EN EL CAMPO</div>' +
+    '<span class="nombre">' + CARTAS[id].nombre + "</span>" +
+    '<span class="pista">tocá cuando muera</span></div>';
+}
+
 function pintarMazo() {
-  $mano.innerHTML = estado.deck.slice(0, 4).map((id, i) => htmlCarta(id, "mano", i)).join("");
-  $cola.innerHTML = estado.deck.slice(4).map((id, i) => htmlCarta(id, "cola", i + 4)).join("");
+  const mano = manoDe(estado.deck);
+  let html = estado.deck.slice(0, mano).map((id, i) => htmlCarta(id, "mano", i)).join("");
+  if (estado.enCampo) html += htmlEnCampo(estado.enCampo, false);
+  $mano.innerHTML = html;
+  $cola.innerHTML = estado.deck.slice(mano).map((id, i) => htmlCarta(id, "cola", i + mano)).join("");
 }
 
 function pintarTodo() {
@@ -970,6 +1045,12 @@ function interpretarComando(frase) {
   if (/\b(doble elixir|elixir doble|elixir (por|x) ?(dos|2))\b/.test(frase)) { ponerMultiplicador(2); return true; }
   if (/\b(triple elixir|elixir triple|elixir (por|x) ?(tres|3))\b/.test(frase)) { ponerMultiplicador(3); return true; }
   if (/\b(elixir normal|elixir simple|elixir (por|x) ?(uno|1))\b/.test(frase)) { ponerMultiplicador(1); return true; }
+  if (/\b(murio|murió|cayo|cayó|lo mataron|la mataron)\b/.test(frase)) {
+    // El heroe del rival primero: es el que importa seguir.
+    if (murioHeroe(false) || murioHeroe(true)) return true;
+    log("Ningún héroe en el campo", "tenue");
+    return true;
+  }
   if (/\b(empieza el tiempo|arranca el tiempo|empezar tiempo|reloj)\b/.test(frase)) { arrancarReloj(true); log("Reloj en 0:00", "warn"); return true; }
   if (/\belixir lleno\b/.test(frase)) { snapshot(); estado.elixir = 10; alertaCero = false; pintarTodo(); log("Elixir del rival a 10", "warn"); return true; }
 
@@ -1092,19 +1173,25 @@ const LS_MIMAZO = "crv_mi_mazo";
 const LS_AJUSTES = "crv_ajustes";
 
 let miMazo = [];                                    // los 8 ids que elijo yo
+let miEvos = [];                                    // cuales de esas 8 van en las casillas de evolucion
 let ajustes = { voz: false, vibrar: true, relojAuto: true, x2: 120, x3: 240 };
 let ultimaDelRival = null;
 let modoElegirMazo = false;
 let hablando = false;                               // mientras la app habla, el micro se ignora
 
 function cargarPreferencias() {
-  try { miMazo = JSON.parse(localStorage.getItem(LS_MIMAZO)) || []; } catch (e) { miMazo = []; }
+  let guardado = null;
+  try { guardado = JSON.parse(localStorage.getItem(LS_MIMAZO)); } catch (e) {}
+  // Antes se guardaba solo la lista de cartas; ahora tambien cuales son las evos.
+  if (Array.isArray(guardado)) { miMazo = guardado; miEvos = []; }
+  else if (guardado) { miMazo = guardado.mazo || []; miEvos = guardado.evos || []; }
   miMazo = miMazo.filter((id) => CARTAS[id]).slice(0, 8);
+  miEvos = miEvos.filter((id) => miMazo.includes(id)).slice(0, 2);
   try { Object.assign(ajustes, JSON.parse(localStorage.getItem(LS_AJUSTES)) || {}); } catch (e) {}
 }
 function guardarPreferencias() {
   try {
-    localStorage.setItem(LS_MIMAZO, JSON.stringify(miMazo));
+    localStorage.setItem(LS_MIMAZO, JSON.stringify({ mazo: miMazo, evos: miEvos }));
     localStorage.setItem(LS_AJUSTES, JSON.stringify(ajustes));
   } catch (e) {}
 }
@@ -1118,10 +1205,22 @@ function jugarMia(id) {
     log("Esa carta no está en tu mazo. Tocá \"Elegir mis 8\" si te falta.", "warn");
     return;
   }
+  if (id === estado.miEnCampo) { log(CARTAS[id].nombre + " ya está en el campo (avisá cuando muera)", "warn"); return; }
+
   snapshot();
-  const r = rotarEn(estado.miDeck, id);
+  const esHeroe = HEROES.has(id);
+  const r = rotarEn(estado.miDeck, id, esHeroe);
   if (!r.ok) { historial.pop(); return; }
-  log("Jugaste " + CARTAS[id].nombre, "tenue");
+  if (esHeroe) estado.miEnCampo = id;
+
+  let miEvo = false;
+  const ciclosMios = miEvos.includes(id) ? evoDe(id) : 0;
+  if (ciclosMios > 0) {
+    const acum = estado.miEvo[id] || 0;
+    if (acum >= ciclosMios) { miEvo = true; estado.miEvo[id] = 0; }
+    else estado.miEvo[id] = acum + 1;
+  }
+  log("Jugaste " + CARTAS[id].nombre + (miEvo ? " ⚡EVOLUCIONADA" : ""), miEvo ? "warn" : "tenue");
   pintarTodo();
   guardarPartida();
 }
@@ -1129,13 +1228,18 @@ function jugarMia(id) {
 // Donde esta una carta mia segun el ciclo: en la mano, o a cuantas jugadas de
 // volver. null = todavia no se sabe (no la jugue en esta partida).
 function estadoDeMiCarta(id) {
+  if (id === estado.miEnCampo) return { conocido: true, enCampo: true };
+  const mano = manoDe(estado.miDeck);
   const i = estado.miDeck.indexOf(id);
-  if (i >= 0) return { conocido: true, enMano: i < 4, turnos: i - 3 };
+  if (i >= 0) return { conocido: true, enMano: i < mano, turnos: i - mano + 1 };
 
   // Todavia no la jugaste. Pero si ya jugaste 4 cartas distintas, esas cuatro
   // estan haciendo cola: las que te faltan por jugar solo pueden estar en tu
   // mano. Con menos de 4 no se puede saber, alguna puede venir en camino.
-  if (miMazo.includes(id) && estado.miDeck.filter(Boolean).length >= 4) {
+  // Los huecos sin saber estan siempre en la mano; si no quedan huecos en la
+  // cola, todo lo que no jugaste todavia solo puede estar en tu mano.
+  const huecos = estado.miDeck.filter((c) => c === null).length;
+  if (miMazo.includes(id) && huecos <= mano) {
     return { conocido: true, enMano: true, turnos: 0 };
   }
   return { conocido: false };
@@ -1163,21 +1267,21 @@ function analizarDefensa(rivalId, mioId) {
   } else if (R.has("aire") && !M.has("pegaaire")) {
     return null;                                    // ni la alcanza
   } else if (R.has("masa")) {
-    if (M.has("area")) { p = 76; porque = "dano en area contra el enjambre"; }
+    if (M.has("area")) { p = 76; porque = "daño en área contra el enjambre"; }
     else { p = 16; porque = "la aguanta, pero tarda"; }
   } else if (R.has("tanque")) {
-    if (M.has("edificio")) { p = 80; porque = "el edificio lo desvia y lo frena"; }
-    else if (M.has("dps")) { p = 72; porque = "mucho dano a un solo objetivo"; }
+    if (M.has("edificio")) { p = 80; porque = "el edificio lo desvía y lo frena"; }
+    else if (M.has("dps")) { p = 72; porque = "mucho daño a un solo objetivo"; }
     else if (M.has("masa")) { p = 52; porque = "lo rodean y lo bajan"; }
     else { p = 22; porque = "solo lo entretiene"; }
   } else if (R.has("amenaza")) {
     if (M.has("edificio")) { p = 78; porque = "el edificio le cambia el objetivo"; }
-    else if (M.has("dps")) { p = 70; porque = "lo baja rapido"; }
+    else if (M.has("dps")) { p = 70; porque = "lo baja rápido"; }
     else if (M.has("masa")) { p = 62; porque = "lo rodean"; }
     else { p = 32; porque = "lo frena un poco"; }
   } else {
     if (M.has("dps")) { p = 56; porque = "le gana cuerpo a cuerpo"; }
-    else if (M.has("area")) { p = 50; porque = "le pega en area"; }
+    else if (M.has("area")) { p = 50; porque = "le pega en área"; }
     else if (M.has("masa")) { p = 46; porque = "lo rodean"; }
     else { p = 34; porque = "sirve para frenarla"; }
   }
@@ -1230,14 +1334,25 @@ function pintarDefensa() {
 // muevan de lugar en plena partida: hay que poder tocarlos sin mirar.
 function htmlMiCarta(id) {
   const est = estadoDeMiCarta(id);
+  if (est.enCampo) return htmlEnCampo(id, true);
+
   const clases = ["carta"];
   let etiqueta = "";
-  if (est.conocido && est.enMano) { clases.push("mano"); etiqueta = '<div class="etiqueta">EN MANO</div>'; }
+  if (est.conocido && est.enMano) { clases.push("mano"); etiqueta = '<div class="etiqueta enmano">EN MANO</div>'; }
   else if (est.conocido) { clases.push("cola"); etiqueta = '<div class="etiqueta turno">en ' + est.turnos + "</div>"; }
   if (CARTAS[id].nombre.length > 11) clases.push("largo");
+
+  let evoHtml = "";
+  if (miEvos.includes(id) && evoDe(id) > 0) {
+    const acum = estado.miEvo[id] || 0;
+    const lista = acum >= evoDe(id);
+    evoHtml = '<span class="evo-chip' + (lista ? " preparada" : "") + '">' +
+      (lista ? "EVO LISTA" : "evo " + acum + "/" + evoDe(id)) + "</span>";
+  }
+
   return '<div class="' + clases.join(" ") + '" data-id="' + id + '">' + etiqueta +
     '<span class="nombre">' + CARTAS[id].nombre + "</span>" +
-    '<span class="costo">' + costoDe(id) + "</span></div>";
+    '<span class="costo">' + costoDe(id) + "</span>" + evoHtml + "</div>";
 }
 
 function pintarMiMazo() {
@@ -1400,6 +1515,10 @@ function reiniciar() {
   const seguiaActiva = estado.activa;
   estado.deck = [null, null, null, null, null, null, null, null];
   estado.miDeck = [null, null, null, null, null, null, null, null];
+  estado.enCampo = null;
+  estado.miEnCampo = null;
+  estado.evoRival = [];
+  estado.miEvo = {};
   ultimaDelRival = null;
   relojMs = 0;
   relojAndando = seguiaActiva;
@@ -1442,13 +1561,15 @@ function alPulsar(ev) {
   tempPulsado = setTimeout(() => {
     huboPulsadoLargo = true;
     if (navigator.vibrate) navigator.vibrate(25);
-    abrirModal(carta.dataset.id, Number(carta.dataset.pos));
+    abrirModal(carta.dataset.id, carta.dataset.pos === undefined ? null : Number(carta.dataset.pos),
+               carta.closest("#mi-mano, #mi-cola") ? "mio" : "rival");
   }, 550);
 }
 function alSoltar(ev) {
   clearTimeout(tempPulsado);
   const carta = ev.target.closest(".carta");
   if (!carta || !carta.dataset.id || huboPulsadoLargo) return;
+  if (carta.dataset.campo) { murioHeroe(false); return; }
   if (!estado.activa) iniciar();
   jugarCarta(carta.dataset.id, "toque");
 }
@@ -1459,6 +1580,7 @@ function alSoltarMia(ev) {
   clearTimeout(tempPulsado);
   const carta = ev.target.closest(".carta");
   if (!carta || !carta.dataset.id || huboPulsadoLargo) return;
+  if (carta.dataset.campo) { murioHeroe(true); return; }
   if (!estado.activa) iniciar();
   jugarMia(carta.dataset.id);
 }
@@ -1535,7 +1657,7 @@ $lista.addEventListener("pointerdown", (ev) => {
   huboPulsadoLargo = false;
   tempPulsado = setTimeout(() => {
     huboPulsadoLargo = true;
-    abrirModal(b.dataset.id, null);
+    abrirModal(b.dataset.id, null, "mio");
   }, 550);
 });
 $lista.addEventListener("pointerup", (ev) => {
@@ -1548,6 +1670,9 @@ $lista.addEventListener("pointerup", (ev) => {
     const i = miMazo.indexOf(id);
     if (i >= 0) miMazo.splice(i, 1);
     else if (miMazo.length >= 8) { log("Ya tenés 8 cartas: sacá una antes de agregar otra.", "warn"); return; }
+    else if (HEROES.has(id) && miMazo.some((c) => HEROES.has(c))) {
+      log("Solo se puede llevar un héroe por mazo.", "warn"); return;
+    }
     else miMazo.push(id);
     guardarPreferencias();
     pintarBotonMazo();
@@ -1585,14 +1710,27 @@ const $modal = document.getElementById("modal");
 let modalId = null;
 let modalPos = null;
 
-function abrirModal(id, pos) {
+let modalZona = "rival";
+
+function abrirModal(id, pos, zona) {
   modalId = id;
   modalPos = pos;
+  modalZona = zona || "rival";
+  const mio = modalZona !== "rival";
+  const marcadas = mio ? miEvos : estado.evoRival;
+
   document.getElementById("modal-titulo").textContent = CARTAS[id].nombre;
   document.getElementById("modal-costo").value = costoDe(id);
   document.getElementById("modal-evo").value = evoDe(id);
-  document.getElementById("modal-conteo").value = estado.evo[id] || 0;
-  document.getElementById("modal-quitar").hidden = pos === null;
+  document.getElementById("modal-conteo").value = (mio ? estado.miEvo[id] : estado.evo[id]) || 0;
+  document.getElementById("modal-quitar").hidden = modalZona !== "rival" || pos === null;
+
+  const btnEvo = document.getElementById("modal-marcar-evo");
+  btnEvo.hidden = evoDe(id) === 0;
+  btnEvo.textContent = marcadas.includes(id)
+    ? "Quitar la marca de evolución"
+    : (mio ? "Es una de mis evoluciones" : "Es la evolución del rival");
+  btnEvo.classList.toggle("peligro", marcadas.includes(id));
   $modal.hidden = false;
 }
 
@@ -1614,6 +1752,24 @@ document.getElementById("modal-guardar").addEventListener("click", () => {
   cerrarModal();
   pintarTodo();
   if (!$panelTeclado.hidden) pintarLista();
+});
+
+document.getElementById("modal-marcar-evo").addEventListener("click", () => {
+  if (!modalId) return;
+  const mio = modalZona !== "rival";
+  const marcadas = mio ? miEvos : estado.evoRival;
+  const i = marcadas.indexOf(modalId);
+
+  if (i >= 0) marcadas.splice(i, 1);
+  else if (marcadas.length >= 2) {
+    log("Ya hay 2 evoluciones marcadas: sacá una primero.", "warn");
+    return;
+  } else marcadas.push(modalId);
+
+  if (mio) guardarPreferencias(); else guardarPartida();
+  log((marcadas.includes(modalId) ? "Marcada" : "Desmarcada") + " como evolución: " + CARTAS[modalId].nombre, "tenue");
+  cerrarModal();
+  pintarTodo();
 });
 
 document.getElementById("modal-quitar").addEventListener("click", () => {
