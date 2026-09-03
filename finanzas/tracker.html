@@ -76,7 +76,7 @@
     font-size:21px;font-weight:900;font-variant-numeric:tabular-nums;letter-spacing:.5px
   }
   #reloj-fase{font-size:10.5px;color:var(--tenue);font-weight:700}
-  button.mini{
+  button.mini{white-space:nowrap;
     padding:6px 11px;font-size:11.5px;border-radius:8px;background:var(--panel2);
     border:1px solid var(--borde)
   }
@@ -222,6 +222,12 @@
   .lista-cartas button{padding:9px 6px;font-size:11.5px;line-height:1.2;background:var(--panel2)}
   .lista-cartas button b{color:var(--elixir)}
   .lista-cartas button.elegida{border-color:var(--mano);color:var(--mano)}
+  .pegar{display:flex;gap:6px;margin-top:8px}
+  .pegar input{
+    flex:1;min-width:0;padding:9px;border-radius:9px;font-size:13px;
+    background:#05050c;border:1px solid var(--borde);color:var(--texto)
+  }
+  .carta.deducida{border-style:dashed}
   .ayuda{
     margin-top:16px;background:var(--panel);border:1px solid var(--borde);
     border-radius:12px;padding:12px 14px;font-size:12.5px;line-height:1.7;color:var(--tenue)
@@ -286,7 +292,10 @@
   </div>
 </section>
 
-<h2 class="titulo">Mano del rival <small>puede jugarlas ahora · toca para registrar</small></h2>
+<h2 class="titulo">
+  <span>Mano del rival <small id="pista-rival">toca para registrar</small></span>
+  <button class="mini" id="btn-mazo-rival">Su mazo</button>
+</h2>
 <div class="grid4" id="mano"></div>
 
 <h2 class="titulo">En ciclo <small>orden en que le vuelven a la mano</small></h2>
@@ -324,6 +333,7 @@
   <button class="chip" id="tg-voz">Avisos por voz</button>
   <button class="chip on" id="tg-vibrar">Vibrar</button>
   <button class="chip on" id="tg-reloj">x2 y x3 solos</button>
+  <button class="chip" id="tg-campo">Campeón queda en el campo</button>
 </div>
 
 <div class="plegable">
@@ -331,6 +341,10 @@
   <div id="panel-teclado" hidden>
     <input id="buscar" placeholder="Buscar carta…" autocomplete="off">
     <div class="lista-cartas" id="lista-cartas"></div>
+    <div class="pegar">
+      <input id="pegar-mazo" placeholder="o pegá los nombres separados por coma" autocomplete="off">
+      <button class="mini" id="btn-pegar">Cargar</button>
+    </div>
     <button class="mini" id="btn-nueva-carta" style="margin-top:8px;width:100%">+ Agregar una carta que falta</button>
   </div>
 </div>
@@ -377,10 +391,21 @@
   escribí tu nombre en <b>Cómo la digo</b> (por ejemplo <code>chancho</code>
   para el Montapuercos). También queda guardado.<br><br>
 
+  <b>Cargar el mazo del rival</b><br>
+  Si lo pudiste ver por fuera (por ejemplo buscándolo en RoyaleAPI desde la
+  computadora), tocá <b>Su mazo</b> y cargá sus 8 cartas: tocándolas en la
+  lista, o pegando los nombres separados por coma. Con las 8 cargadas la app
+  deja de adivinar: te muestra <b>qué tiene en la mano ahora mismo</b> (borde
+  punteado = deducido, no visto) y la lista exacta de lo que todavía no soltó.
+  Se borra al empezar una partida nueva, porque el rival cambia.<br><br>
+
   <b>Campeones y héroes</b><br>
   Los <b>campeones</b> (Reina Arquera, Rey Esqueleto, Monje…) se quedan en el
   campo hasta que mueren: la app los muestra aparte y el ciclo pasa a 7 cartas.
-  Tocá la carta o decí <code>murió</code> cuando caiga.<br>
+  Tocá la carta o decí <code>murió</code> cuando caiga. Si te molesta, apagá el
+  chip <code>Campeón queda en el campo</code> y ciclan como una carta más (el
+  ciclo se corre un poco mientras el campeón sigue vivo, pero nada te
+  estorba).<br>
   Las cartas <b>héroe</b> (las de casilla dorada) ciclan como cualquier otra,
   así que no hay nada especial que hacer. Lo único que cuesta elixir aparte es
   su habilidad: decí <code>habilidad</code> (resta 2) o
@@ -763,7 +788,7 @@ function guardarConfig() {
 function guardarPartida() {
   try {
     localStorage.setItem(LS_PARTIDA, JSON.stringify({
-      deck: estado.deck, miDeck: estado.miDeck, elixir: estado.elixir, mult: estado.mult,
+      deck: estado.deck, miDeck: estado.miDeck, rivalMazo, elixir: estado.elixir, mult: estado.mult,
       evo: estado.evo, miEvo: estado.miEvo, evoRival: estado.evoRival,
       enCampo: estado.enCampo, miEnCampo: estado.miEnCampo,
       ultimoCosto: estado.ultimoCosto, relojMs, ts: Date.now(),
@@ -782,6 +807,7 @@ function restaurarPartida() {
   estado.evo = g.evo || {};
   estado.miEvo = g.miEvo || {};
   estado.evoRival = Array.isArray(g.evoRival) ? g.evoRival : [];
+  rivalMazo = Array.isArray(g.rivalMazo) ? g.rivalMazo.filter((c) => CARTAS[c]) : [];
   estado.enCampo = g.enCampo && CARTAS[g.enCampo] ? g.enCampo : null;
   estado.miEnCampo = g.miEnCampo && CARTAS[g.miEnCampo] ? g.miEnCampo : null;
   estado.mult = g.mult || 1;
@@ -883,12 +909,14 @@ function jugarCarta(id, origen) {
   const ahora = Date.now();
   if (id === ultimaJugada.id && ahora - ultimaJugada.t < 2000) return;
 
-  if (id === estado.enCampo) { log(CARTAS[id].nombre + " ya está en el campo (avisá cuando muera)", "warn"); return; }
+  // Si vuelve a jugar el campeon que estaba en el campo, es que el anterior
+  // murio: se devuelve al ciclo y se sigue. Nunca se rechaza una jugada.
+  if (id === estado.enCampo) { estado.deck.push(id); estado.enCampo = null; }
 
   snapshot();
 
-  const esHeroe = CAMPEONES.has(id);
-  const res = rotar(id, esHeroe);
+  const esCampeon = CAMPEONES.has(id) && ajustes.campoCampeon;
+  const res = rotar(id, esCampeon);
   if (!res.ok) {
     historial.pop();
     log("⚠ " + CARTAS[id].nombre + ": el rival ya tiene 8 cartas conocidas. Ignorada (mantén pulsada una carta para corregir el mazo)", "err");
@@ -901,7 +929,7 @@ function jugarCarta(id, origen) {
 
   // Evolución: se cuentan las jugadas y, al llegar a los ciclos que pide
   // la carta, la siguiente sale EVO y el contador vuelve a cero.
-  if (esHeroe) estado.enCampo = id;
+  if (esCampeon) estado.enCampo = id;
 
   let esEvo = false;
   const ciclos = cuentaComoEvo(id, estado.evoRival) ? evoDe(id) : 0;
@@ -909,6 +937,10 @@ function jugarCarta(id, origen) {
     const acum = estado.evo[id] || 0;
     if (acum >= ciclos) { esEvo = true; estado.evo[id] = 0; }
     else estado.evo[id] = acum + 1;
+  }
+
+  if (rivalMazo.length === 8 && !rivalMazo.includes(id)) {
+    log("Ojo: " + CARTAS[id].nombre + " no está en el mazo que cargaste", "warn");
   }
 
   ultimaJugada = { id, t: ahora };
@@ -1030,7 +1062,7 @@ function pintarElixir() {
   revisarCero();
 }
 
-function htmlCarta(id, zona, posicion) {
+function htmlCarta(id, zona, posicion, deducida) {
   if (!id) return '<div class="carta vacia" data-pos="' + posicion + '">?</div>';
 
   const c = CARTAS[id];
@@ -1054,8 +1086,10 @@ function htmlCarta(id, zona, posicion) {
   }
   if (evoDestello && evoDestello.id === id && Date.now() < evoDestello.hasta) clases.push("evo-activa");
   if (c.nombre.length > 11) clases.push("largo");
+  if (deducida) clases.push("deducida");
 
-  return '<div class="' + clases.join(" ") + '" data-id="' + id + '" data-pos="' + posicion + '">' +
+  return '<div class="' + clases.join(" ") + '" data-id="' + id + '"' +
+    (deducida ? "" : ' data-pos="' + posicion + '"') + ">" +
     etiqueta +
     '<span class="nombre">' + c.nombre + "</span>" +
     '<span class="costo">' + costo + "</span>" +
@@ -1072,9 +1106,49 @@ function htmlEnCampo(id, mio) {
     '<span class="pista">tocá cuando muera</span></div>';
 }
 
+// Cartas suyas que todavia no solto en esta partida.
+function sinJugarDelRival() {
+  return rivalMazo
+    .filter((id) => !estado.deck.includes(id) && id !== estado.enCampo)
+    .sort((a, b) => costoDe(a) - costoDe(b));
+}
+
 function pintarMazo() {
+  // Mientras se esta cargando su mazo se muestran las cartas elegidas, para
+  // poder sacar una tocandola sin tener que buscarla en la lista de abajo.
+  if (modoMazo === "rival") {
+    const orden = rivalMazo.slice().sort((a, b) => costoDe(a) - costoDe(b));
+    const vacia = '<div class="carta vacia">?</div>';
+    const fila = (desde) => {
+      let html = "";
+      for (let i = desde; i < desde + 4; i++) {
+        html += orden[i]
+          ? '<div class="carta" data-id="' + orden[i] + '"><span class="nombre">' + CARTAS[orden[i]].nombre +
+            '</span><span class="costo">' + costoDe(orden[i]) + "</span></div>"
+          : vacia;
+      }
+      return html;
+    };
+    $mano.innerHTML = fila(0);
+    $cola.innerHTML = fila(4);
+    return;
+  }
+
   const mano = manoDe(estado.deck);
-  let html = estado.deck.slice(0, mano).map((id, i) => htmlCarta(id, "mano", i)).join("");
+
+  // Si cargamos sus 8 y ya no quedan huecos en la cola, las que no jugo solo
+  // pueden estar en su mano: se muestran ahi con el borde punteado, para que se
+  // note que es deduccion y no algo que le vimos.
+  const huecos = estado.deck.filter((c) => c === null).length;
+  const deducidas = rivalMazo.length === 8 && huecos <= mano ? sinJugarDelRival() : [];
+
+  let html = "";
+  for (let i = 0; i < mano; i++) {
+    const id = estado.deck[i];
+    if (id) html += htmlCarta(id, "mano", i);
+    else if (deducidas.length) html += htmlCarta(deducidas.shift(), "mano", i, true);
+    else html += htmlCarta(null, "mano", i);
+  }
   if (estado.enCampo) html += htmlEnCampo(estado.enCampo, false);
   $mano.innerHTML = html;
   $cola.innerHTML = estado.deck.slice(mano).map((id, i) => htmlCarta(id, "cola", i + mano)).join("");
@@ -1289,9 +1363,10 @@ const LS_AJUSTES = "crv_ajustes";
 
 let miMazo = [];                                    // los 8 ids que elijo yo
 let miEvos = [];                                    // cuales de esas 8 van en las casillas de evolucion
-let ajustes = { voz: false, vibrar: true, relojAuto: true, x2: 120, x3: 240 };
+let ajustes = { voz: false, vibrar: true, relojAuto: true, x2: 120, x3: 240, campoCampeon: false };
 let ultimaDelRival = null;
-let modoElegirMazo = false;
+let modoMazo = null;                                // null | "mio" | "rival": que mazo se esta armando
+let rivalMazo = [];                                 // sus 8 cartas, cuando se pueden ver de afuera
 let hablando = false;                               // mientras la app habla, el micro se ignora
 
 function cargarPreferencias() {
@@ -1320,13 +1395,13 @@ function jugarMia(id) {
     log("Esa carta no está en tu mazo. Tocá \"Elegir mis 8\" si te falta.", "warn");
     return;
   }
-  if (id === estado.miEnCampo) { log(CARTAS[id].nombre + " ya está en el campo (avisá cuando muera)", "warn"); return; }
+  if (id === estado.miEnCampo) { estado.miDeck.push(id); estado.miEnCampo = null; }
 
   snapshot();
-  const esHeroe = CAMPEONES.has(id);
-  const r = rotarEn(estado.miDeck, id, esHeroe);
+  const esCampeon = CAMPEONES.has(id) && ajustes.campoCampeon;
+  const r = rotarEn(estado.miDeck, id, esCampeon);
   if (!r.ok) { historial.pop(); return; }
-  if (esHeroe) estado.miEnCampo = id;
+  if (esCampeon) estado.miEnCampo = id;
 
   let miEvo = false;
   const ciclosMios = miEvos.includes(id) ? evoDe(id) : 0;
@@ -1497,6 +1572,18 @@ function adivinarMazo() {
 
 function pintarProbable() {
   const caja = document.getElementById("panel-probable");
+
+  // Con su mazo cargado no hace falta adivinar nada.
+  if (rivalMazo.length) {
+    const faltan = sinJugarDelRival();
+    caja.innerHTML = "<b>Su mazo está cargado</b> · " + rivalMazo.length + " de 8" +
+      (faltan.length
+        ? '<div class="faltan">Todavía no le viste: ' + faltan.map((c) => "<span>" + CARTAS[c].nombre + " " + costoDe(c) + "</span>").join("") + "</div>"
+        : '<div class="faltan"><span>Ya le viste todo el mazo</span></div>');
+    caja.hidden = false;
+    return;
+  }
+
   const m = adivinarMazo();
   if (!m) { caja.hidden = true; return; }
   caja.innerHTML = "Parece <b>" + m.nombre + "</b> · coinciden " + m.n + " de 8" +
@@ -1634,6 +1721,7 @@ function reiniciar() {
   estado.miEnCampo = null;
   estado.evoRival = [];
   estado.miEvo = {};
+  rivalMazo = [];
   ultimaDelRival = null;
   relojMs = 0;
   relojAndando = seguiaActiva;
@@ -1684,6 +1772,19 @@ function alSoltar(ev) {
   clearTimeout(tempPulsado);
   const carta = ev.target.closest(".carta");
   if (!carta || !carta.dataset.id || huboPulsadoLargo) return;
+
+  if (modoMazo === "rival") {
+    const id = carta.dataset.id;
+    rivalMazo = rivalMazo.filter((c) => c !== id);
+    if (estado.enCampo === id) estado.enCampo = null;
+    guardarPartida();
+    log("Sacada de su mazo: " + CARTAS[id].nombre, "tenue");
+    pintarBotonMazo();
+    pintarLista();
+    pintarTodo();
+    return;
+  }
+
   if (carta.dataset.campo) { murioHeroe(false); return; }
   if (!estado.activa) iniciar();
   jugarCarta(carta.dataset.id, "toque");
@@ -1697,10 +1798,11 @@ function alSoltarMia(ev) {
   if (!carta || !carta.dataset.id || huboPulsadoLargo) return;
 
   // Mientras se esta armando el mazo, tocar una carta propia la saca.
-  if (modoElegirMazo) {
+  if (modoMazo === "mio") {
     const id = carta.dataset.id;
     miMazo = miMazo.filter((c) => c !== id);
     miEvos = miEvos.filter((c) => c !== id);
+    if (estado.miEnCampo === id) estado.miEnCampo = null;
     guardarPreferencias();
     log("Sacada del mazo: " + CARTAS[id].nombre, "tenue");
     pintarBotonMazo();
@@ -1744,7 +1846,7 @@ function pintarLista() {
     .filter((id) => !filtro || CARTAS[id].alias.some((a) => a.includes(filtro)))
     .sort((a, b) => costoDe(a) - costoDe(b) || CARTAS[a].nombre.localeCompare(CARTAS[b].nombre));
   $lista.innerHTML = ids.map((id) => {
-    const elegida = modoElegirMazo && miMazo.includes(id);
+    const elegida = modoMazo && listaEnEdicion().includes(id);
     return '<button data-id="' + id + '"' + (elegida ? ' class="elegida"' : "") + ">" +
       (elegida ? "✔ " : "") + CARTAS[id].nombre + " <b>" + costoDe(id) + "</b></button>";
   }).join("");
@@ -1758,29 +1860,47 @@ document.getElementById("btn-teclado").addEventListener("click", (e) => {
 });
 const $btnMiMazo = document.getElementById("btn-mi-mazo");
 
+// La lista que se esta editando en este momento (la mia o la del rival).
+function listaEnEdicion() { return modoMazo === "rival" ? rivalMazo : miMazo; }
+
+const $btnMazoRival = document.getElementById("btn-mazo-rival");
+
 function pintarBotonMazo() {
-  $btnMiMazo.textContent = modoElegirMazo ? "Listo (" + miMazo.length + "/8)" : (miMazo.length ? "Cambiar mis 8" : "Elegir mis 8");
-  $btnMiMazo.classList.toggle("on", modoElegirMazo);
-  document.getElementById("pista-mazo").textContent = modoElegirMazo
+  $btnMiMazo.textContent = modoMazo === "mio" ? "Listo (" + miMazo.length + "/8)" : (miMazo.length ? "Cambiar mis 8" : "Elegir mis 8");
+  $btnMiMazo.classList.toggle("on", modoMazo === "mio");
+  document.getElementById("pista-mazo").textContent = modoMazo === "mio"
     ? "tocá una para sacarla del mazo"
     : "toca la que jugaste vos";
+
+  $btnMazoRival.textContent = modoMazo === "rival" ? "Listo (" + rivalMazo.length + "/8)" : (rivalMazo.length ? "Su mazo ✓" : "Su mazo");
+  $btnMazoRival.classList.toggle("on", modoMazo === "rival");
+  document.getElementById("pista-rival").textContent = modoMazo === "rival"
+    ? "tocá una para sacarla de su mazo"
+    : (rivalMazo.length === 8 ? "sus 8 cartas cargadas" : "toca para registrar");
 }
 
-$btnMiMazo.addEventListener("click", () => {
-  modoElegirMazo = !modoElegirMazo;
-  if (modoElegirMazo) {
+// Entra o sale del modo de armar un mazo. Solo se arma uno por vez.
+function alternarModoMazo(cual) {
+  const salia = modoMazo === cual;
+  modoMazo = salia ? null : cual;
+  if (modoMazo) {
     $panelTeclado.hidden = false;
     $buscar.value = "";
     pintarLista();
-    log("Tocá tus 8 cartas en la lista de abajo.", "warn");
+    log(cual === "mio" ? "Tocá tus 8 cartas en la lista de abajo." : "Tocá las 8 del rival (o pegá los nombres).", "warn");
     $panelTeclado.scrollIntoView({ behavior: "smooth", block: "center" });
   } else {
-    guardarPreferencias();
-    log("Mazo guardado: " + miMazo.length + " cartas.", "tenue");
+    if (cual === "mio") guardarPreferencias(); else guardarPartida();
+    log((cual === "mio" ? "Tu mazo" : "El mazo del rival") + ": " + listaGuardada(cual).length + " cartas.", "tenue");
   }
   pintarBotonMazo();
   pintarTodo();
-});
+}
+
+function listaGuardada(cual) { return cual === "rival" ? rivalMazo : miMazo; }
+
+$btnMiMazo.addEventListener("click", () => alternarModoMazo("mio"));
+$btnMazoRival.addEventListener("click", () => alternarModoMazo("rival"));
 
 $buscar.addEventListener("input", pintarLista);
 $lista.addEventListener("pointerdown", (ev) => {
@@ -1797,24 +1917,52 @@ $lista.addEventListener("pointerup", (ev) => {
   const b = ev.target.closest("button");
   if (!b || huboPulsadoLargo) return;
 
-  if (modoElegirMazo) {
+  if (modoMazo) {
     const id = b.dataset.id;
-    const i = miMazo.indexOf(id);
-    if (i >= 0) miMazo.splice(i, 1);
-    else if (miMazo.length >= 8) { log("Ya tenés 8 cartas: sacá una antes de agregar otra.", "warn"); return; }
-    else if (CAMPEONES.has(id) && miMazo.some((c) => CAMPEONES.has(c))) {
+    const lista = listaEnEdicion();
+    const i = lista.indexOf(id);
+    if (i >= 0) lista.splice(i, 1);
+    else if (lista.length >= 8) { log("Ya hay 8 cartas: sacá una antes de agregar otra.", "warn"); return; }
+    else if (CAMPEONES.has(id) && lista.some((c) => CAMPEONES.has(c))) {
       log("Solo se puede llevar un campeón por mazo.", "warn"); return;
     }
-    else miMazo.push(id);
-    guardarPreferencias();
+    else lista.push(id);
+    if (modoMazo === "mio") guardarPreferencias(); else guardarPartida();
     pintarBotonMazo();
     pintarLista();
-    pintarMiMazo();
+    pintarTodo();
     return;
   }
 
   if (!estado.activa) iniciar();
   jugarCarta(b.dataset.id, "toque");
+});
+
+/* --- Pegar un mazo entero escribiendo los nombres --- */
+document.getElementById("btn-pegar").addEventListener("click", () => {
+  const campo = document.getElementById("pegar-mazo");
+  if (!campo.value.trim()) return;
+
+  const lista = modoMazo === "mio" ? miMazo : rivalMazo;
+  const nuevas = [];
+  const noEntendidas = [];
+  for (const trozo of campo.value.split(/[,;\n]+/)) {
+    const limpio = normalizar(trozo);
+    if (!limpio) continue;
+    const halladas = detectarCartas(limpio, false);
+    if (!halladas.length) { noEntendidas.push(trozo.trim()); continue; }
+    const id = halladas[0].id;
+    if (!lista.includes(id) && !nuevas.includes(id) && lista.length + nuevas.length < 8) nuevas.push(id);
+  }
+  lista.push(...nuevas);
+
+  if (modoMazo === "mio") guardarPreferencias(); else guardarPartida();
+  log("Cargadas " + nuevas.length + " cartas" + (noEntendidas.length ? " · no entendí: " + noEntendidas.join(", ") : ""),
+      noEntendidas.length ? "warn" : "tenue");
+  campo.value = "";
+  pintarBotonMazo();
+  pintarLista();
+  pintarTodo();
 });
 
 /* --- Agregar una carta que no está en la lista --- */
@@ -1870,7 +2018,7 @@ document.getElementById("nueva-guardar").addEventListener("click", () => {
 });
 
 /* --- Interruptores: voz, vibración y multiplicadores automáticos --- */
-const CHIPS = { "tg-voz": "voz", "tg-vibrar": "vibrar", "tg-reloj": "relojAuto" };
+const CHIPS = { "tg-voz": "voz", "tg-vibrar": "vibrar", "tg-reloj": "relojAuto", "tg-campo": "campoCampeon" };
 
 function pintarChips() {
   for (const idBoton in CHIPS) {
@@ -1886,6 +2034,12 @@ for (const idBoton in CHIPS) {
     pintarChips();
     pintarReloj();
     if (clave === "voz" && ajustes.voz) decir("avisos activados");
+    if (clave === "campoCampeon" && !ajustes.campoCampeon) {
+      // Al apagarlo, lo que haya quedado en el campo vuelve al ciclo.
+      if (estado.enCampo) { estado.deck.push(estado.enCampo); estado.enCampo = null; }
+      if (estado.miEnCampo) { estado.miDeck.push(estado.miEnCampo); estado.miEnCampo = null; }
+      pintarTodo();
+    }
   });
 }
 
