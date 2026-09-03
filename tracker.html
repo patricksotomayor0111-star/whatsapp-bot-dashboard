@@ -1,0 +1,1087 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0b0b14">
+<title>CR Voz · Rastreador del rival</title>
+<style>
+  :root{
+    --fondo:#0b0b14;
+    --panel:#151527;
+    --panel2:#1d1d34;
+    --borde:#2a2a48;
+    --texto:#f2f2ff;
+    --tenue:#8a8ab0;
+    --elixir:#e83fd8;
+    --elixir2:#8b5cf6;
+    --mano:#22d37a;
+    --evo:#c084fc;
+    --peligro:#ff4d5e;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{
+    margin:0;padding:10px 10px 40px;
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    background:radial-gradient(1200px 600px at 50% -10%,#241a3d 0%,var(--fondo) 60%);
+    color:var(--texto);min-height:100vh;
+  }
+  header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+  .marca{font-size:13px;font-weight:800;letter-spacing:.5px;color:var(--tenue);text-transform:uppercase}
+  .badge-mult{
+    background:linear-gradient(135deg,var(--elixir),var(--elixir2));
+    padding:5px 12px;border-radius:999px;font-weight:900;font-size:14px;
+    box-shadow:0 0 14px rgba(232,63,216,.45)
+  }
+  .badge-mult.x2,.badge-mult.x3{animation:latir 1s infinite}
+  @keyframes latir{50%{transform:scale(1.09)}}
+
+  /* ---------- Elixir ---------- */
+  .panel-elixir{
+    background:var(--panel);border:1px solid var(--borde);border-radius:16px;
+    padding:12px 14px 14px;margin-bottom:12px;position:relative;overflow:hidden
+  }
+  .fila-elixir{display:flex;align-items:baseline;gap:8px}
+  #num-elixir{
+    font-size:52px;line-height:1;font-weight:900;
+    color:var(--elixir);text-shadow:0 0 18px rgba(232,63,216,.55);
+    font-variant-numeric:tabular-nums;transition:color .15s
+  }
+  #num-elixir.vacio{color:var(--peligro);text-shadow:0 0 18px rgba(255,77,94,.6)}
+  .de10{font-size:16px;color:var(--tenue);font-weight:700}
+  .rotulo{font-size:10px;line-height:1.15;color:#5f5f85;font-weight:800;text-transform:uppercase;letter-spacing:.5px}
+  .castigo{
+    margin-left:auto;font-size:13px;font-weight:900;letter-spacing:1px;
+    color:var(--peligro);border:1px solid var(--peligro);border-radius:8px;
+    padding:4px 8px;animation:latir .7s infinite;display:none
+  }
+  .castigo.on{display:block}
+  .barra{
+    position:relative;height:16px;margin-top:10px;border-radius:8px;
+    background:#0a0a16;border:1px solid var(--borde);overflow:hidden
+  }
+  #relleno{
+    height:100%;width:50%;border-radius:7px;
+    background:linear-gradient(90deg,#a02bd6,var(--elixir));
+    box-shadow:0 0 12px rgba(232,63,216,.6);transition:width .12s linear
+  }
+  .marcas{position:absolute;inset:0;display:grid;grid-template-columns:repeat(10,1fr)}
+  .marcas span{border-right:1px solid rgba(255,255,255,.13)}
+  .marcas span:last-child{border-right:none}
+
+  /* ---------- Cartas ---------- */
+  h2.titulo{
+    font-size:12px;text-transform:uppercase;letter-spacing:1.2px;
+    color:var(--tenue);margin:14px 2px 6px;display:flex;justify-content:space-between;align-items:center
+  }
+  h2.titulo small{font-size:10px;font-weight:600;color:#5f5f85;text-transform:none;letter-spacing:0}
+  .grid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin-top:9px}
+  .carta{
+    position:relative;height:100px;border-radius:12px;padding:8px 3px;
+    min-width:0;word-break:break-word;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+    text-align:center;font-weight:800;font-size:11.5px;line-height:1.15;
+    background:linear-gradient(160deg,var(--panel2),#141426);
+    border:2px solid var(--borde);cursor:pointer;user-select:none;
+    transition:transform .12s,box-shadow .2s,border-color .2s
+  }
+  .carta:active{transform:scale(.94)}
+  .carta.mano{border-color:var(--mano);box-shadow:0 0 14px rgba(34,211,122,.28) inset,0 0 10px rgba(34,211,122,.15)}
+  .carta.cola{opacity:.72}
+  .carta.siguiente{border-color:#f0b429;opacity:1;box-shadow:0 0 10px rgba(240,180,41,.22)}
+  .carta.vacia{
+    border:2px dashed #2f2f52;background:none;color:#41416b;font-size:22px;font-weight:900;cursor:default
+  }
+  .carta .nombre{display:block;width:100%}
+  .carta.largo .nombre{font-size:9.8px;letter-spacing:-.2px}
+  .costo{
+    background:linear-gradient(135deg,var(--elixir),#7c3aed);
+    border-radius:999px;min-width:20px;padding:1px 7px;font-size:11px;font-weight:900
+  }
+  .etiqueta{
+    position:absolute;top:-7px;left:50%;transform:translateX(-50%);
+    font-size:8.5px;font-weight:900;letter-spacing:.6px;padding:2px 6px;border-radius:999px;
+    background:#f0b429;color:#231a00;white-space:nowrap
+  }
+  .etiqueta.turno{background:#2a2a48;color:var(--tenue)}
+  .evo-chip{
+    font-size:8.5px;font-weight:900;letter-spacing:.5px;padding:1px 5px;border-radius:5px;
+    border:1px solid var(--evo);color:var(--evo);
+    max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+  }
+  .evo-chip.preparada{background:var(--evo);color:#1a0033;animation:latir .8s infinite}
+  .carta.evo-activa{
+    border-color:var(--evo);
+    animation:destelloEvo 1s ease-out 3
+  }
+  @keyframes destelloEvo{
+    0%,100%{box-shadow:0 0 0 rgba(192,132,252,0)}
+    50%{box-shadow:0 0 22px rgba(192,132,252,.95);background:linear-gradient(160deg,#3b1d63,#241040)}
+  }
+  .carta.entrando{animation:entra .35s ease-out}
+  @keyframes entra{from{transform:translateY(8px) scale(.85);opacity:0}to{transform:none;opacity:1}}
+
+  /* ---------- Controles ---------- */
+  .controles{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin:14px 0 8px}
+  button{
+    font-family:inherit;font-weight:800;font-size:14px;border:none;border-radius:11px;
+    padding:13px 10px;cursor:pointer;color:var(--texto);background:var(--panel2);
+    border:1px solid var(--borde);transition:transform .1s,filter .15s
+  }
+  button:active{transform:scale(.96)}
+  .btn-principal{
+    grid-column:1 / -1;font-size:16px;
+    background:linear-gradient(135deg,#6d28d9,var(--elixir));border:none;
+    box-shadow:0 6px 20px rgba(232,63,216,.3)
+  }
+  .btn-principal.on{background:linear-gradient(135deg,#0f7a45,#22d37a);box-shadow:0 6px 20px rgba(34,211,122,.28)}
+  .mults{grid-column:1 / -1;display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+  .mults button.activo{background:linear-gradient(135deg,var(--elixir),var(--elixir2));border-color:transparent}
+  .status{
+    padding:9px;border-radius:10px;font-weight:800;font-size:13px;text-align:center;margin:6px 0
+  }
+  .status.pausado{background:#3a1620;color:#ff8f9c;border:1px solid #6d2233}
+  .status.escuchando{background:#0e3524;color:#5df0a6;border:1px solid #17663f}
+  .status.error{background:#3a2c12;color:#f8c76a;border:1px solid #6d5622}
+  .consola{
+    background:#05050c;border:1px solid var(--borde);border-radius:10px;
+    padding:8px 10px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;
+    color:#5df0a6;min-height:62px;max-height:110px;overflow-y:auto
+  }
+  .consola .warn{color:#f8c76a}
+  .consola .err{color:#ff8f9c}
+  .consola .tenue{color:#4c4c70}
+
+  /* ---------- Teclado de cartas ---------- */
+  .plegable{margin-top:14px}
+  .plegable > button{width:100%;text-align:left;font-size:13px;background:var(--panel)}
+  #buscar{
+    width:100%;margin:8px 0;padding:11px;border-radius:10px;font-size:15px;
+    background:#05050c;border:1px solid var(--borde);color:var(--texto)
+  }
+  .lista-cartas{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:6px;max-height:230px;overflow-y:auto}
+  .lista-cartas button{padding:9px 6px;font-size:11.5px;line-height:1.2;background:var(--panel2)}
+  .lista-cartas button b{color:var(--elixir)}
+  .ayuda{
+    margin-top:16px;background:var(--panel);border:1px solid var(--borde);
+    border-radius:12px;padding:12px 14px;font-size:12.5px;line-height:1.7;color:var(--tenue)
+  }
+  .ayuda b{color:var(--texto)}
+  .ayuda code{
+    background:#05050c;border:1px solid var(--borde);border-radius:5px;
+    padding:1px 6px;color:#5df0a6;font-size:11.5px
+  }
+
+  /* ---------- Modal ---------- */
+  .modal{
+    position:fixed;inset:0;background:rgba(4,4,10,.82);display:flex;
+    align-items:center;justify-content:center;padding:18px;z-index:50
+  }
+  .modal[hidden]{display:none}
+  .modal-caja{
+    width:100%;max-width:330px;background:var(--panel);border:1px solid var(--borde);
+    border-radius:16px;padding:16px
+  }
+  .modal-caja h3{margin:0 0 12px;font-size:17px}
+  .campo{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;font-size:13px;color:var(--tenue)}
+  .campo input{
+    width:74px;padding:8px;border-radius:8px;text-align:center;font-size:15px;font-weight:800;
+    background:#05050c;border:1px solid var(--borde);color:var(--texto)
+  }
+  .modal-botones{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:14px}
+  .modal-botones .ancho{grid-column:1 / -1}
+  .peligro{background:#3a1620;border-color:#6d2233;color:#ff8f9c}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="marca">CR Voz · mazo del rival</div>
+  <div class="badge-mult x1" id="badge-mult">x1</div>
+</header>
+
+<section class="panel-elixir">
+  <div class="fila-elixir">
+    <span id="num-elixir">5.0</span><span class="de10">/10</span>
+    <span class="rotulo">elixir<br>del rival</span>
+    <div class="castigo" id="castigo">¡CASTIGA!</div>
+  </div>
+  <div class="barra">
+    <div id="relleno"></div>
+    <div class="marcas"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+  </div>
+</section>
+
+<h2 class="titulo">Mano del rival <small>puede jugarlas ahora · toca para registrar</small></h2>
+<div class="grid4" id="mano"></div>
+
+<h2 class="titulo">En ciclo <small>orden en que le vuelven a la mano</small></h2>
+<div class="grid4" id="cola"></div>
+
+<div class="controles">
+  <button class="btn-principal" id="btn-micro">▶ Iniciar batalla / micrófono</button>
+  <button id="btn-deshacer">↩ Deshacer</button>
+  <button id="btn-reiniciar">⟳ Nueva partida</button>
+  <div class="mults">
+    <button data-mult="1" class="activo">x1 normal</button>
+    <button data-mult="2">x2 doble</button>
+    <button data-mult="3">x3 triple</button>
+  </div>
+</div>
+
+<div id="estado-micro" class="status pausado">Micrófono apagado</div>
+<div class="consola" id="consola"></div>
+
+<div class="plegable">
+  <button id="btn-teclado">⌨️ Teclado de cartas (si la voz falla) ▾</button>
+  <div id="panel-teclado" hidden>
+    <input id="buscar" placeholder="Buscar carta…" autocomplete="off">
+    <div class="lista-cartas" id="lista-cartas"></div>
+  </div>
+</div>
+
+<div class="ayuda">
+  <b>Cómo se usa</b><br>
+  Di el nombre de la carta en cuanto el rival la suelte: <code>monta</code>, <code>mega caballero</code>, <code>tronco</code>.
+  Se resta el elixir, la carta entra al ciclo y sabes qué le vuelve a la mano.<br><br>
+  <b>Comandos de voz</b><br>
+  <code>elixir por dos</code> / <code>doble elixir</code> → x2<br>
+  <code>elixir por tres</code> / <code>triple elixir</code> → x3<br>
+  <code>elixir normal</code> → x1<br>
+  <code>elixir cinco</code> → corrige el elixir a ese número<br>
+  <code>deshacer</code> / <code>me equivoqué</code> → borra la última carta<br>
+  <code>nueva partida</code> → reinicia todo<br><br>
+  <b>Corregir a mano</b><br>
+  Mantén pulsada una carta para cambiar su costo, sus ciclos de evolución o sacarla del mazo.
+  Los costos quedan guardados en este celular, así que si Supercell cambia un balance lo ajustas una vez y listo.<br><br>
+  <b>Pitido</b> corto cuando el rival llega a 0 de elixir.
+</div>
+
+<div class="modal" id="modal" hidden>
+  <div class="modal-caja">
+    <h3 id="modal-titulo">Carta</h3>
+    <div class="campo"><span>Costo de elixir</span><input type="number" id="modal-costo" min="0" max="12" step="1"></div>
+    <div class="campo"><span>Ciclos para evolucionar<br><small>0 = no tiene evolución</small></span><input type="number" id="modal-evo" min="0" max="5" step="1"></div>
+    <div class="campo"><span>Jugadas acumuladas</span><input type="number" id="modal-conteo" min="0" max="9" step="1"></div>
+    <div class="modal-botones">
+      <button class="ancho peligro" id="modal-quitar">Sacar del mazo del rival</button>
+      <button id="modal-cancelar">Cancelar</button>
+      <button class="btn-principal" style="grid-column:auto" id="modal-guardar">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/* ===========================================================
+   1. CARTAS
+   [id, nombre, costo, ciclosEvo (0 = sin evolución), alias]
+   Los alias van sin tildes y en minúscula: así llega el texto
+   ya normalizado desde el micrófono.
+   Costos y ciclos de evo se pueden corregir a mano desde la app
+   (quedan guardados en el celular) por si cambia el balance.
+   =========================================================== */
+const DATOS = [
+  // --- 1 de elixir ---
+  ["esqueletos","Esqueletos",1,1,"esqueletos|esqueleto|skeletons"],
+  ["espiritu_hielo","Espíritu de Hielo",1,1,"espiritu de hielo|espiritu hielo|hielito|ice spirit"],
+  ["espiritu_fuego","Espíritu de Fuego",1,0,"espiritu de fuego|espiritu fuego|fire spirit"],
+  ["espiritu_electrico","Espíritu Eléctrico",1,0,"espiritu electrico|electro espiritu|electric spirit"],
+  ["espiritu_sanador","Espíritu Sanador",1,0,"espiritu sanador|espiritu de curacion|heal spirit"],
+  // --- 2 de elixir ---
+  ["murcielagos","Murciélagos",2,2,"murcielagos|murcielago|bats"],
+  ["duendes","Duendes",2,0,"duendes|goblins|duende"],
+  ["duendes_lanza","Duendes con Lanza",2,0,"duendes con lanza|duendes lanceros|spear goblins"],
+  ["rompemuros","Rompemuros",2,2,"rompemuros|rompe muros|wall breakers"],
+  ["golem_hielo","Gólem de Hielo",2,0,"golem de hielo|golem hielo|ice golem"],
+  ["bombardero","Bombardero",2,2,"bombardero|bomber"],
+  ["descarga","Descarga",2,1,"descarga|zap|sap"],
+  ["tronco","Tronco",2,0,"tronco|el tronco|the log|log"],
+  ["bola_nieve","Bola de Nieve",2,2,"bola de nieve|bola de nieve gigante|nieve|snowball"],
+  ["barril_barbaros","Barril de Bárbaros",2,0,"barril de barbaros|barbarian barrel"],
+  ["furia","Furia",2,0,"furia|rabia|rage"],
+  // --- 3 de elixir ---
+  ["esbirros","Esbirros",3,0,"esbirros|esbirro|minions"],
+  ["megaesbirro","Megaesbirro",3,0,"megaesbirro|mega esbirro|mega minion"],
+  ["caballero","Caballero",3,2,"caballero|knight"],
+  ["arqueras","Arqueras",3,2,"arqueras|arquera|archers"],
+  ["minero","Minero",3,0,"minero|miner"],
+  ["princesa","Princesa",3,0,"princesa|princess"],
+  ["mago_hielo","Mago de Hielo",3,0,"mago de hielo|ice wizard"],
+  ["bandida","Bandida",3,0,"bandida|bandit"],
+  ["fantasma_real","Fantasma Real",3,0,"fantasma real|fantasma|royal ghost"],
+  ["pescador","Pescador",3,0,"pescador|fisherman"],
+  ["petardera","Petardera",3,2,"petardera|petardo|firecracker"],
+  ["principito","Principito",3,0,"principito|little prince"],
+  ["ejercito_esqueletos","Ejército de Esqueletos",3,0,"ejercito de esqueletos|ejercito|skeleton army|escarmi"],
+  ["barril_esqueletos","Barril de Esqueletos",3,0,"barril de esqueletos|skeleton barrel"],
+  ["barril_duendes","Barril de Duendes",3,2,"barril de duendes|barril|goblin barrel"],
+  ["pandilla_duendes","Pandilla de Duendes",3,0,"pandilla de duendes|pandilla|goblin gang"],
+  ["duende_cerbatana","Duende con Cerbatana",3,0,"duende con cerbatana|cerbatana|duende dardo|dart goblin"],
+  ["guardias","Guardias",3,0,"guardias|guards"],
+  ["golem_elixir","Gólem de Elixir",3,0,"golem de elixir|elixir golem"],
+  ["canon","Cañón",3,2,"canon|cannon"],
+  ["lapida","Lápida",3,0,"lapida|tombstone"],
+  ["flechas","Flechas",3,0,"flechas|flecha|arrows"],
+  ["tornado","Tornado",3,0,"tornado"],
+  ["terremoto","Terremoto",3,0,"terremoto|earthquake"],
+  ["clonacion","Clonación",3,0,"clonacion|clon|clone"],
+  ["entrega_real","Entrega Real",3,0,"entrega real|royal delivery"],
+  ["vacio","Vacío",3,0,"vacio|void"],
+  // --- 4 de elixir ---
+  ["mosquetera","Mosquetera",4,0,"mosquetera|musketeer"],
+  ["minipekka","Mini P.E.K.K.A",4,0,"mini pekka|minipekka|mini peca|mini p e k k a"],
+  ["valquiria","Valquiria",4,2,"valquiria|valkiria|valkyrie"],
+  ["montapuercos","Montapuercos",4,0,"montapuercos|monta puercos|monta|hog rider|hog|jinete de cerdo"],
+  ["ariete","Ariete de Batalla",4,2,"ariete de batalla|ariete|battle ram"],
+  ["principe_oscuro","Príncipe Oscuro",4,0,"principe oscuro|dark prince"],
+  ["bruja_nocturna","Bruja Nocturna",4,0,"bruja nocturna|night witch"],
+  ["bruja_madre","Bruja Madre",4,0,"bruja madre|mother witch"],
+  ["mago_electrico","Mago Eléctrico",4,0,"mago electrico|electro wizard|iwiz"],
+  ["bebe_dragon","Bebé Dragón",4,0,"bebe dragon|dragon bebe|baby dragon"],
+  ["dragon_infernal","Dragón Infernal",4,0,"dragon infernal|inferno dragon"],
+  ["dragones_esqueleticos","Dragones Esqueléticos",4,0,"dragones esqueleticos|dragon esqueletico|skeleton dragons"],
+  ["lenador","Leñador",4,0,"lenador|lumberjack"],
+  ["cazador","Cazador",4,0,"cazador|hunter"],
+  ["maquina_voladora","Máquina Voladora",4,0,"maquina voladora|flying machine"],
+  ["electrochispas","Electrochispas",4,0,"electrochispas|zappies"],
+  ["arquero_magico","Arquero Mágico",4,0,"arquero magico|magic archer"],
+  ["sanadora","Sanadora de Batalla",4,0,"sanadora|curandera|battle healer"],
+  ["caballero_dorado","Caballero Dorado",4,0,"caballero dorado|golden knight"],
+  ["rey_esqueleto","Rey Esqueleto",4,0,"rey esqueleto|skeleton king"],
+  ["minero_poderoso","Minero Poderoso",4,0,"minero poderoso|super minero|mighty miner"],
+  ["fenix","Fénix",4,0,"fenix|phoenix"],
+  ["torre_tesla","Torre Tesla",4,1,"torre tesla|tesla"],
+  ["torre_bombas","Torre de Bombas",4,0,"torre de bombas|bomb tower"],
+  ["horno","Horno",4,0,"horno|furnace"],
+  ["jaula_duendes","Jaula de Duendes",4,0,"jaula de duendes|jaula|goblin cage"],
+  ["taladro_duendes","Taladro de Duendes",4,0,"taladro de duendes|taladro|goblin drill"],
+  ["mortero","Mortero",4,1,"mortero|mortar"],
+  ["bola_fuego","Bola de Fuego",4,0,"bola de fuego|bola|fireball"],
+  ["veneno","Veneno",4,0,"veneno|poison"],
+  ["congelacion","Congelación",4,0,"congelacion|congelar|freeze"],
+  // --- 5 de elixir ---
+  ["gigante","Gigante",5,0,"gigante|giant"],
+  ["globo","Globo",5,0,"globo|globo bombastico|balloon"],
+  ["mago","Mago",5,2,"mago|wizard"],
+  ["bruja","Bruja",5,0,"bruja|witch"],
+  ["barbaros","Bárbaros",5,2,"barbaros|barbarians"],
+  ["horda_esbirros","Horda de Esbirros",5,0,"horda de esbirros|horda|minion horde"],
+  ["principe","Príncipe",5,0,"principe|prince"],
+  ["verdugo","Verdugo",5,0,"verdugo|executioner"],
+  ["dragon_electrico","Dragón Eléctrico",5,0,"dragon electrico|electro dragon"],
+  ["cerdos_reales","Cerdos Reales",5,0,"cerdos reales|cerditos|royal hogs"],
+  ["jinete_ariete","Jinete del Ariete",5,0,"jinete del ariete|jinete de ariete|ram rider|jinete carnero"],
+  ["carrito_canon","Carrito de Cañón",5,0,"carrito de canon|carrito|cannon cart"],
+  ["pillos","Pillos",5,0,"pillos|rascals"],
+  ["monje","Monje",5,0,"monje|monk"],
+  ["reina_arquera","Reina Arquera",5,0,"reina arquera|reina|archer queen"],
+  ["goblinstein","Goblinstein",5,0,"goblinstein"],
+  ["cementerio","Cementerio",5,0,"cementerio|graveyard"],
+  ["cabana_duendes","Cabaña de Duendes",5,0,"cabana de duendes|choza de duendes|goblin hut"],
+  ["torre_infernal","Torre Infernal",5,0,"torre infernal|infernal|inferno tower"],
+  // --- 6 y más ---
+  ["gigante_noble","Gigante Noble",6,2,"gigante noble|gigante real|royal giant"],
+  ["barbaros_elite","Bárbaros de Élite",6,0,"barbaros de elite|barbaros elite|elites|elite barbarians"],
+  ["gigante_duende","Gigante Duende",6,0,"gigante duende|goblin giant"],
+  ["gigante_esqueletico","Gigante Esquelético",6,0,"gigante esqueletico|giant skeleton"],
+  ["chispitas","Chispitas",6,0,"chispitas|sparky"],
+  ["ballesta","Ballesta",6,0,"ballesta|x bow|equis bow"],
+  ["recolector","Recolector de Elixir",6,0,"recolector de elixir|recolector|bomba de elixir|elixir collector"],
+  ["cohete","Cohete",6,0,"cohete|rocket"],
+  ["rayo","Rayo",6,0,"rayo|lightning"],
+  ["pekka","P.E.K.K.A",7,0,"pekka|peca|p e k k a"],
+  ["megacaballero","Mega Caballero",7,2,"mega caballero|megacaballero|mega knight"],
+  ["sabueso","Sabueso de Lava",7,0,"sabueso de lava|sabueso|lava hound|lava"],
+  ["reclutas_reales","Reclutas Reales",7,0,"reclutas reales|reclutas|royal recruits"],
+  ["choza_barbaros","Choza de Bárbaros",7,0,"choza de barbaros|barbarian hut"],
+  ["golem","Gólem",8,0,"golem"],
+  ["gigante_electrico","Gigante Eléctrico",8,0,"gigante electrico|electro giant"],
+  ["tres_mosqueteras","Tres Mosqueteras",9,0,"tres mosqueteras|trio de mosqueteras|three musketeers"],
+  ["espejo","Espejo",0,0,"espejo|mirror"],
+];
+
+const CARTAS = {};
+DATOS.forEach(([id, nombre, costo, evo, alias]) => {
+  CARTAS[id] = { id, nombre, costo, evo, alias: alias.split("|") };
+});
+
+/* Índice de alias ordenado del más largo al más corto: así "gigante noble"
+   gana antes que "gigante", y "mini pekka" antes que "pekka". */
+const INDICE = [];
+for (const id in CARTAS) {
+  for (const alias of CARTAS[id].alias) INDICE.push({ alias, id, re: new RegExp("\\b" + alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b") });
+}
+INDICE.sort((a, b) => b.alias.length - a.alias.length);
+
+/* Un alias es "ambiguo" si otro alias empieza igual ("gigante" → "gigante noble").
+   Esos esperan al resultado final del micrófono; el resto se disparan al vuelo. */
+for (const entrada of INDICE) {
+  entrada.ambiguo = INDICE.some((o) => o !== entrada && o.alias.startsWith(entrada.alias + " "));
+}
+
+/* ===========================================================
+   2. ESTADO
+   deck: 8 posiciones. 0-3 = mano del rival, 4-7 = cola.
+   null = carta todavía desconocida.
+   =========================================================== */
+const LS_CFG = "crv_config_cartas";
+const LS_PARTIDA = "crv_partida";
+
+const estado = {
+  deck: [null, null, null, null, null, null, null, null],
+  elixir: 5,
+  mult: 1,
+  evo: {},          // id -> jugadas acumuladas
+  ultimoCosto: 3,
+  activa: false,
+  escuchando: false,
+};
+
+let config = {};    // id -> {costo, evo} corregidos por el usuario
+let historial = [];
+let ultimaJugada = { id: null, t: 0 };
+let alertaCero = false;
+let evoDestello = null;
+
+function costoDe(id) { return config[id]?.costo ?? CARTAS[id].costo; }
+function evoDe(id) { return config[id]?.evo ?? CARTAS[id].evo; }
+
+function cargarConfig() {
+  try { config = JSON.parse(localStorage.getItem(LS_CFG)) || {}; } catch (e) { config = {}; }
+}
+function guardarConfig() {
+  try { localStorage.setItem(LS_CFG, JSON.stringify(config)); } catch (e) {}
+}
+
+/* La partida se guarda por si el navegador recarga en plena batalla:
+   al volver se recupera el mazo y se le suma el elixir que regeneró
+   mientras estuvo fuera. */
+function guardarPartida() {
+  try {
+    localStorage.setItem(LS_PARTIDA, JSON.stringify({
+      deck: estado.deck, elixir: estado.elixir, mult: estado.mult,
+      evo: estado.evo, ultimoCosto: estado.ultimoCosto, ts: Date.now(),
+    }));
+  } catch (e) {}
+}
+function restaurarPartida() {
+  let g = null;
+  try { g = JSON.parse(localStorage.getItem(LS_PARTIDA)); } catch (e) { return false; }
+  if (!g || !Array.isArray(g.deck) || g.deck.length !== 8) return false;
+  const segundos = (Date.now() - (g.ts || 0)) / 1000;
+  if (segundos > 600 || g.deck.every((c) => c === null)) return false;
+  estado.deck = g.deck.map((c) => (c && CARTAS[c] ? c : null));
+  estado.evo = g.evo || {};
+  estado.mult = g.mult || 1;
+  estado.ultimoCosto = g.ultimoCosto ?? 3;
+  estado.elixir = Math.min(10, (g.elixir || 0) + (segundos * estado.mult) / 2.8);
+  return true;
+}
+
+/* ===========================================================
+   3. CICLO DE 4 CARTAS
+   Jugar una carta = sacarla de la mano y mandarla al final de la
+   cola. Como el mazo son 8 posiciones fijas, vuelve a la mano
+   después de que el rival juegue otras 4 cartas distintas.
+   =========================================================== */
+function rotar(id) {
+  const d = estado.deck;
+  let idx = d.indexOf(id);
+  let aviso = null;
+
+  if (idx === -1) {
+    // Carta nueva: tuvo que salir de una posición todavía desconocida de la mano.
+    const libre = d.slice(0, 4).indexOf(null);
+    if (libre === -1) return { ok: false, motivo: "novena" }; // ya conocemos las 8
+    d[libre] = id;
+    idx = libre;
+  } else if (idx >= 4) {
+    // La teníamos en la cola: se nos escapó alguna jugada. Se reacomoda igual.
+    aviso = "desfase";
+  }
+
+  d.splice(idx, 1);
+  d.push(id);
+  return { ok: true, aviso };
+}
+
+function snapshot() {
+  historial.push(JSON.stringify({
+    deck: estado.deck, elixir: estado.elixir, mult: estado.mult,
+    evo: estado.evo, ultimoCosto: estado.ultimoCosto,
+  }));
+  if (historial.length > 40) historial.shift();
+}
+
+function deshacer() {
+  const prev = historial.pop();
+  if (!prev) { log("Nada que deshacer", "tenue"); return; }
+  const s = JSON.parse(prev);
+  estado.deck = s.deck;
+  estado.elixir = s.elixir;
+  estado.mult = s.mult;
+  estado.evo = s.evo;
+  estado.ultimoCosto = s.ultimoCosto;
+  ultimaJugada = { id: null, t: 0 };
+  log("↩ Deshecho", "warn");
+  pintarTodo();
+  guardarPartida();
+}
+
+/* Registra que el rival jugó una carta: resta elixir, mueve el ciclo
+   y revisa si le tocaba evolución. */
+function jugarCarta(id, origen) {
+  if (!CARTAS[id]) return;
+
+  // Blindaje contra el micrófono repitiendo la misma palabra: en Clash Royale
+  // una carta no puede caer dos veces seguidas en 2 segundos.
+  const ahora = Date.now();
+  if (id === ultimaJugada.id && ahora - ultimaJugada.t < 2000) return;
+
+  snapshot();
+
+  const res = rotar(id);
+  if (!res.ok) {
+    historial.pop();
+    log("⚠ " + CARTAS[id].nombre + ": el rival ya tiene 8 cartas conocidas. Ignorada (mantén pulsada una carta para corregir el mazo)", "err");
+    return;
+  }
+
+  const costo = id === "espejo" ? Math.min(10, (estado.ultimoCosto || 3) + 1) : costoDe(id);
+  estado.elixir = Math.max(0, estado.elixir - costo);
+  if (id !== "espejo") estado.ultimoCosto = costo;
+
+  // Evolución: se cuentan las jugadas y, al llegar a los ciclos que pide
+  // la carta, la siguiente sale EVO y el contador vuelve a cero.
+  let esEvo = false;
+  const ciclos = evoDe(id);
+  if (ciclos > 0) {
+    const acum = estado.evo[id] || 0;
+    if (acum >= ciclos) { esEvo = true; estado.evo[id] = 0; }
+    else estado.evo[id] = acum + 1;
+  }
+
+  ultimaJugada = { id, t: ahora };
+  if (esEvo) evoDestello = { id, hasta: ahora + 3000 };
+
+  let texto = (origen === "voz" ? "🎙️ " : "👆 ") + CARTAS[id].nombre + " −" + costo;
+  if (esEvo) texto += "  ⚡EVOLUCIONADA";
+  log(texto, esEvo ? "warn" : "");
+  if (res.aviso === "desfase") log("   (esa carta la teníamos en la cola: ciclo reajustado)", "warn");
+
+  revisarCero();
+  pintarTodo();
+  guardarPartida();
+}
+
+/* ===========================================================
+   4. ELIXIR
+   1 gota cada 2.8 s en normal, 1.4 s en x2 y 0.93 s en x3.
+   Se calcula por tiempo real transcurrido, así no se desfasa
+   aunque el celular ralentice los temporizadores en segundo plano.
+   =========================================================== */
+let ultimoTick = 0;
+let bucle = null;
+
+function arrancarElixir() {
+  ultimoTick = Date.now();
+  if (bucle) clearInterval(bucle);
+  bucle = setInterval(() => {
+    const ahora = Date.now();
+    const delta = (ahora - ultimoTick) / 1000;
+    ultimoTick = ahora;
+    if (!estado.activa) return;
+    if (estado.elixir < 10) {
+      estado.elixir = Math.min(10, estado.elixir + (delta * estado.mult) / 2.8);
+      pintarElixir();
+    }
+  }, 100);
+}
+
+function pararElixir() {
+  if (bucle) clearInterval(bucle);
+  bucle = null;
+}
+
+function ponerMultiplicador(m) {
+  if (estado.mult === m) return;
+  estado.mult = m;
+  document.querySelectorAll(".mults button").forEach((b) => {
+    b.classList.toggle("activo", Number(b.dataset.mult) === m);
+  });
+  const badge = document.getElementById("badge-mult");
+  badge.textContent = "x" + m;
+  badge.className = "badge-mult x" + m;
+  log("⚡ Elixir x" + m, "warn");
+  guardarPartida();
+}
+
+/* ===========================================================
+   5. PITIDO AL LLEGAR A 0 (sin archivos de audio)
+   =========================================================== */
+let audioCtx = null;
+
+function prepararAudio() {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+  } catch (e) { audioCtx = null; }
+}
+
+function pitido() {
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime;
+  [0, 0.18].forEach((retraso, i) => {
+    const osc = audioCtx.createOscillator();
+    const vol = audioCtx.createGain();
+    osc.type = "square";
+    osc.frequency.setValueAtTime(i === 0 ? 880 : 1320, t0 + retraso);
+    vol.gain.setValueAtTime(0.0001, t0 + retraso);
+    vol.gain.exponentialRampToValueAtTime(0.35, t0 + retraso + 0.02);
+    vol.gain.exponentialRampToValueAtTime(0.0001, t0 + retraso + 0.14);
+    osc.connect(vol).connect(audioCtx.destination);
+    osc.start(t0 + retraso);
+    osc.stop(t0 + retraso + 0.16);
+  });
+}
+
+// Suena una sola vez al tocar el cero; se rearma cuando el rival
+// vuelve a juntar 1 de elixir.
+function revisarCero() {
+  if (estado.elixir <= 0.05 && !alertaCero) {
+    alertaCero = true;
+    pitido();
+    if (navigator.vibrate) navigator.vibrate([90, 60, 90]);
+    log("🔊 ¡Rival en 0 de elixir!", "warn");
+  } else if (estado.elixir >= 1) {
+    alertaCero = false;
+  }
+}
+
+/* ===========================================================
+   6. PANTALLA
+   =========================================================== */
+const $mano = document.getElementById("mano");
+const $cola = document.getElementById("cola");
+const $num = document.getElementById("num-elixir");
+const $relleno = document.getElementById("relleno");
+const $castigo = document.getElementById("castigo");
+const $consola = document.getElementById("consola");
+
+function pintarElixir() {
+  const e = estado.elixir;
+  $num.textContent = e.toFixed(1);
+  $num.classList.toggle("vacio", e < 1);
+  $relleno.style.width = (e * 10) + "%";
+  $castigo.classList.toggle("on", estado.activa && e < 2.5);
+  revisarCero();
+}
+
+function htmlCarta(id, zona, posicion) {
+  if (!id) return '<div class="carta vacia" data-pos="' + posicion + '">?</div>';
+
+  const c = CARTAS[id];
+  const costo = id === "espejo" ? (estado.ultimoCosto || 3) + 1 : costoDe(id);
+  const ciclos = evoDe(id);
+  const acum = estado.evo[id] || 0;
+  const clases = ["carta", zona];
+
+  let etiqueta = "";
+  if (zona === "cola") {
+    const turnos = posicion - 3; // 4 -> le vuelve a la mano con la proxima carta que juegue
+    if (turnos === 1) { clases.push("siguiente"); etiqueta = '<div class="etiqueta">SIGUIENTE</div>'; }
+    else etiqueta = '<div class="etiqueta turno">en ' + turnos + '</div>';
+  }
+
+  let evoHtml = "";
+  if (ciclos > 0) {
+    const lista = acum >= ciclos;
+    evoHtml = '<span class="evo-chip' + (lista ? " preparada" : "") + '">' +
+      (lista ? "EVO LISTA" : "evo " + acum + "/" + ciclos) + "</span>";
+  }
+  if (evoDestello && evoDestello.id === id && Date.now() < evoDestello.hasta) clases.push("evo-activa");
+  if (c.nombre.length > 11) clases.push("largo");
+
+  return '<div class="' + clases.join(" ") + '" data-id="' + id + '" data-pos="' + posicion + '">' +
+    etiqueta +
+    '<span class="nombre">' + c.nombre + "</span>" +
+    '<span class="costo">' + costo + "</span>" +
+    evoHtml +
+    "</div>";
+}
+
+function pintarMazo() {
+  $mano.innerHTML = estado.deck.slice(0, 4).map((id, i) => htmlCarta(id, "mano", i)).join("");
+  $cola.innerHTML = estado.deck.slice(4).map((id, i) => htmlCarta(id, "cola", i + 4)).join("");
+}
+
+function pintarTodo() { pintarElixir(); pintarMazo(); }
+
+function log(texto, clase) {
+  const linea = document.createElement("div");
+  if (clase) linea.className = clase;
+  linea.textContent = texto;
+  $consola.appendChild(linea);
+  while ($consola.children.length > 40) $consola.removeChild($consola.firstChild);
+  $consola.scrollTop = $consola.scrollHeight;
+}
+
+/* ===========================================================
+   7. VOZ (Web Speech API)
+   =========================================================== */
+const Reconocimiento = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null;
+let ultimoStart = 0;
+const disparados = new Map(); // indice de frase -> cartas ya registradas de esa frase
+
+function normalizar(t) {
+  return String(t)
+    .toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/* Busca todas las cartas nombradas en la frase sin que se pisen entre ellas:
+   "monta y tronco" registra las dos, y "gigante noble" nunca cuenta ademas
+   como "gigante". */
+function detectarCartas(frase, soloSeguras) {
+  let restante = " " + frase + " ";
+  const hallados = [];
+  for (const entrada of INDICE) {
+    if (soloSeguras && entrada.ambiguo) continue;
+    let desde = 0;
+    for (;;) {
+      const m = restante.slice(desde).match(entrada.re);
+      if (!m) break;
+      const inicio = desde + m.index;
+      hallados.push({ pos: inicio, id: entrada.id });
+      restante = restante.slice(0, inicio) + " ".repeat(entrada.alias.length) + restante.slice(inicio + entrada.alias.length);
+      desde = inicio + entrada.alias.length;
+    }
+  }
+  hallados.sort((a, b) => a.pos - b.pos);
+  const vistos = new Set();
+  return hallados.filter((h) => (vistos.has(h.id) ? false : (vistos.add(h.id), true)));
+}
+
+const NUMEROS = { cero: 0, uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10 };
+
+/* Comandos que no son cartas. Devuelve true si la frase era un comando,
+   asi no se busca ninguna carta dentro. */
+function interpretarComando(frase) {
+  if (/\b(nueva partida|nueva batalla|reiniciar|resetear|borrar todo)\b/.test(frase)) { reiniciar(); return true; }
+  if (/\b(deshacer|me equivoque|corregir|borra la ultima|quita la ultima)\b/.test(frase)) { deshacer(); return true; }
+  if (/\b(doble elixir|elixir doble|elixir (por|x) ?(dos|2))\b/.test(frase)) { ponerMultiplicador(2); return true; }
+  if (/\b(triple elixir|elixir triple|elixir (por|x) ?(tres|3))\b/.test(frase)) { ponerMultiplicador(3); return true; }
+  if (/\b(elixir normal|elixir simple|elixir (por|x) ?(uno|1))\b/.test(frase)) { ponerMultiplicador(1); return true; }
+  if (/\belixir lleno\b/.test(frase)) { snapshot(); estado.elixir = 10; alertaCero = false; pintarTodo(); log("Elixir del rival a 10", "warn"); return true; }
+
+  // "elixir cinco" / "elixir a 7": corrige la cuenta si se desfaso
+  const m = frase.match(/\belixir (?:a |en )?(\d{1,2}|cero|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\b/);
+  if (m) {
+    const valor = NUMEROS[m[1]] !== undefined ? NUMEROS[m[1]] : Number(m[1]);
+    if (!isNaN(valor) && valor >= 0 && valor <= 10) {
+      snapshot();
+      estado.elixir = valor;
+      if (valor > 0) alertaCero = false;
+      log("Elixir del rival corregido a " + valor, "warn");
+      pintarTodo();
+      return true;
+    }
+  }
+  return false;
+}
+
+function procesarFrase(frase, indice, esFinal) {
+  if (!estado.activa) return;
+  if (esFinal && interpretarComando(frase)) return;
+
+  let yaHechas = disparados.get(indice);
+  if (!yaHechas) { yaHechas = new Set(); disparados.set(indice, yaHechas); }
+  if (disparados.size > 30) disparados.delete(disparados.keys().next().value);
+
+  // En los resultados provisionales solo se aceptan nombres que no puedan
+  // crecer ("montapuercos" si, "gigante" no, porque puede terminar siendo
+  // "gigante noble"). Asi se gana medio segundo sin equivocarse.
+  for (const hallado of detectarCartas(frase, !esFinal)) {
+    if (yaHechas.has(hallado.id)) continue;
+    yaHechas.add(hallado.id);
+    jugarCarta(hallado.id, "voz");
+  }
+}
+
+function estadoMicro(texto, clase) {
+  const el = document.getElementById("estado-micro");
+  el.textContent = texto;
+  el.className = "status " + clase;
+}
+
+function crearReconocimiento() {
+  if (!Reconocimiento) return null;
+  const r = new Reconocimiento();
+  r.lang = "es-ES";
+  r.continuous = true;
+  r.interimResults = true;
+  r.maxAlternatives = 3;
+
+  r.onstart = () => {
+    ultimoStart = Date.now();
+    estadoMicro("Escuchando la partida...", "escuchando");
+  };
+
+  r.onresult = (ev) => {
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      const resultado = ev.results[i];
+      const principal = normalizar(resultado[0].transcript);
+      if (!principal) continue;
+
+      if (resultado.isFinal) {
+        log('"' + principal + '"', "tenue");
+        // Se revisan tambien las otras interpretaciones del microfono: a
+        // veces la carta esta en la segunda y no en la primera.
+        for (let a = 0; a < Math.min(resultado.length, 3); a++) {
+          procesarFrase(normalizar(resultado[a].transcript), i, true);
+        }
+      } else {
+        procesarFrase(principal, i, false);
+      }
+    }
+  };
+
+  r.onerror = (ev) => {
+    if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
+      estado.escuchando = false;
+      estadoMicro("Sin permiso de microfono. Toca el candado del navegador y permitelo.", "error");
+      log("Permiso de microfono denegado", "err");
+    } else if (ev.error === "audio-capture") {
+      estadoMicro("No se encontro microfono", "error");
+    } else if (ev.error !== "no-speech" && ev.error !== "aborted") {
+      log("Microfono: " + ev.error, "err");
+    }
+  };
+
+  // El navegador corta el microfono cada cierto rato: se vuelve a abrir solo
+  // mientras la batalla siga activa.
+  r.onend = () => {
+    if (!estado.escuchando) { estadoMicro("Microfono apagado", "pausado"); return; }
+    const espera = Date.now() - ultimoStart < 900 ? 900 : 60;
+    estadoMicro("Reconectando microfono...", "error");
+    setTimeout(() => {
+      if (!estado.escuchando) return;
+      try { r.start(); } catch (e) { /* ya venia arrancando */ }
+    }, espera);
+  };
+
+  return r;
+}
+
+/* Mantiene encendida la pantalla del segundo celular durante la batalla. */
+let wakeLock = null;
+async function pantallaEncendida(activar) {
+  try {
+    if (activar && "wakeLock" in navigator) wakeLock = await navigator.wakeLock.request("screen");
+    else if (wakeLock) { await wakeLock.release(); wakeLock = null; }
+  } catch (e) {}
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && estado.activa) pantallaEncendida(true);
+});
+
+/* ===========================================================
+   8. BOTONES Y ARRANQUE
+   =========================================================== */
+const $btnMicro = document.getElementById("btn-micro");
+
+function iniciar() {
+  if (estado.activa) return;
+  estado.activa = true;
+  prepararAudio();          // el navegador solo deja crear audio tras un toque
+  arrancarElixir();
+  pantallaEncendida(true);
+
+  if (!rec) rec = crearReconocimiento();
+  if (rec) {
+    estado.escuchando = true;
+    try { rec.start(); } catch (e) {}
+  } else {
+    estadoMicro("Este navegador no reconoce voz: usa Chrome (o el teclado de cartas)", "error");
+  }
+
+  $btnMicro.textContent = "⏸ Pausar micrófono";
+  $btnMicro.classList.add("on");
+  pintarTodo();
+}
+
+function pausar() {
+  estado.activa = false;
+  estado.escuchando = false;
+  pararElixir();
+  pantallaEncendida(false);
+  if (rec) { try { rec.stop(); } catch (e) {} }
+  $btnMicro.textContent = "▶ Seguir batalla";
+  $btnMicro.classList.remove("on");
+  estadoMicro("Micrófono apagado", "pausado");
+  $castigo.classList.remove("on");
+  guardarPartida();
+}
+
+function reiniciar() {
+  const seguiaActiva = estado.activa;
+  estado.deck = [null, null, null, null, null, null, null, null];
+  estado.elixir = 5;
+  estado.evo = {};
+  estado.ultimoCosto = 3;
+  historial = [];
+  disparados.clear();
+  ultimaJugada = { id: null, t: 0 };
+  alertaCero = false;
+  evoDestello = null;
+  ponerMultiplicador(1);
+  try { localStorage.removeItem(LS_PARTIDA); } catch (e) {}
+  $consola.innerHTML = "";
+  log("Nueva partida. Ambos empiezan con 5 de elixir.", "tenue");
+  ultimoTick = Date.now();
+  pintarTodo();
+  if (seguiaActiva) estadoMicro("Escuchando la partida...", "escuchando");
+}
+
+$btnMicro.addEventListener("click", () => (estado.activa ? pausar() : iniciar()));
+document.getElementById("btn-deshacer").addEventListener("click", deshacer);
+document.getElementById("btn-reiniciar").addEventListener("click", reiniciar);
+document.querySelectorAll(".mults button").forEach((b) => {
+  b.addEventListener("click", () => ponerMultiplicador(Number(b.dataset.mult)));
+});
+
+/* --- Toque corto = jugar la carta; toque largo = corregirla --- */
+let tempPulsado = null;
+let huboPulsadoLargo = false;
+
+function alPulsar(ev) {
+  const carta = ev.target.closest(".carta");
+  if (!carta || !carta.dataset.id) return;
+  huboPulsadoLargo = false;
+  tempPulsado = setTimeout(() => {
+    huboPulsadoLargo = true;
+    if (navigator.vibrate) navigator.vibrate(25);
+    abrirModal(carta.dataset.id, Number(carta.dataset.pos));
+  }, 550);
+}
+function alSoltar(ev) {
+  clearTimeout(tempPulsado);
+  const carta = ev.target.closest(".carta");
+  if (!carta || !carta.dataset.id || huboPulsadoLargo) return;
+  if (!estado.activa) iniciar();
+  jugarCarta(carta.dataset.id, "toque");
+}
+[$mano, $cola].forEach((zona) => {
+  zona.addEventListener("pointerdown", alPulsar);
+  zona.addEventListener("pointerup", alSoltar);
+  zona.addEventListener("pointerleave", () => clearTimeout(tempPulsado));
+  zona.addEventListener("contextmenu", (e) => e.preventDefault());
+});
+
+/* --- Teclado de cartas (respaldo cuando la voz falla) --- */
+const $panelTeclado = document.getElementById("panel-teclado");
+const $lista = document.getElementById("lista-cartas");
+const $buscar = document.getElementById("buscar");
+
+function pintarLista() {
+  const filtro = normalizar($buscar.value);
+  const ids = Object.keys(CARTAS)
+    .filter((id) => !filtro || CARTAS[id].alias.some((a) => a.includes(filtro)))
+    .sort((a, b) => costoDe(a) - costoDe(b) || CARTAS[a].nombre.localeCompare(CARTAS[b].nombre));
+  $lista.innerHTML = ids.map((id) =>
+    '<button data-id="' + id + '">' + CARTAS[id].nombre + " <b>" + costoDe(id) + "</b></button>"
+  ).join("");
+}
+
+document.getElementById("btn-teclado").addEventListener("click", (e) => {
+  const abierto = !$panelTeclado.hidden;
+  $panelTeclado.hidden = abierto;
+  e.target.textContent = "⌨️ Teclado de cartas (si la voz falla) " + (abierto ? "▾" : "▴");
+  if (!abierto) pintarLista();
+});
+$buscar.addEventListener("input", pintarLista);
+$lista.addEventListener("pointerdown", (ev) => {
+  const b = ev.target.closest("button");
+  if (!b) return;
+  huboPulsadoLargo = false;
+  tempPulsado = setTimeout(() => {
+    huboPulsadoLargo = true;
+    abrirModal(b.dataset.id, null);
+  }, 550);
+});
+$lista.addEventListener("pointerup", (ev) => {
+  clearTimeout(tempPulsado);
+  const b = ev.target.closest("button");
+  if (!b || huboPulsadoLargo) return;
+  if (!estado.activa) iniciar();
+  jugarCarta(b.dataset.id, "toque");
+});
+
+/* --- Modal: corregir costo, ciclos de evolución o sacar la carta --- */
+const $modal = document.getElementById("modal");
+let modalId = null;
+let modalPos = null;
+
+function abrirModal(id, pos) {
+  modalId = id;
+  modalPos = pos;
+  document.getElementById("modal-titulo").textContent = CARTAS[id].nombre;
+  document.getElementById("modal-costo").value = costoDe(id);
+  document.getElementById("modal-evo").value = evoDe(id);
+  document.getElementById("modal-conteo").value = estado.evo[id] || 0;
+  document.getElementById("modal-quitar").hidden = pos === null;
+  $modal.hidden = false;
+}
+
+function cerrarModal() { $modal.hidden = true; modalId = null; }
+
+document.getElementById("modal-cancelar").addEventListener("click", cerrarModal);
+$modal.addEventListener("click", (e) => { if (e.target === $modal) cerrarModal(); });
+
+document.getElementById("modal-guardar").addEventListener("click", () => {
+  if (!modalId) return;
+  const costo = Math.max(0, Math.min(12, Number(document.getElementById("modal-costo").value) || 0));
+  const evo = Math.max(0, Math.min(5, Number(document.getElementById("modal-evo").value) || 0));
+  const conteo = Math.max(0, Math.min(9, Number(document.getElementById("modal-conteo").value) || 0));
+  config[modalId] = { costo, evo };
+  estado.evo[modalId] = conteo;
+  guardarConfig();
+  guardarPartida();
+  log("Ajustado " + CARTAS[modalId].nombre + ": " + costo + " de elixir, evo cada " + evo + " ciclos", "tenue");
+  cerrarModal();
+  pintarTodo();
+  if (!$panelTeclado.hidden) pintarLista();
+});
+
+document.getElementById("modal-quitar").addEventListener("click", () => {
+  if (modalPos === null) return;
+  snapshot();
+  log("Sacada del mazo: " + CARTAS[estado.deck[modalPos]].nombre, "warn");
+  estado.deck[modalPos] = null;
+  cerrarModal();
+  pintarTodo();
+  guardarPartida();
+});
+
+/* --- Arranque --- */
+cargarConfig();
+if (restaurarPartida()) {
+  log("Partida recuperada (el celular recargó la página).", "warn");
+} else {
+  log("Listo. Toca Iniciar batalla y canta las cartas del rival.", "tenue");
+}
+if (!Reconocimiento) {
+  estadoMicro("Este navegador no reconoce voz: abre esta página en Chrome", "error");
+}
+ponerMultiplicador(estado.mult);
+pintarTodo();
+setInterval(() => { if (evoDestello && Date.now() > evoDestello.hasta) { evoDestello = null; pintarMazo(); } }, 500);
+</script>
+</body>
+</html>

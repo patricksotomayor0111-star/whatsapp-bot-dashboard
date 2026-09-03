@@ -112,6 +112,14 @@ app.get("/icon-512.png", (req, res) => {
   res.sendFile(path.join(__dirname, "icon-512.png"));
 });
 
+// Rastreador de Clash Royale por voz (pagina suelta, sin relacion con el bot).
+// Va detras de la sesion como todo lo demas, y se sirve desde aca porque el
+// microfono del navegador solo funciona en una pagina con HTTPS: abriendo el
+// archivo directo en el celular Chrome no siempre da permiso.
+app.get(["/tracker", "/tracker.html"], (req, res) => {
+  res.sendFile(path.join(__dirname, "tracker.html"));
+});
+
 // Endpoint minimo para medir la calidad de conexion real del celular/PC
 // que tiene el panel abierto (el frontend mide el tiempo de ida y vuelta
 // contra este mismo servidor). No hace nada mas que responder rapido.
