@@ -52,6 +52,14 @@
     const entrarBtn = document.getElementById("entrarBtn");
     const error = document.getElementById("error");
 
+    // A donde ir despues de entrar. Solo se aceptan rutas de este mismo
+    // sitio ("/algo"): asi un enlace armado por otro no puede usar el login
+    // para mandar a Patrick a una pagina de afuera.
+    function destinoSeguro() {
+      const ir = new URLSearchParams(location.search).get("ir") || "/";
+      return /^\/[^/\\]/.test(ir) ? ir : "/";
+    }
+
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       error.classList.add("hidden");
@@ -65,7 +73,7 @@
         });
         const data = await res.json();
         if (data.ok) {
-          window.location.href = "/";
+          window.location.href = destinoSeguro();
           return;
         }
         error.textContent = data.error || "Usuario o contraseña incorrectos.";

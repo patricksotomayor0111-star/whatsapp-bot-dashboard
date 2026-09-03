@@ -116,7 +116,11 @@ app.use((req, res, next) => {
   if (!cuenta || cuenta.activo === false) {
     // A la API se le contesta 401 (para que el panel sepa que expiró la
     // sesión); a una pantalla se la manda a la de entrada.
-    return req.path.startsWith("/api/") ? res.status(401).json({ error: "Sesión expirada." }) : res.redirect("/login");
+    if (req.path.startsWith("/api/")) return res.status(401).json({ error: "Sesión expirada." });
+    // Se recuerda a donde queria entrar (ej. /tracker desde el segundo
+    // celular): sin esto, despues de la contrasena siempre caia en el panel
+    // y habia que volver a escribir la direccion a mano.
+    return res.redirect("/login?ir=" + encodeURIComponent(req.originalUrl));
   }
 
   // Desde acá y hasta terminar de responder, todo lo que toque datos lo
@@ -240,6 +244,15 @@ app.get("/manifest.json", (req, res) => {
 });
 app.get("/sw.js", (req, res) => {
   res.sendFile(path.join(__dirname, "sw.js"));
+});
+
+// Rastreador de Clash Royale por voz (pagina suelta, no tiene nada que ver
+// con las finanzas: vive aca porque esta es la app que Railway tiene
+// desplegada). Va detras de la sesion como todo lo demas, y se sirve desde
+// el servidor porque el navegador solo entrega el microfono a paginas con
+// HTTPS: abriendo el archivo suelto en el celular no siempre funciona.
+app.get(["/tracker", "/tracker.html"], (req, res) => {
+  res.sendFile(path.join(__dirname, "tracker.html"));
 });
 function servirIcono(nombreArchivo) {
   return (req, res) => {

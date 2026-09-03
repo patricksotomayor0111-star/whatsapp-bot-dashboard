@@ -117,11 +117,11 @@ app.get("/icon-512.png", (req, res) => {
 });
 
 // Rastreador de Clash Royale por voz (pagina suelta, sin relacion con el bot).
-// Va detras de la sesion como todo lo demas, y se sirve desde aca porque el
-// microfono del navegador solo funciona en una pagina con HTTPS: abriendo el
-// archivo directo en el celular Chrome no siempre da permiso.
+// El archivo vive en "finanzas/" porque esa es la app que Railway tiene
+// desplegada y ahi el servicio solo ve esa carpeta; desde aca se sirve el
+// mismo archivo, sin copias. Va detras de la sesion como todo lo demas.
 app.get(["/tracker", "/tracker.html"], (req, res) => {
-  res.sendFile(path.join(__dirname, "tracker.html"));
+  res.sendFile(path.join(__dirname, "finanzas", "tracker.html"));
 });
 
 // Endpoint minimo para medir la calidad de conexion real del celular/PC
