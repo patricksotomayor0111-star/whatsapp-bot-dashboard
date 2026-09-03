@@ -85,7 +85,11 @@ app.use((req, res, next) => {
 
   if (auth.haySesion(req)) return next();
 
-  return req.path.startsWith("/api/") ? res.status(401).json({ error: "Sesión expirada." }) : res.redirect("/login");
+  if (req.path.startsWith("/api/")) return res.status(401).json({ error: "Sesión expirada." });
+  // Se recuerda a donde queria entrar (ej. /tracker desde el segundo
+  // celular): sin esto, despues de la contrasena siempre caia en el panel
+  // y habia que volver a escribir la direccion a mano.
+  return res.redirect("/login?ir=" + encodeURIComponent(req.originalUrl));
 });
 
 // Solo se exponen estos 3 archivos del panel (no todo el proyecto,

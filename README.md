@@ -83,8 +83,9 @@ Página aparte, sin relación con el bot: se abre en un **segundo celular** y
 lleva la cuenta del rival mientras juegas en el principal. No toca el juego
 ni lee la pantalla; solo escucha lo que dices tú.
 
-Entra a `https://tuapp.up.railway.app/tracker` (pide la misma contraseña del
-panel), toca **Iniciar batalla / micrófono** y permite el micrófono. Cada vez
+Entra a `https://TU-DOMINIO.up.railway.app/tracker` — **tu** URL de Railway,
+la misma con la que abres el panel; `tuapp.up.railway.app` es solo un ejemplo
+y es la app de otra persona. Pide la misma contraseña del panel. Toca **Iniciar batalla / micrófono** y permite el micrófono. Cada vez
 que el rival suelte una carta, la dices en voz alta ("monta", "mega
 caballero", "tronco") y la app:
 
