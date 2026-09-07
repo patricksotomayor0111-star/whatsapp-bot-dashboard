@@ -1110,7 +1110,13 @@ async function startBot() {
         logSender(chatId, grupoActual?.name || chatId, senderJid, senderNumber, bloqueadoGlobal, extractText(msg));
       }
 
-      if (!botState.active) continue;
+      // OJO: acá NO se corta por botState.active. Un pedido para más tarde
+      // ("moto para las 6") tiene que guardarse en la lista aunque el bot
+      // esté apagado — si no, se pierde en silencio y ni te enteras, que
+      // es justo lo que pasaba. El corte por bot apagado está más abajo,
+      // pegado al momento de MARCAR, que es lo que sí necesita el bot
+      // prendido.
+      //
       // Escrito antes de que prendieras el bot: no se marca (ver
       // esAnteriorALaActivacion).
       if (esAnteriorALaActivacion(msg)) continue;
@@ -1142,8 +1148,25 @@ async function startBot() {
       // está activa (panel principal), el pedido queda guardado para
       // marcarse solo cuando el tiempo restante entre en la ventana — sin
       // que el local tenga que volver a escribir.
-      const sectorIdParaVentana = getGroupSector(chatId);
-      const ventana = evaluarVentanaTiempo(text, sectorIdParaVentana, getPeruNow(), grupoActual?.name);
+      const sectorId = getGroupSector(chatId);
+      const focusedGroups = getFocusedGroups();
+      const enModoEnfoque = focusedGroups.length > 0;
+
+      // Estos filtros se revisan ANTES de guardar en la lista de espera.
+      // Si el grupo o su sector están apagados, el pedido no se va a
+      // marcar nunca; guardarlo solo llenaría la lista de cosas muertas.
+      //
+      // El modo enfoque es un filtro ADICIONAL, no un reemplazo: si el
+      // grupo no está enfocado, no responde. Pero igual necesita cumplir
+      // lo de siempre (sector activo, grupo activo) tanto con enfoque como
+      // sin él. Cada sector tiene DOS interruptores independientes: uno
+      // para sus grupos que remarcan normal y otro para los que están sin
+      // remarcar — acá se usa el que corresponda.
+      if (enModoEnfoque && !focusedGroups.includes(chatId)) continue;
+      if (!isGroupSectorActiveEfectivo(chatId, sectorId)) continue;
+      if (!isGroupActive(chatId)) continue;
+
+      const ventana = evaluarVentanaTiempo(text, sectorId, getPeruNow(), grupoActual?.name);
       if (!ventana.enVentana) {
         // El pedido se guarda SIEMPRE, aunque la espera automática esté
         // apagada. Antes solo se guardaba con el interruptor prendido, así
@@ -1173,20 +1196,12 @@ async function startBot() {
         continue;
       }
 
-      const sectorId = sectorIdParaVentana;
-      const focusedGroups = getFocusedGroups();
-      const enModoEnfoque = focusedGroups.length > 0;
-      const sinRemarcar = isGroupSinRemarcarEfectivo(chatId, sectorId);
+      // Recién acá se corta por bot apagado: MARCAR sí necesita el bot
+      // prendido. Lo de arriba (guardar un pedido para más tarde) no, y
+      // por eso el corte bajó hasta este punto.
+      if (!botState.active) continue;
 
-      // El modo enfoque es un filtro ADICIONAL, no un reemplazo: si el
-      // grupo no está enfocado, no responde. Pero igual necesita cumplir
-      // lo de siempre (sector activo, grupo activo) tanto con enfoque como
-      // sin él. Cada sector tiene DOS interruptores independientes: uno
-      // para sus grupos que remarcan normal y otro para los que están sin
-      // remarcar — acá se usa el que corresponda.
-      if (enModoEnfoque && !focusedGroups.includes(chatId)) continue;
-      if (!isGroupSectorActiveEfectivo(chatId, sectorId)) continue;
-      if (!isGroupActive(chatId)) continue;
+      const sinRemarcar = isGroupSinRemarcarEfectivo(chatId, sectorId);
 
       const marcado = await marcarPedido(sock, {
         chatId,
