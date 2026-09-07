@@ -11,6 +11,7 @@ const pushSubscriptions = require("./pushSubscriptions");
 const mediaTriggers = require("./mediaTriggers");
 const pendingTimeMatches = require("./pendingTimeMatches");
 const groupDelays = require("./groupDelays");
+const groupTimeWindows = require("./groupTimeWindows");
 const scheduledBroadcasts = require("./scheduledBroadcasts");
 const backup = require("./backup");
 const auth = require("./auth");
@@ -304,7 +305,7 @@ app.post("/api/config/delay", (req, res) => {
 // una frase especial a ese grupo. Solo diagnostica, no cambia nada.
 app.post("/api/probar-frase", (req, res) => {
   try {
-    res.json(probarFrase(req.body?.texto, req.body?.groupId));
+    res.json(probarFrase(req.body?.texto, req.body?.groupId, req.body?.numero));
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -385,6 +386,27 @@ app.post("/api/config/timewindow", (req, res) => {
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+});
+
+// Ventana propia de un grupo puntual, que le gana a la de su sector: hay
+// locales donde "salen en 50 min" es lo normal y marcar a esa hora es
+// válido, aunque el resto del sector trabaje con 15.
+app.get("/api/config/timewindow/groups", (req, res) => {
+  res.json({ grupos: groupTimeWindows.getList() });
+});
+
+app.post("/api/config/timewindow/groups", (req, res) => {
+  try {
+    groupTimeWindows.setWindow(req.body?.name, req.body?.minutos);
+    res.json({ ok: true, grupos: groupTimeWindows.getList() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/config/timewindow/groups/remove", (req, res) => {
+  groupTimeWindows.removeWindow(req.body?.name);
+  res.json({ ok: true, grupos: groupTimeWindows.getList() });
 });
 
 // Interruptor del panel principal: apaga la espera automática cuando hay

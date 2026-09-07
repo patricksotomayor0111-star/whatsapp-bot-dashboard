@@ -16,6 +16,7 @@ const quoteConfig = require("./quoteConfig");
 const pushSubscriptions = require("./pushSubscriptions");
 const mediaTriggers = require("./mediaTriggers");
 const groupDelays = require("./groupDelays");
+const groupTimeWindows = require("./groupTimeWindows");
 const scheduledBroadcasts = require("./scheduledBroadcasts");
 const pendingTimeMatches = require("./pendingTimeMatches");
 const { dataPath } = require("./dataDir");
@@ -442,14 +443,25 @@ function calcularObjetivoTiempo(text, now) {
 //                                            si la espera automática está
 //                                            activa, se puede reintentar en
 //                                            N ms (cuando entre a la ventana)
-function evaluarVentanaTiempo(text, sectorId, now = getPeruNow()) {
+// Minutos de ventana que le tocan a un grupo: si tiene una propia
+// configurada, esa gana; si no, la de su sector. Hay locales donde "salen
+// en 50 min" es lo normal y marcar a esa hora es válido, aunque el resto
+// del sector trabaje con 15.
+function ventanaMinutosDe(sectorId, nombreGrupo) {
+  const propia = groupTimeWindows.getWindow(nombreGrupo);
+  return propia !== null ? propia : getTimeWindowMinutes(sectorId);
+}
+
+function evaluarVentanaTiempo(text, sectorId, now = getPeruNow(), nombreGrupo) {
   const objetivo = calcularObjetivoTiempo(text, now);
-  if (objetivo === null) return { enVentana: true, esperaMs: null };
-  if (objetivo.targetMs === null) return { enVentana: false, esperaMs: null };
-  const ventanaMs = getTimeWindowMinutes(sectorId) * 60000;
-  const esperaMs = objetivo.targetMs - ventanaMs - now.getTime();
-  if (esperaMs <= 0) return { enVentana: true, esperaMs: null };
-  return { enVentana: false, esperaMs };
+  if (objetivo === null) return { enVentana: true, esperaMs: null, minutos: null };
+  const minutos = ventanaMinutosDe(sectorId, nombreGrupo);
+  if (objetivo.targetMs === null) return { enVentana: false, esperaMs: null, minutos };
+  const esperaMs = objetivo.targetMs - minutos * 60000 - now.getTime();
+  // targetMs se devuelve para poder mostrar A QUÉ HORA es el pedido (no
+  // solo cuándo lo va a marcar el bot) en la lista de pedidos en espera.
+  if (esperaMs <= 0) return { enVentana: true, esperaMs: null, minutos, targetMs: objetivo.targetMs };
+  return { enVentana: false, esperaMs, minutos, targetMs: objetivo.targetMs };
 }
 
 // Versión mínima de un mensaje, suficiente para que Baileys pueda citarlo
@@ -1114,7 +1126,7 @@ async function startBot() {
       // marcarse solo cuando el tiempo restante entre en la ventana — sin
       // que el local tenga que volver a escribir.
       const sectorIdParaVentana = getGroupSector(chatId);
-      const ventana = evaluarVentanaTiempo(text, sectorIdParaVentana);
+      const ventana = evaluarVentanaTiempo(text, sectorIdParaVentana, getPeruNow(), grupoActual?.name);
       if (!ventana.enVentana) {
         if (ventana.esperaMs !== null && getEsperaAutomaticaActiva()) {
           pendingTimeMatches.add({
@@ -1127,6 +1139,10 @@ async function startBot() {
             matchLength: match.length,
             quotedStub: construirQuotedStub(msg, chatId, senderJid, rawText),
             targetFireMs: Date.now() + ventana.esperaMs,
+            // A qué hora es el pedido en sí. Se guarda aparte de
+            // targetFireMs (que es cuándo lo marca el bot) para poder
+            // mostrar las dos cosas: "sale 18:00 · marco 17:45".
+            horaPedidoMs: ventana.targetMs || null,
           });
         }
         continue;
@@ -1356,7 +1372,7 @@ setInterval(() => {
 //   - advertencias : si además hay algo apagado (sector, grupo, el bot).
 // Si se mezclaran, como el bot se apaga solo tras cada respuesta, toda
 // prueba diría "el bot está apagado" y nunca se llegaría a lo de la frase.
-function probarFrase(textoCrudo, chatId) {
+function probarFrase(textoCrudo, chatId, numeroCrudo) {
   const grupoActual = botState.groups.find((g) => g.id === chatId);
   if (!grupoActual) throw new Error("No encuentro ese grupo. ¿El bot sigue adentro?");
 
@@ -1366,13 +1382,26 @@ function probarFrase(textoCrudo, chatId) {
 
   const nombreGrupo = grupoActual.name;
   const ignorado = IGNORED_GROUP_NAMES.has(nombreGrupo.trim().toUpperCase());
-  // Se prueba como si llegara de un número normal (el caso de cualquier
-  // restaurante); lo que sí se respeta es si el grupo es de solo autorizados.
-  const bloqueadoGlobal = esGrupoSoloAutorizados(nombreGrupo);
+
+  // El número es opcional: sin él se prueba como si escribiera cualquier
+  // restaurante. Pero en un grupo de SOLO AUTORIZADOS hace falta, porque
+  // ahí lo primero que mira el bot es qué frases tiene autorizadas ESE
+  // número. Sin número esa búsqueda no encuentra nada y la prueba diría
+  // siempre "ninguna coincide", sin importar la frase — que es justo el
+  // error que tenía esta herramienta.
+  const numero = numberExceptions.canonicalNumber(numeroCrudo || "");
+  const soloAutorizados = esGrupoSoloAutorizados(nombreGrupo);
+  if (soloAutorizados && !numero && !ignorado) {
+    throw new Error(
+      "Este grupo solo responde a números autorizados: escribe el número que mandó el mensaje para poder probarlo."
+    );
+  }
+
+  const bloqueadoGlobal = soloAutorizados || excludedNumbers.isExcluded(numero);
 
   const { match, pasos, contexto } = ignorado
     ? { match: null, pasos: [], contexto: "El bot ignora este grupo por completo" }
-    : analizarDeteccion(text, chatId, "", grupoActual, { bloqueadoGlobal });
+    : analizarDeteccion(text, chatId, numero, grupoActual, { bloqueadoGlobal });
 
   const sectorId = getGroupSector(chatId);
   const sinRemarcar = isGroupSinRemarcarEfectivo(chatId, sectorId);
@@ -1387,7 +1416,7 @@ function probarFrase(textoCrudo, chatId) {
   if (!isGroupActive(chatId)) advertencias.push("Este grupo está marcado como inactivo.");
 
   // La ventana de tiempo solo cuenta si la frase menciona una hora.
-  const ventana = evaluarVentanaTiempo(text, sectorId);
+  const ventana = evaluarVentanaTiempo(text, sectorId, getPeruNow(), nombreGrupo);
   if (match && !ventana.enVentana) {
     if (ventana.esperaMs === null) {
       advertencias.push("La hora que menciona ya pasó, así que no se marcaría.");

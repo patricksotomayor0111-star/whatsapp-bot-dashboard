@@ -129,6 +129,11 @@
           </select>
           <textarea id="probarTextoInput" rows="2" placeholder="Ej: ya puede venir a recojer el pedido"
             class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-violet-400/40"></textarea>
+          <input id="probarNumeroInput" type="tel" inputmode="numeric" placeholder="Número que escribió (opcional)"
+            class="w-full mt-2 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-violet-400/40" />
+          <p class="text-[11px] text-slate-400 mt-1">
+            El número solo hace falta en grupos que responden a números autorizados (como REPORTES) o para ver si está en los ignorados.
+          </p>
           <button id="probarFraseBtn" class="w-full mt-2 rounded-xl px-4 py-2.5 text-sm font-semibold bg-violet-600 text-white active:scale-95 transition-all">
             Probar
           </button>
@@ -437,6 +442,26 @@
             Si el pedido menciona una hora o minutos dentro de esta ventana, se marca al toque. Si está más lejos, queda en espera y se marca solo cuando entre (según el interruptor de la tarjeta principal ⏳).
           </p>
           <div id="timeWindowBySectorList" class="space-y-2"></div>
+        </section>
+
+        <!-- Ventana propia de un grupo (le gana a la del sector) -->
+        <section>
+          <p class="eyebrow text-teal-600"><i class="fa-solid fa-shop"></i> VENTANA PROPIA DE UN LOCAL</p>
+          <p class="text-xs text-slate-400 mt-1 mb-2">
+            Hay locales donde "salen en 50 min" es lo normal y marcar a esa hora sí vale. Ponles su propio número acá y le gana al de su sector. Los demás grupos no cambian.
+          </p>
+          <div id="groupTimeWindowList" class="space-y-1.5 mb-2"></div>
+          <select id="groupTimeWindowSelect" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-400/40 mb-2">
+            <option value="">— Selecciona un grupo —</option>
+          </select>
+          <div class="flex items-center gap-2">
+            <span class="text-sm text-slate-500 shrink-0">Ventana de</span>
+            <input id="groupTimeWindowInput" type="number" min="0" max="180"
+              class="w-16 min-w-0 bg-slate-50 rounded-lg px-2 py-1.5 text-sm border border-slate-200 text-center" />
+            <span class="text-sm text-slate-500 shrink-0">min</span>
+            <button id="addGroupTimeWindowBtn" class="ml-auto shrink-0 rounded-xl px-4 py-2 text-sm font-semibold bg-teal-600 text-white active:scale-95 transition-all">Guardar</button>
+          </div>
+          <p id="groupTimeWindowStatus" class="text-xs mt-2"></p>
         </section>
 
         <!-- Delays personalizados por grupo -->

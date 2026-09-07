@@ -861,6 +861,111 @@ saveAntiguedadBtn.addEventListener("click", async () => {
   }, 3000);
 });
 
+// ---------- Ventana propia de un local (le gana a la del sector) ----------
+const groupTimeWindowList = document.getElementById("groupTimeWindowList");
+const groupTimeWindowSelect = document.getElementById("groupTimeWindowSelect");
+const groupTimeWindowInput = document.getElementById("groupTimeWindowInput");
+const addGroupTimeWindowBtn = document.getElementById("addGroupTimeWindowBtn");
+const groupTimeWindowStatus = document.getElementById("groupTimeWindowStatus");
+
+function renderGroupTimeWindows(grupos) {
+  groupTimeWindowList.innerHTML = "";
+  if (!grupos.length) {
+    const p = document.createElement("p");
+    p.className = "text-xs text-slate-400";
+    p.textContent = "Ningún local con ventana propia. Todos usan la de su sector.";
+    groupTimeWindowList.appendChild(p);
+    return;
+  }
+  grupos.forEach((g) => {
+    const fila = document.createElement("div");
+    fila.className = "flex items-center gap-2 rounded-lg px-3 py-2 text-sm bg-teal-50 text-teal-800";
+
+    const nombre = document.createElement("span");
+    nombre.className = "flex-1 min-w-0 truncate";
+    nombre.textContent = g.name;
+
+    const min = document.createElement("span");
+    min.className = "shrink-0 font-bold";
+    min.textContent = `${g.minutos} min`;
+
+    const quitar = document.createElement("button");
+    quitar.innerHTML = '<i class="fa-solid fa-xmark text-xs"></i>';
+    quitar.className = "shrink-0 opacity-60 hover:opacity-100";
+    quitar.title = "Volver a la ventana de su sector";
+    quitar.addEventListener("click", async () => {
+      const res = await fetch("/api/config/timewindow/groups/remove", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: g.name }),
+      });
+      const data = await res.json();
+      if (res.ok) renderGroupTimeWindows(data.grupos || []);
+    });
+
+    fila.appendChild(nombre);
+    fila.appendChild(min);
+    fila.appendChild(quitar);
+    groupTimeWindowList.appendChild(fila);
+  });
+}
+
+async function fetchGroupTimeWindows() {
+  try {
+    const res = await fetch("/api/config/timewindow/groups");
+    const data = await res.json();
+    renderGroupTimeWindows(data.grupos || []);
+  } catch (err) {
+    console.error("No se pudo cargar las ventanas por grupo:", err);
+  }
+}
+
+function poblarGroupTimeWindowSelect() {
+  const seleccionActual = groupTimeWindowSelect.value;
+  groupTimeWindowSelect.innerHTML = '<option value="">— Selecciona un grupo —</option>';
+  groupsData.forEach((g) => {
+    const opt = document.createElement("option");
+    opt.value = g.name;
+    opt.textContent = g.name;
+    groupTimeWindowSelect.appendChild(opt);
+  });
+  if (seleccionActual) groupTimeWindowSelect.value = seleccionActual;
+}
+
+addGroupTimeWindowBtn.addEventListener("click", async () => {
+  const name = groupTimeWindowSelect.value;
+  const minutos = parseInt(groupTimeWindowInput.value, 10);
+  if (!name) {
+    groupTimeWindowStatus.textContent = "Elige el grupo primero.";
+    groupTimeWindowStatus.className = "text-xs mt-2 text-brand-red";
+    return;
+  }
+  try {
+    const res = await fetch("/api/config/timewindow/groups", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, minutos }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      renderGroupTimeWindows(data.grupos || []);
+      groupTimeWindowStatus.textContent = `Guardado ✓ ${name} ahora usa ${minutos} min.`;
+      groupTimeWindowStatus.className = "text-xs mt-2 text-brand-green";
+      groupTimeWindowSelect.value = "";
+      groupTimeWindowInput.value = "";
+    } else {
+      groupTimeWindowStatus.textContent = data.error || "No se pudo guardar";
+      groupTimeWindowStatus.className = "text-xs mt-2 text-brand-red";
+    }
+  } catch (err) {
+    groupTimeWindowStatus.textContent = "No se pudo guardar";
+    groupTimeWindowStatus.className = "text-xs mt-2 text-brand-red";
+  }
+  setTimeout(() => {
+    groupTimeWindowStatus.textContent = "";
+  }, 4000);
+});
+
 // ---------- Espera automática + pedidos en espera (tarjeta principal) ----------
 let esperaAutomaticaActiva = true;
 
@@ -933,22 +1038,40 @@ function renderPendingTimeMatches(pendientes) {
     return;
   }
 
-  pendientes.forEach((p) => {
-    const hora = new Date(p.targetFireMs);
-    const horaTexto = `${String(hora.getHours()).padStart(2, "0")}:${String(hora.getMinutes()).padStart(2, "0")}`;
+  const hhmm = (ms) => {
+    const d = new Date(ms);
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  };
 
+  // Se ordenan por cuál SALE primero (no por cuál se marca primero): es lo
+  // que sirve para ver qué se viene encima.
+  const ordenados = pendientes
+    .slice()
+    .sort((a, b) => (a.horaPedidoMs || a.targetFireMs) - (b.horaPedidoMs || b.targetFireMs));
+
+  ordenados.forEach((p) => {
     const fila = document.createElement("div");
     fila.className = "flex items-center gap-2 text-xs";
 
-    // El nombre del grupo se recorta si no entra, pero la hora NO: es el
-    // dato que importa (a qué hora se va a marcar ese pedido).
+    // El nombre del grupo se recorta si no entra; las horas NO, que son el
+    // dato que importa.
     const texto = document.createElement("span");
     texto.className = "flex-1 min-w-0 truncate text-slate-500";
     texto.textContent = p.groupName;
 
-    const horaMarca = document.createElement("span");
-    horaMarca.className = "shrink-0 font-semibold text-slate-600";
-    horaMarca.textContent = horaTexto;
+    const horas = document.createElement("span");
+    horas.className = "shrink-0 text-slate-500";
+    if (p.horaPedidoMs) {
+      // "sale 18:00 · marco 17:45": a qué hora es el pedido, y a qué hora
+      // lo va a marcar el bot.
+      horas.innerHTML =
+        `sale <b class="text-slate-700">${hhmm(p.horaPedidoMs)}</b>` +
+        ` · marco <b class="text-slate-700">${hhmm(p.targetFireMs)}</b>`;
+    } else {
+      // Pedidos que quedaron en cola antes de este cambio: solo se sabe
+      // cuándo se marcan.
+      horas.innerHTML = `marco <b class="text-slate-700">${hhmm(p.targetFireMs)}</b>`;
+    }
 
     const cancelar = document.createElement("button");
     cancelar.textContent = "Cancelar";
@@ -959,7 +1082,7 @@ function renderPendingTimeMatches(pendientes) {
     });
 
     fila.appendChild(texto);
-    fila.appendChild(horaMarca);
+    fila.appendChild(horas);
     fila.appendChild(cancelar);
     pendingTimeList.appendChild(fila);
   });
@@ -2351,6 +2474,7 @@ function activarBuscadoresDeGrupos() {
     "noRemarcarGroupSelect",
     "quoteGroupSelect",
     "groupDelayGroupSelect",
+    "groupTimeWindowSelect",
   ].forEach((id) => hacerSelectBuscable(document.getElementById(id)));
   document.querySelectorAll(".media-group-select").forEach((s) => hacerSelectBuscable(s));
 }
@@ -2361,6 +2485,7 @@ function activarBuscadoresDeGrupos() {
 // eso es un clic aparte: la herramienta por sí sola no cambia nada.
 const probarGrupoSelect = document.getElementById("probarGrupoSelect");
 const probarTextoInput = document.getElementById("probarTextoInput");
+const probarNumeroInput = document.getElementById("probarNumeroInput");
 const probarFraseBtn = document.getElementById("probarFraseBtn");
 const probarResultado = document.getElementById("probarResultado");
 
@@ -2469,7 +2594,7 @@ probarFraseBtn.addEventListener("click", async () => {
     const res = await fetch("/api/probar-frase", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ texto, groupId }),
+      body: JSON.stringify({ texto, groupId, numero: probarNumeroInput.value.trim() }),
     });
     const data = await res.json();
     if (res.ok) {
@@ -2594,6 +2719,8 @@ const categoryLoaders = {
     fetchDelay();
     fetchTimeWindow();
     renderGroupDelayValueOptions();
+    fetchGroupTimeWindows();
+    poblarGroupTimeWindowSelect();
     fetchGroupDelays();
   },
   categoryGeneral: () => {

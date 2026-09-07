@@ -50,10 +50,14 @@ const excludedKeywords = [
   "a que hora vienes por tu pedido", "a que hora viene por su pedido",
   "con pos", "otro delivery con pos", "digale que envio con otro delivery",
   "con otro delivery", "otro delivery lleva", "enviamos con otro",
-  "20 minutos", "25 minutos", "30 minutos", "40 minutos", "45 minutos",
-  "20min", "25min", "30min", "40min", "45min",
-  "en 20 min", "en 25 min", "en 30 min", "en 40 min", "en 45 min",
-  "20 min", "25 min", "30 min", "40 min", "45 min",
+  // Acá había 22 tiempos excluidos ("20 minutos", "30min", "en 45 min"...),
+  // puestos cuando la única forma de frenar un pedido lejano era ignorarlo.
+  // Se quitaron porque ahora pelean contra la ventana de tiempo: en vez de
+  // dejar el pedido en espera y marcarlo cuando entra en rango, lo tiraban
+  // a la basura y se perdía. Además solo cubrían 20/25/30/40/45, así que
+  // "en 15min" pasaba y "en 20min" no, sin ninguna razón visible.
+  // Si un pedido está muy lejos, ahora lo resuelve la ventana del sector
+  // (o la del grupo), no una palabra excluida.
   "confirmo en unos minutos", "confirmamos en unos minutos",
   "confirmo en un momento", "confirmo en breve", "confirmo en",
   "confirmamos en", "les aviso cuando", "le aviso cuando",
