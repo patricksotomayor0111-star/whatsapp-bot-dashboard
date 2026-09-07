@@ -358,12 +358,23 @@ function extractRelativeMinutes(text) {
 // "11:15 am", "11:15am", "11:15 a.m.", "11.15", "11.15 am", "a las 11:15",
 // "11h15", "11 y 15", "11:15 pm"
 function extractClockTime(text) {
+  // "de la tarde/noche/mañana" también dice si es am o pm, y es como se
+  // habla de verdad. Sin esto, una hora sin am/pm se resolvía adivinando
+  // "la próxima que venga": a las 5am, "a las 6 de la tarde" daba las 6am
+  // y el pedido se marcaba casi 12 horas antes.
+  // (El texto llega sin tildes, así que "mañana" viene como "manana".)
+  const porPalabras = /\bde\s+la\s+ma[nñ]ana\b/i.test(text)
+    ? "am"
+    : /\bde\s+la\s+(tarde|noche)\b/i.test(text)
+    ? "pm"
+    : null;
+
   const m = text.match(/\b(\d{1,2})(?:\s*:\s*|\s*\.\s*|\s*h\s*|\s+y\s+)(\d{2})(?:\s*(a\.?\s*m\.?|p\.?\s*m\.?))?\b/i);
   if (m) {
     const hour = parseInt(m[1], 10);
     const minute = parseInt(m[2], 10);
     if (hour > 23 || minute > 59) return null;
-    const meridiem = m[3] ? m[3].toLowerCase().replace(/[.\s]/g, "") : null; // "am", "pm" o null
+    const meridiem = m[3] ? m[3].toLowerCase().replace(/[.\s]/g, "") : porPalabras; // "am", "pm" o null
     return { hour, minute, meridiem };
   }
 
@@ -378,12 +389,18 @@ function extractClockTime(text) {
     }
   }
 
-  // "a las 6", "a la 1" (sin minutos ni am/pm). Se exige el "a la(s)" para
-  // no confundir cualquier número suelto del mensaje con una hora.
-  const aLas = text.match(/\ba\s+las?\s+(\d{1,2})\b/i);
+  // "a las 6", "para las 6", "pa las 6", "a la 1" (sin minutos ni am/pm).
+  // Se exige el "las"/"la" para no confundir cualquier número suelto del
+  // mensaje con una hora.
+  //
+  // OJO: antes esto solo aceptaba "a las", con el "a" suelto. En "para
+  // las 6" ese "a" va pegado dentro de "para", así que no coincidía: el
+  // bot no veía ninguna hora y marcaba al toque un pedido que era para
+  // horas después. Es la forma en que más se escribe.
+  const aLas = text.match(/\b(?:a|pa|para|hasta)\s+las?\s+(\d{1,2})\b/i);
   if (aLas) {
     const hour = parseInt(aLas[1], 10);
-    if (hour <= 23) return { hour, minute: 0, meridiem: null };
+    if (hour <= 23) return { hour, minute: 0, meridiem: porPalabras };
   }
 
   return null;
