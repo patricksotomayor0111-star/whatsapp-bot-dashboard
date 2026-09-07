@@ -1319,9 +1319,11 @@ async function revisarPendientes() {
         .notifyAll({
           title: "⏳ Pedido listo para marcar",
           body: `${p.groupName}: "${String(p.rawText || "").slice(0, 80)}"`,
-          // Con el id, la notificación puede traer los botones para
-          // marcarlo o descartarlo sin abrir el panel (ver sw.js).
+          // Con el id, la notificación puede traer el botón para marcarlo
+          // sin abrir el panel (ver sw.js). El nombre del grupo va aparte
+          // para poder decir en la confirmación de QUÉ pedido fue.
           pendienteId: p.id,
+          groupName: p.groupName,
         })
         .catch((err) => console.error("Error al avisar de un pedido en espera:", err.message));
     }
