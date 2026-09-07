@@ -1128,7 +1128,12 @@ async function startBot() {
       const sectorIdParaVentana = getGroupSector(chatId);
       const ventana = evaluarVentanaTiempo(text, sectorIdParaVentana, getPeruNow(), grupoActual?.name);
       if (!ventana.enVentana) {
-        if (ventana.esperaMs !== null && getEsperaAutomaticaActiva()) {
+        // El pedido se guarda SIEMPRE, aunque la espera automática esté
+        // apagada. Antes solo se guardaba con el interruptor prendido, así
+        // que apagado el pedido se perdía sin dejar rastro. Ahora el
+        // interruptor decide solo si el bot lo marca solo o si queda en la
+        // lista esperando que se decida a mano (el local puede cancelar).
+        if (ventana.esperaMs !== null) {
           pendingTimeMatches.add({
             chatId,
             groupName: grupoActual?.name || chatId,
@@ -1245,9 +1250,30 @@ async function marcarPedido(
 // Respeta el botón general: si el bot está en pausa, no marca nada — igual
 // que un pedido normal, que tampoco se marcaría con el bot apagado.
 async function checkPendingTimeMatches() {
-  if (!currentSock || !botState.connected || !botState.active) return;
+  if (!currentSock || !botState.connected) return;
 
   const due = pendingTimeMatches.getDue(Date.now());
+  if (due.length === 0) return;
+
+  // El bot marca solo cuando la espera automática está prendida Y el bot
+  // está activo. Si no, el pedido NO se pierde: se avisa una sola vez al
+  // celular y queda en la lista para marcarlo (o descartarlo) a mano.
+  // Esto es lo que permite dejar la espera apagada y aun así ver lo que
+  // viene, que es justo cuando el local todavía puede cancelar.
+  if (!getEsperaAutomaticaActiva() || !botState.active) {
+    for (const p of due) {
+      if (p.avisado) continue;
+      pendingTimeMatches.marcarAvisado(p.id);
+      pushSubscriptions
+        .notifyAll({
+          title: "⏳ Pedido listo para marcar",
+          body: `${p.groupName}: "${String(p.rawText || "").slice(0, 80)}"`,
+        })
+        .catch((err) => console.error("Error al avisar de un pedido en espera:", err.message));
+    }
+    return;
+  }
+
   for (const p of due) {
     // Se saca de la cola ANTES de marcar (igual que los mensajes
     // programados): si falla el envío, no se reintenta solo para no
@@ -1286,6 +1312,36 @@ async function checkPendingTimeMatches() {
 setInterval(() => {
   checkPendingTimeMatches().catch((err) => console.error("Error en checkPendingTimeMatches:", err.message));
 }, 30000);
+
+// Marca a mano un pedido de la lista de espera, desde el panel. Sirve para
+// cuando la espera automática está apagada: se ve lo que viene y se decide
+// uno por uno, en vez de que el bot marque solo algo que el local quizá ya
+// canceló. No mira la hora: si se pide marcar, se marca.
+async function marcarPendienteAhora(id) {
+  const p = pendingTimeMatches.getById(id);
+  if (!p) throw new Error("Ese pedido ya no está en la lista.");
+  if (!currentSock || !botState.connected) throw new Error("El bot no está conectado a WhatsApp.");
+
+  // Se saca de la cola ANTES de mandar, igual que el camino automático:
+  // si el envío falla, no queda para reintentarse solo y duplicar.
+  pendingTimeMatches.remove(p.id);
+
+  const sectorId = getGroupSector(p.chatId);
+  const sinRemarcar = isGroupSinRemarcarEfectivo(p.chatId, sectorId);
+  const marcado = await marcarPedido(currentSock, {
+    chatId: p.chatId,
+    groupName: p.groupName,
+    senderNumber: p.senderNumber,
+    rawText: p.rawText,
+    keyword: p.keyword,
+    matchIndex: p.matchIndex,
+    matchLength: p.matchLength,
+    sinRemarcar,
+    quotedMsg: p.quotedStub,
+  });
+  if (!marcado) throw new Error("No se pudo mandar el mensaje a WhatsApp.");
+  return { groupName: p.groupName };
+}
 
 function extractText(msg) {
   // Si el chat tiene mensajes que desaparecen (o es "ver una vez"), el texto
@@ -1441,4 +1497,4 @@ function probarFrase(textoCrudo, chatId, numeroCrudo) {
   };
 }
 
-module.exports = { startBot, botState, logoutBot, getSock, setBotActivo, probarFrase };
+module.exports = { startBot, botState, logoutBot, getSock, setBotActivo, probarFrase, marcarPendienteAhora };

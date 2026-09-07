@@ -1073,17 +1073,38 @@ function renderPendingTimeMatches(pendientes) {
       horas.innerHTML = `marco <b class="text-slate-700">${hhmm(p.targetFireMs)}</b>`;
     }
 
-    const cancelar = document.createElement("button");
-    cancelar.textContent = "Cancelar";
-    cancelar.className = "shrink-0 text-brand-red font-semibold";
-    cancelar.addEventListener("click", async () => {
+    // Marcar a mano, sin esperar la hora: es lo que hace útil tener la
+    // espera automática apagada (se ve lo que viene y se decide uno por uno).
+    const marcar = document.createElement("button");
+    marcar.textContent = "Marcar";
+    marcar.className =
+      "shrink-0 rounded-lg px-2 py-1 text-[11px] font-bold bg-brand-green text-white active:scale-95 transition-all";
+    marcar.addEventListener("click", async () => {
+      marcar.disabled = true;
+      marcar.textContent = "...";
+      try {
+        const res = await fetch(`/api/pending-time-matches/${p.id}/marcar`, { method: "POST" });
+        const data = await res.json();
+        if (!res.ok) alert(data.error || "No se pudo marcar");
+      } catch (err) {
+        alert("No se pudo marcar");
+      }
+      fetchPendingTimeMatches();
+    });
+
+    const quitar = document.createElement("button");
+    quitar.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+    quitar.title = "Quitar (el local canceló, o no quiero marcarlo)";
+    quitar.className = "shrink-0 px-1 text-brand-red";
+    quitar.addEventListener("click", async () => {
       await fetch(`/api/pending-time-matches/${p.id}/cancel`, { method: "POST" });
       fetchPendingTimeMatches();
     });
 
     fila.appendChild(texto);
     fila.appendChild(horas);
-    fila.appendChild(cancelar);
+    fila.appendChild(marcar);
+    fila.appendChild(quitar);
     pendingTimeList.appendChild(fila);
   });
 

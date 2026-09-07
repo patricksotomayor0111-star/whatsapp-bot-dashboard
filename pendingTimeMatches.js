@@ -48,6 +48,19 @@ function add(entry) {
   return id;
 }
 
+// Se anota que ya se avisó por este pedido, para no repetir la
+// notificación cada 30 segundos mientras espera una decisión.
+function marcarAvisado(id) {
+  const p = data.pendientes.find((x) => x.id === id);
+  if (!p || p.avisado) return;
+  p.avisado = true;
+  save();
+}
+
+function getById(id) {
+  return data.pendientes.find((p) => p.id === Number(id)) || null;
+}
+
 function remove(id) {
   const antes = data.pendientes.length;
   data.pendientes = data.pendientes.filter((p) => p.id !== id);
@@ -74,4 +87,4 @@ function getAll() {
   return data.pendientes.slice().sort((a, b) => a.targetFireMs - b.targetFireMs);
 }
 
-module.exports = { add, remove, getDue, getAll };
+module.exports = { add, remove, getDue, getAll, getById, marcarAvisado };

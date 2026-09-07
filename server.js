@@ -1,6 +1,6 @@
 const express = require("express");
 const path = require("path");
-const { startBot, botState, logoutBot, getSock, setBotActivo, probarFrase } = require("./bot");
+const { startBot, botState, logoutBot, getSock, setBotActivo, probarFrase, marcarPendienteAhora } = require("./bot");
 const quoteConfig = require("./quoteConfig");
 const sectors = require("./sectors");
 const dynamicKeywords = require("./dynamicKeywords");
@@ -421,6 +421,17 @@ app.post("/api/config/espera-automatica", (req, res) => {
 // esperar más ese pedido puntual.
 app.get("/api/pending-time-matches", (req, res) => {
   res.json({ pendientes: pendingTimeMatches.getAll() });
+});
+
+// Marcar un pedido en espera a mano, sin esperar su hora: el caso de tener
+// la espera automática apagada y querer decidir uno por uno.
+app.post("/api/pending-time-matches/:id/marcar", async (req, res) => {
+  try {
+    const r = await marcarPendienteAhora(Number(req.params.id));
+    res.json({ ok: true, ...r, pendientes: pendingTimeMatches.getAll() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 app.post("/api/pending-time-matches/:id/cancel", (req, res) => {
