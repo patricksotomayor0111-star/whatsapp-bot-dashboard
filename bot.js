@@ -1166,6 +1166,9 @@ async function startBot() {
             // mostrar las dos cosas: "sale 18:00 · marco 17:45".
             horaPedidoMs: ventana.targetMs || null,
           });
+          // Se reprograma al toque: si este pedido es el más cercano, hay
+          // que apuntarle a él y no esperar al próximo barrido.
+          programarProximoPendiente();
         }
         continue;
       }
@@ -1266,9 +1269,25 @@ async function marcarPedido(
 // tiempo (ver evaluarVentanaTiempo) y marca los que ya llegaron a su hora.
 // Respeta el botón general: si el bot está en pausa, no marca nada — igual
 // que un pedido normal, que tampoco se marcaría con el bot apagado.
+// Evita que dos revisiones corran a la vez. Ahora que además del barrido
+// hay un temporizador exacto, los dos podrían dispararse casi juntos: sin
+// esta guarda, ambos verían el mismo pedido antes de que ninguno lo saque
+// de la cola y se marcaría dos veces.
+let revisandoPendientes = false;
+
 async function checkPendingTimeMatches() {
   if (!currentSock || !botState.connected) return;
+  if (revisandoPendientes) return;
+  revisandoPendientes = true;
+  try {
+    await revisarPendientes();
+  } finally {
+    revisandoPendientes = false;
+    programarProximoPendiente();
+  }
+}
 
+async function revisarPendientes() {
   const due = pendingTimeMatches.getDue(Date.now());
   if (due.length === 0) return;
 
@@ -1324,6 +1343,38 @@ async function checkPendingTimeMatches() {
     // el resto de la cola espera al próximo tick (si se reactiva antes).
     if (marcado) break;
   }
+}
+
+// Además del barrido de abajo, se programa un temporizador EXACTO para el
+// próximo pedido que toca. Con solo el barrido cada 30s, un pedido que
+// entraba en ventana a las 17:45:00 se marcaba recién en el siguiente
+// tick: hasta 30-40 segundos tarde. Con esto se marca al segundo.
+//
+// El barrido se mantiene como red de seguridad: cubre los reinicios (los
+// temporizadores viven en memoria y se pierden) y los pedidos que caen
+// más lejos de lo que conviene dejar programado.
+let timerProximoPendiente = null;
+const MAX_ADELANTO_TIMER_MS = 5 * 60000;
+
+function programarProximoPendiente() {
+  if (timerProximoPendiente) {
+    clearTimeout(timerProximoPendiente);
+    timerProximoPendiente = null;
+  }
+  const pendientes = pendingTimeMatches.getAll();
+  if (pendientes.length === 0) return;
+
+  // getAll() viene ordenado por targetFireMs, así que el primero es el que toca.
+  const espera = pendientes[0].targetFireMs - Date.now();
+  // Los que faltan mucho no se programan todavía: ya los agarrará el
+  // barrido cuando se acerquen, y así el temporizador siempre apunta a
+  // algo cercano (un setTimeout de horas es frágil y no aporta).
+  if (espera > MAX_ADELANTO_TIMER_MS) return;
+
+  timerProximoPendiente = setTimeout(() => {
+    timerProximoPendiente = null;
+    checkPendingTimeMatches().catch((err) => console.error("Error en checkPendingTimeMatches:", err.message));
+  }, Math.max(0, espera));
 }
 
 setInterval(() => {
