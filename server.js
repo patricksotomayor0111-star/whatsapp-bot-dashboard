@@ -13,6 +13,7 @@ const pendingTimeMatches = require("./pendingTimeMatches");
 const groupDelays = require("./groupDelays");
 const groupTimeWindows = require("./groupTimeWindows");
 const scheduledBroadcasts = require("./scheduledBroadcasts");
+const aiClassifier = require("./aiClassifier");
 const backup = require("./backup");
 const auth = require("./auth");
 const multer = require("multer");
@@ -309,6 +310,27 @@ app.post("/api/probar-frase", (req, res) => {
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+});
+
+// ---------- Filtro de IA: lo que fue aprendiendo ----------
+// Cada frase se consulta una sola vez y la respuesta queda guardada. Acá se
+// puede ver qué decidió y corregirlo: una correción a mano queda marcada
+// para que la IA no la vuelva a mirar nunca.
+app.get("/api/ai-decisions", (req, res) => {
+  res.json({ configurado: aiClassifier.estaConfigurado(), modelo: aiClassifier.MODELO, decisiones: aiClassifier.getAll() });
+});
+
+app.post("/api/ai-decisions", (req, res) => {
+  const texto = String(req.body?.texto || "").trim();
+  if (!texto) return res.status(400).json({ error: "Falta la frase." });
+  aiClassifier.guardarDecision(texto, req.body?.esPedido, true);
+  res.json({ ok: true, decisiones: aiClassifier.getAll() });
+});
+
+app.post("/api/ai-decisions/remove", (req, res) => {
+  const ok = aiClassifier.removeDecision(String(req.body?.clave || ""));
+  if (!ok) return res.status(404).json({ error: "Esa frase ya no está guardada." });
+  res.json({ ok: true, decisiones: aiClassifier.getAll() });
 });
 
 // ---------- Respaldo de la configuración ----------

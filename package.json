@@ -10,6 +10,7 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.124.0",
     "@whiskeysockets/baileys": "7.0.0-rc13",
     "exceljs": "^4.4.0",
     "express": "^4.19.2",

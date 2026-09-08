@@ -20,6 +20,8 @@ const ARCHIVOS = [
   "excluded-numbers-data.json", // números ignorados
   "media-triggers-data.json", // grupos de foto / contacto / nota de voz
   "group-delays.json", // delays personalizados por grupo
+  "group-time-windows.json", // ventana de tiempo propia de un local
+  "ai-decisions-data.json", // frases que el filtro inteligente ya aprendió
   "scheduled-broadcasts-data.json", // mensajes programados
   "quote-config-data.json", // configuración de cotizaciones
   "contact-trigger-groups.json", // legado (ya migrado a media-triggers, va por si acaso)

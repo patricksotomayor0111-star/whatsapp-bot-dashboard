@@ -2633,6 +2633,102 @@ probarFraseBtn.addEventListener("click", async () => {
   probarFraseBtn.disabled = false;
 });
 
+// ---------- Filtro inteligente: lo que fue aprendiendo ----------
+// Muestra qué decidió con cada frase nueva y deja corregirlo. Una corrección
+// a mano queda marcada para siempre: esa frase ya no se vuelve a consultar.
+const aiFilterEstado = document.getElementById("aiFilterEstado");
+const aiDecisionList = document.getElementById("aiDecisionList");
+const aiDecisionEmpty = document.getElementById("aiDecisionEmpty");
+
+function renderAiDecisions(data) {
+  if (data.configurado) {
+    aiFilterEstado.className = "rounded-xl border p-3 text-xs mb-2 bg-green-50 border-green-200 text-green-800";
+    aiFilterEstado.textContent = "✅ Activo. Revisa cada frase nueva antes de que el bot responda.";
+  } else {
+    aiFilterEstado.className = "rounded-xl border p-3 text-xs mb-2 bg-amber-50 border-amber-200 text-amber-800";
+    aiFilterEstado.textContent =
+      "⏸️ Apagado (falta la llave ANTHROPIC_API_KEY). El bot funciona igual que siempre, solo con las palabras clave.";
+  }
+
+  aiDecisionList.innerHTML = "";
+  const decisiones = data.decisiones || [];
+  aiDecisionEmpty.classList.toggle("hidden", decisiones.length > 0);
+
+  decisiones.forEach((d) => {
+    const fila = document.createElement("div");
+    fila.className = `flex items-center gap-2 rounded-xl border px-3 py-2 ${
+      d.esPedido ? "bg-green-50 border-green-200" : "bg-rose-50 border-rose-200"
+    }`;
+
+    const texto = document.createElement("div");
+    texto.className = "flex-1 min-w-0";
+    const frase = document.createElement("p");
+    frase.className = "text-xs text-slate-700 truncate";
+    frase.textContent = d.texto || d.clave;
+    frase.title = d.texto || d.clave;
+    const veredicto = document.createElement("p");
+    veredicto.className = `text-[11px] ${d.esPedido ? "text-green-700" : "text-rose-700"}`;
+    veredicto.textContent =
+      (d.esPedido ? "Sí es pedido — responde" : "No es pedido — no responde") + (d.manual ? " · corregido por ti" : "");
+    texto.appendChild(frase);
+    texto.appendChild(veredicto);
+    fila.appendChild(texto);
+
+    // Dar vuelta el veredicto: queda como corrección manual, así la IA no
+    // lo vuelve a mirar nunca más.
+    const voltear = document.createElement("button");
+    voltear.className = "shrink-0 rounded-lg px-2 py-1 text-[11px] font-semibold bg-white border border-slate-200 text-slate-600 active:scale-90 transition-all";
+    voltear.textContent = d.esPedido ? "No es pedido" : "Sí es pedido";
+    voltear.addEventListener("click", async () => {
+      voltear.disabled = true;
+      try {
+        const res = await fetch("/api/ai-decisions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ texto: d.texto || d.clave, esPedido: !d.esPedido }),
+        });
+        const r = await res.json();
+        if (res.ok) renderAiDecisions({ ...data, decisiones: r.decisiones });
+      } catch (err) {
+        voltear.disabled = false;
+      }
+    });
+    fila.appendChild(voltear);
+
+    // Olvidar: la próxima vez que llegue esa frase se vuelve a consultar.
+    const borrar = document.createElement("button");
+    borrar.className = "shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-brand-red active:scale-90 transition-all";
+    borrar.innerHTML = '<i class="fa-solid fa-xmark text-xs"></i>';
+    borrar.title = "Olvidar esta frase";
+    borrar.addEventListener("click", async () => {
+      borrar.disabled = true;
+      try {
+        const res = await fetch("/api/ai-decisions/remove", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clave: d.clave }),
+        });
+        const r = await res.json();
+        if (res.ok) renderAiDecisions({ ...data, decisiones: r.decisiones });
+      } catch (err) {
+        borrar.disabled = false;
+      }
+    });
+    fila.appendChild(borrar);
+
+    aiDecisionList.appendChild(fila);
+  });
+}
+
+async function fetchAiDecisions() {
+  try {
+    const res = await fetch("/api/ai-decisions");
+    renderAiDecisions(await res.json());
+  } catch (err) {
+    console.error("No se pudo obtener el filtro inteligente:", err);
+  }
+}
+
 // ---------- Respaldo de la configuración ----------
 // La descarga es un <a href="/api/backup" download>, no hace falta JS.
 // Acá va solo la restauración, que sí necesita confirmación: primero se
@@ -2721,6 +2817,7 @@ const categoryLoaders = {
     exceptionKeywordInput.value = "";
     renderSpecialKeywords(); // repinta lo que ya tenías guardado (localStorage)
     fetchKeywords();
+    fetchAiDecisions();
     poblarProbarGrupos();
     populateExceptionGroupSelect();
     fetchExceptionsOverview();

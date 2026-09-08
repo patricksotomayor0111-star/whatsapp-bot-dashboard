@@ -19,6 +19,7 @@ const groupDelays = require("./groupDelays");
 const groupTimeWindows = require("./groupTimeWindows");
 const scheduledBroadcasts = require("./scheduledBroadcasts");
 const pendingTimeMatches = require("./pendingTimeMatches");
+const aiClassifier = require("./aiClassifier");
 const { dataPath } = require("./dataDir");
 const { sectorSeedByName, specialSeedByName, numberExceptionSeed } = require("./groupSeed");
 const {
@@ -1142,6 +1143,23 @@ async function startBot() {
       });
 
       if (!match) continue;
+
+      // Segunda opinión: la palabra clave dijo que sí, pero ¿de verdad
+      // están pidiendo un motorizado? Frena los casos donde la lista de
+      // palabras excluidas no alcanza (ver aiClassifier.js).
+      //
+      // Va ANTES de la ventana de tiempo a propósito: si no es un pedido,
+      // tampoco hay que guardarlo en la lista de espera.
+      //
+      // Si no hay llave configurada, o la IA falla o tarda más de 1 seg,
+      // devuelve true y todo sigue igual que antes. Nunca puede hacer que
+      // se pierda un pedido.
+      //
+      // No aplica a fotos, contactos ni notas de voz: ahí el pedido es el
+      // archivo, no el texto. Una foto con el pie "gracias" es igual un
+      // pedido, y la IA leyendo solo ese "gracias" diría que no.
+      const esTriggerDeArchivo = esImagenTrigger || esContactoTrigger || esAudioTrigger;
+      if (!esTriggerDeArchivo && !(await aiClassifier.esPedidoDeVerdad(rawText))) continue;
 
       // Si el mensaje menciona una hora o una cantidad de minutos fuera de
       // la ventana del sector, no responde todavía. Si la espera automática

@@ -140,6 +140,22 @@
           <div id="probarResultado" class="hidden mt-2 rounded-xl border p-3 text-xs"></div>
         </section>
 
+        <!-- Filtro inteligente (IA) -->
+        <section>
+          <p class="eyebrow text-violet-600"><i class="fa-solid fa-brain"></i> FILTRO INTELIGENTE</p>
+          <p class="text-xs text-slate-400 mt-1 mb-2">
+            Segunda opinión: cuando una palabra clave coincide, revisa si de verdad están pidiendo moto.
+            Cada frase se consulta una sola vez y queda aprendida. Si falla o demora, el bot marca igual.
+          </p>
+          <div id="aiFilterEstado" class="rounded-xl border p-3 text-xs mb-2 bg-slate-50 border-slate-200 text-slate-500">
+            Cargando…
+          </div>
+          <div id="aiDecisionList" class="space-y-1.5"></div>
+          <p id="aiDecisionEmpty" class="hidden text-xs text-slate-400 py-2">
+            Todavía no aprendió ninguna frase.
+          </p>
+        </section>
+
         <!-- Keywords globales -->
         <section>
           <p class="eyebrow text-brand-green"><i class="fa-solid fa-circle-check"></i> KEYWORDS GLOBALES</p>
