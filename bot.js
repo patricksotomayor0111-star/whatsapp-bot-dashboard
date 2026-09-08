@@ -1144,23 +1144,6 @@ async function startBot() {
 
       if (!match) continue;
 
-      // Segunda opinión: la palabra clave dijo que sí, pero ¿de verdad
-      // están pidiendo un motorizado? Frena los casos donde la lista de
-      // palabras excluidas no alcanza (ver aiClassifier.js).
-      //
-      // Va ANTES de la ventana de tiempo a propósito: si no es un pedido,
-      // tampoco hay que guardarlo en la lista de espera.
-      //
-      // Si no hay llave configurada, o la IA falla o tarda más de 1 seg,
-      // devuelve true y todo sigue igual que antes. Nunca puede hacer que
-      // se pierda un pedido.
-      //
-      // No aplica a fotos, contactos ni notas de voz: ahí el pedido es el
-      // archivo, no el texto. Una foto con el pie "gracias" es igual un
-      // pedido, y la IA leyendo solo ese "gracias" diría que no.
-      const esTriggerDeArchivo = esImagenTrigger || esContactoTrigger || esAudioTrigger;
-      if (!esTriggerDeArchivo && !(await aiClassifier.esPedidoDeVerdad(rawText))) continue;
-
       // Si el mensaje menciona una hora o una cantidad de minutos fuera de
       // la ventana del sector, no responde todavía. Si la espera automática
       // está activa (panel principal), el pedido queda guardado para
@@ -1183,6 +1166,27 @@ async function startBot() {
       if (enModoEnfoque && !focusedGroups.includes(chatId)) continue;
       if (!isGroupSectorActiveEfectivo(chatId, sectorId)) continue;
       if (!isGroupActive(chatId)) continue;
+
+      // Segunda opinión: la palabra clave dijo que sí, pero ¿de verdad
+      // están pidiendo un motorizado? Frena los casos donde la lista de
+      // palabras excluidas no alcanza (ver aiClassifier.js).
+      //
+      // Va DESPUÉS de los filtros de grupo/sector/enfoque: si el bot no le
+      // iba a responder a ese grupo, no tiene sentido pagar una consulta
+      // para averiguar algo que no se va a usar.
+      //
+      // Y va ANTES de la ventana de tiempo: si no es un pedido, tampoco
+      // hay que guardarlo en la lista de espera.
+      //
+      // Si no hay llave configurada, o la IA falla o tarda más de 1 seg,
+      // devuelve true y todo sigue igual que antes. Nunca puede hacer que
+      // se pierda un pedido.
+      //
+      // No aplica a fotos, contactos ni notas de voz: ahí el pedido es el
+      // archivo, no el texto. Una foto con el pie "gracias" es igual un
+      // pedido, y la IA leyendo solo ese "gracias" diría que no.
+      const esTriggerDeArchivo = esImagenTrigger || esContactoTrigger || esAudioTrigger;
+      if (!esTriggerDeArchivo && !(await aiClassifier.esPedidoDeVerdad(rawText))) continue;
 
       const ventana = evaluarVentanaTiempo(text, sectorId, getPeruNow(), grupoActual?.name);
       if (!ventana.enVentana) {
