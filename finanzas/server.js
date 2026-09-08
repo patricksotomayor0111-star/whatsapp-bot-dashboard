@@ -1174,7 +1174,7 @@ app.post("/api/reminders/:id/pagado", (req, res) => {
     const montoNum = Number(req.body?.monto);
     const monto = Number.isFinite(montoNum) && montoNum > 0 ? montoNum : recordatorio.monto;
 
-    const gastoExistente = reminders.buscarGastoDelPago(req.params.id, cashbox.getMovimientos());
+    const gastoExistente = reminders.buscarGastoDelPago(req.params.id, cashbox.getMovimientos(), monto);
     const registrado = !gastoExistente;
     if (registrado) cashbox.addGasto(monto, recordatorio.label);
 

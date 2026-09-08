@@ -220,6 +220,24 @@ function palabrasClaveDe(label) {
   return significativas.length ? significativas : palabras;
 }
 
+// Cuanto se parece la descripcion de un gasto al nombre de un pendiente.
+// Por PALABRA COMPLETA, no por pedazo: antes se usaba includes() sobre el
+// texto entero, asi que "Ana pasaje" pasaba por "Compartimos banco Ana"
+// solo por compartir la palabra "ana", y "mia colegio sip" pasaba por
+// "Sip credito".
+function coincidenciaConPendiente(label, descripcion) {
+  const claves = palabrasClaveDe(label);
+  const palabras = normalizeText(descripcion).split(/[^a-z0-9]+/).filter(Boolean);
+  const encontradas = claves.filter((k) => palabras.includes(k));
+  return { claves, encontradas, todas: claves.length > 0 && encontradas.length === claves.length };
+}
+
+// Margen para los recibos que varian un poco mes a mes.
+function montoParecido(a, b) {
+  if (!(b > 0)) return false;
+  return Math.abs(a - b) <= Math.max(1, b * 0.15);
+}
+
 // Cuántos días hacia atrás tiene sentido buscar, según cada cuánto se paga.
 const DIAS_VENTANA = { semanal: 7, mensual_dia: 31, mensual_finmes: 31, unica: 31 };
 
@@ -247,7 +265,7 @@ function ocurrenciaAnterior(r, dueLabel) {
   return null; // "unica" no se repite: no hay ciclo anterior
 }
 
-function buscarGastoDelPago(id, movimientos) {
+function buscarGastoDelPago(id, movimientos, montoPagado) {
   const r = getById(id);
   if (!r) return null;
   const hoy = fechaLabelPeru();
@@ -262,14 +280,20 @@ function buscarGastoDelPago(id, movimientos) {
   // Y si ya marco pagado un ciclo, todo lo de antes ya quedo saldado.
   if (r.lastPaidCycle && r.lastPaidCycle >= desde) desde = addDays(r.lastPaidCycle, 1);
 
-  const claves = palabrasClaveDe(r.label);
+  // Contra lo que dice que pago, no contra el monto configurado: algunos
+  // recibos cambian mes a mes.
+  const referencia = Number(montoPagado) > 0 ? Number(montoPagado) : r.monto;
 
   return (
     movimientos.find((m) => {
       if (m.tipo !== "gasto") return false;
       if (m.fecha < desde || m.fecha > hoy) return false;
-      const desc = normalizeText(m.descripcion);
-      return claves.some((k) => desc.includes(k));
+      const { encontradas, todas } = coincidenciaConPendiente(r.label, m.descripcion);
+      if (!encontradas.length) return false;
+      // Si aparece el nombre entero alcanza, aunque el monto no cuadre.
+      if (todas) return true;
+      // Si solo aparece parte del nombre, el monto tiene que respaldarlo.
+      return montoParecido(m.monto, referencia);
     }) || null
   );
 }
@@ -310,8 +334,11 @@ function buscarPendientePorGasto(descripcion, monto) {
   const montoNum = Number(monto) || 0;
 
   for (const r of datos().reminders) {
-    const claves = palabrasClaveDe(r.label);
-    if (!claves.some((k) => desc.includes(k))) continue;
+    const { encontradas, todas } = coincidenciaConPendiente(r.label, descripcion);
+    if (!encontradas.length) continue;
+    // Mismo criterio que al reves: con parte del nombre hace falta que el
+    // monto acompane, para no dar por pagado un pendiente que no toca.
+    if (!todas && !montoParecido(montoNum, r.monto)) continue;
     if (r.monto > 0 && montoNum < r.monto * FRACCION_MONTO_MINIMA) continue;
     const vence = cicloMarcable(r, hoy);
     if (vence) return { reminder: r, vence };
