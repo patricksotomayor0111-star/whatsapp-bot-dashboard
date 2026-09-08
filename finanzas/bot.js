@@ -597,6 +597,12 @@ function botDe(userId) {
       // Es por bot: dos cuentas distintas pueden recibir mensajes con el
       // mismo id sin que uno tape al otro.
       mensajesProcesados: new Set(),
+      // Hasta que momento ya leyo mensajes (epoch en ms). Se guarda en
+      // disco: sin esto, cada reinicio olvidaba todo y la unica defensa
+      // contra duplicados era tirar lo que tuviera mas de 5 minutos, que
+      // tambien se comia los mensajes reales llegados mientras estuvo caido.
+      ultimoVisto: 0,
+      vistosSucios: false,
       // Segunda barrera contra que el bot se lea a sí mismo.
       textosEnviados: new Set(),
       // Control de los reintentos al cargar la lista de grupos.
@@ -605,9 +611,49 @@ function botDe(userId) {
       // Para no repetir el mensaje de las 7am dentro del mismo día.
       lastMorningMessageLabel: null,
     });
+    cargarMensajesVistos(bots.get(userId));
   }
   return bots.get(userId);
 }
+
+// ---------- Memoria de lo ya leido (sobrevive a los reinicios) ----------
+// Antes vivia solo en RAM. Al reiniciar el servicio se perdia, asi que la
+// unica proteccion contra reprocesar historia era descartar todo lo de mas
+// de 5 minutos. Eso hacia que si el bot estaba caido mas de ese rato, los
+// mensajes de la caja chica de ese lapso se perdieran para siempre y en
+// silencio. Guardandolo en disco, el dedup por id ya alcanza y se puede
+// aceptar lo que llegue atrasado.
+const ARCHIVO_VISTOS = "mensajes-vistos.json";
+
+function cargarMensajesVistos(bot) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(userDataPath(bot.userId, ARCHIVO_VISTOS), "utf8"));
+    bot.mensajesProcesados = new Set(Array.isArray(raw.ids) ? raw.ids : []);
+    bot.ultimoVisto = Number(raw.ultimoVisto) || 0;
+  } catch (err) {
+    bot.mensajesProcesados = new Set();
+    bot.ultimoVisto = 0;
+  }
+}
+
+// Una sola escritura chica y solo si hubo cambios. NUNCA dentro del bucle
+// de mensajes: eso fue lo que en su momento colgo el bot por 12 segundos.
+function guardarMensajesVistos(bot) {
+  if (!bot.vistosSucios) return;
+  try {
+    fs.writeFileSync(
+      userDataPath(bot.userId, ARCHIVO_VISTOS),
+      JSON.stringify({ ultimoVisto: bot.ultimoVisto, ids: [...bot.mensajesProcesados] })
+    );
+    bot.vistosSucios = false;
+  } catch (err) {
+    console.error(`[${bot.userId}] No se pudo guardar la memoria de mensajes:`, err.message);
+  }
+}
+
+setInterval(() => {
+  for (const bot of bots.values()) guardarMensajesVistos(bot);
+}, 20 * 1000);
 
 // Las cuentas que tienen bot levantado en este momento.
 function botsActivos() {
@@ -677,10 +723,13 @@ function sessionPathDe(userId) {
 // reconectar. NO se filtra por "type": los mensajes que escribe el propio
 // dueño desde su teléfono no siempre llegan como "notify".
 const MAX_MENSAJES_PROCESADOS = 500;
+// Cada cuanto, como mucho, se dibuja el QR en los logs del servidor.
+const INTERVALO_LOG_QR_MS = 15 * 60 * 1000; // 15 minutos
 function yaFueProcesado(bot, id) {
   if (!id) return false;
   if (bot.mensajesProcesados.has(id)) return true;
   bot.mensajesProcesados.add(id);
+  bot.vistosSucios = true;
   if (bot.mensajesProcesados.size > MAX_MENSAJES_PROCESADOS) {
     bot.mensajesProcesados.delete(bot.mensajesProcesados.values().next().value);
   }
@@ -688,13 +737,35 @@ function yaFueProcesado(bot, id) {
 }
 
 const ANTIGUEDAD_MAXIMA_MS = 5 * 60 * 1000; // 5 minutos
-function esMensajeViejo(msg) {
+// Tope duro: por mas marcas que haya, nunca revivir historia antiquisima.
+const TOPE_HISTORIA_MS = 7 * 24 * 60 * 60 * 1000; // 7 días
+// Se relee un poco antes de la ultima marca por si algo llego desordenado;
+// repetirlo no hace dano porque el dedup por id lo atrapa.
+const MARGEN_RELECTURA_MS = 10 * 60 * 1000; // 10 minutos
+
+function timestampDeMensaje(msg) {
   const raw = msg?.messageTimestamp;
-  if (raw === undefined || raw === null) return false; // sin fecha: se procesa igual
+  if (raw === undefined || raw === null) return 0;
   // messageTimestamp puede venir como número o como Long ({low, high}).
   const segundos = typeof raw === "number" ? raw : typeof raw.toNumber === "function" ? raw.toNumber() : Number(raw.low ?? raw);
-  if (!Number.isFinite(segundos) || segundos <= 0) return false;
-  return Date.now() - segundos * 1000 > ANTIGUEDAD_MAXIMA_MS;
+  if (!Number.isFinite(segundos) || segundos <= 0) return 0;
+  return segundos * 1000;
+}
+
+function esMensajeViejo(bot, msg) {
+  const ms = timestampDeMensaje(msg);
+  if (!ms) return false; // sin fecha: se procesa igual
+  if (Date.now() - ms > TOPE_HISTORIA_MS) return true;
+
+  // Ya leyo mensajes antes: se acepta todo lo posterior a esa marca. Lo
+  // que llego mientras estuvo caido entra igual, que es justo lo que
+  // antes se perdia. El dedup por id (ahora guardado en disco) es el que
+  // evita registrar dos veces lo mismo.
+  if (bot.ultimoVisto > 0) return ms < bot.ultimoVisto - MARGEN_RELECTURA_MS;
+
+  // Sin marca previa (recien vinculado): ventana corta, para no registrar
+  // de golpe toda la historia que WhatsApp entrega al escanear el QR.
+  return Date.now() - ms > ANTIGUEDAD_MAXIMA_MS;
 }
 
 // Manda un mensaje y deja anotado su ID como "ya procesado", para que
@@ -1036,9 +1107,17 @@ async function startBot(userId) {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
+      // El QR siempre queda disponible para el panel, que es donde de
+      // verdad se escanea. Al log solo se manda cada tanto: una cuenta que
+      // nunca vincula lo regenera sin parar y tapaba por completo los
+      // mensajes utiles, que es lo que impidio ver este problema antes.
       bot.qr = qr;
-      console.log(`\n[${userId}] Escanea este código QR con WhatsApp (Dispositivos vinculados):\n`);
-      qrcode.generate(qr, { small: true });
+      const ahoraQr = Date.now();
+      if (ahoraQr - (bot.ultimoQrLog || 0) > INTERVALO_LOG_QR_MS) {
+        bot.ultimoQrLog = ahoraQr;
+        console.log(`\n[${userId}] Escanea este código QR con WhatsApp (Dispositivos vinculados):\n`);
+        qrcode.generate(qr, { small: true });
+      }
     }
 
     if (connection === "close") {
@@ -1087,7 +1166,19 @@ async function procesarMensajes(bot, messages) {
       // escribe el propio dueño (los de la caja chica) no siempre llegan
       // como "notify".
       if (yaFueProcesado(bot, msg.key.id)) continue;
-      if (esMensajeViejo(msg)) continue;
+      if (esMensajeViejo(bot, msg)) {
+        // Se deja constancia: si algo se descarta, que no sea en silencio.
+        console.log(`[${bot.userId}] Descarté un mensaje por viejo: "${extractText(msg).trim().slice(0, 40)}"`);
+        continue;
+      }
+
+      // Marca hasta donde se leyo. Es lo que permite que, tras un reinicio,
+      // se acepte lo que haya llegado mientras el bot estuvo caido.
+      const tsMensaje = timestampDeMensaje(msg);
+      if (tsMensaje > bot.ultimoVisto) {
+        bot.ultimoVisto = tsMensaje;
+        bot.vistosSucios = true;
+      }
 
       const chatId = msg.key.remoteJid;
       // Ya no se exige que sea un grupo: una cuenta puede elegir anotar en
