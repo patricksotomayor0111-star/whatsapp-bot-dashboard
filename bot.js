@@ -34,6 +34,7 @@ const {
   getAntiguedadMaximaMin,
   isGroupSinRemarcarEfectivo,
   isGroupSectorActiveEfectivo,
+  DEFAULT_SECTOR,
 } = require("./sectors");
 
 const MAX_HISTORY = 100;
@@ -1185,8 +1186,15 @@ async function startBot() {
       // No aplica a fotos, contactos ni notas de voz: ahí el pedido es el
       // archivo, no el texto. Una foto con el pie "gracias" es igual un
       // pedido, y la IA leyendo solo ese "gracias" diría que no.
+      //
+      // Tampoco aplica al sector "Otros", que es el cajón de los grupos
+      // olvidados (todo grupo sin sector asignado cae ahí). No vale la
+      // pena pagar por revisar locales que hoy no le importan a nadie. El
+      // día que uno vuelve a pedir y se le asigna un sector de verdad, la
+      // IA empieza a revisarlo sola, sin configurar nada.
       const esTriggerDeArchivo = esImagenTrigger || esContactoTrigger || esAudioTrigger;
-      if (!esTriggerDeArchivo && !(await aiClassifier.esPedidoDeVerdad(rawText))) continue;
+      const esSectorOlvidado = sectorId === DEFAULT_SECTOR;
+      if (!esTriggerDeArchivo && !esSectorOlvidado && !(await aiClassifier.esPedidoDeVerdad(rawText))) continue;
 
       const ventana = evaluarVentanaTiempo(text, sectorId, getPeruNow(), grupoActual?.name);
       if (!ventana.enVentana) {
