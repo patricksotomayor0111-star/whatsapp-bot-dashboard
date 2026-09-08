@@ -226,12 +226,42 @@ const DIAS_VENTANA = { semanal: 7, mensual_dia: 31, mensual_finmes: 31, unica: 3
 // Busca en los movimientos de la caja un gasto que corresponda a este pago
 // dentro de su ciclo (la semana o el mes en curso). Devuelve el movimiento
 // encontrado, o null si no está registrado.
+// El vencimiento del ciclo ANTERIOR a este. Sirve para no mirar mas atras
+// de lo que corresponde: lo que se pago el mes pasado no puede contar
+// como el pago de este mes.
+function ocurrenciaAnterior(r, dueLabel) {
+  if (!dueLabel) return null;
+  if (r.tipo === "semanal") return addDays(dueLabel, -7);
+
+  const [y, mo] = dueLabel.split("-").map(Number);
+  const prevMo = mo === 1 ? 12 : mo - 1;
+  const prevY = mo === 1 ? y - 1 : y;
+
+  if (r.tipo === "mensual_dia") {
+    const dia = Math.min(r.dia, diasEnMes(prevY, prevMo));
+    return utcToLabel(new Date(Date.UTC(prevY, prevMo - 1, dia)));
+  }
+  if (r.tipo === "mensual_finmes") {
+    return utcToLabel(new Date(Date.UTC(prevY, prevMo - 1, diasEnMes(prevY, prevMo))));
+  }
+  return null; // "unica" no se repite: no hay ciclo anterior
+}
+
 function buscarGastoDelPago(id, movimientos) {
   const r = getById(id);
   if (!r) return null;
   const hoy = fechaLabelPeru();
   const due = ultimaVentanaAbierta(r, hoy) || hoy;
-  const desde = addDays(due, -(DIAS_VENTANA[r.tipo] || 31));
+
+  // La ventana cubre SOLO el ciclo en curso. Antes miraba 31 dias hacia
+  // atras desde el vencimiento, lo que se metia de lleno en el ciclo
+  // anterior: el gasto del mes pasado se tomaba como el de este, el boton
+  // "Ya pagué" concluia que ya estaba registrado y no anotaba nada.
+  const anterior = ocurrenciaAnterior(r, due);
+  let desde = anterior ? addDays(anterior, 1) : addDays(due, -(DIAS_VENTANA[r.tipo] || 31));
+  // Y si ya marco pagado un ciclo, todo lo de antes ya quedo saldado.
+  if (r.lastPaidCycle && r.lastPaidCycle >= desde) desde = addDays(r.lastPaidCycle, 1);
+
   const claves = palabrasClaveDe(r.label);
 
   return (
