@@ -26,27 +26,42 @@ La empresa tiene grupos con restaurantes y tiendas. Cuando un local necesita
 que un motorizado vaya a recoger un pedido, lo escribe en su grupo, y el bot
 responde "Voy" para tomar el encargo.
 
-Ya se detectó una palabra clave en el mensaje. Tu única tarea es decidir si
-el local REALMENTE está pidiendo un motorizado ahora o para una hora
-concreta.
+Ya se detectó una palabra clave en el mensaje. Tienes que responder dos cosas
+en una sola línea: si REALMENTE están pidiendo un motorizado, y para cuándo.
+
+Formatos de respuesta, sin nada más:
+- "NO"          → no están pidiendo un motorizado
+- "SI"          → piden un motorizado para ahora mismo
+- "SI +MINUTOS" → piden para dentro de un rato (ejemplo: "SI +30")
+- "SI @HH:MM"   → piden para una hora concreta, en formato de 24 horas
+                  (ejemplo: "SI @18:00")
 
 Responde SI cuando piden que vaya un motorizado. Ejemplos:
-- "moto"
-- "ya pueden venir por el pedido"
-- "pedido listo para recoger"
-- "necesito un motorizado para las 6"
-- "un delivery porfa"
+- "moto" → SI
+- "ya pueden venir por el pedido" → SI
+- "pedido listo para recoger" → SI
+- "un delivery porfa" → SI
+- "manden moto en media hora" → SI +30
+- "el pedido sale apenas termine de freír, como 20 minutitos" → SI +20
+- "necesito un motorizado para las 6 de la tarde" → SI @18:00
+- "vienen a recoger cuando cierre el colegio, 1 y media" → SI @13:30
 
 Responde NO cuando NO están pidiendo motorizado. Ejemplos:
-- Preguntan precio o tarifa: "cuánto cobran hasta la unidad vecinal"
-- Hablan de un pedido ya atendido: "ya se fue la moto", "gracias, llegó bien"
-- Avisan que NO hace falta: "ya no, el cliente lo recoge", "cancelado"
-- Dicen que lo mandan por otro lado: "lo enviamos con otro delivery"
-- Conversación suelta, saludos, coordinación interna, cosas de otro tema
+- Preguntan precio o tarifa: "cuánto cobran hasta la unidad vecinal" → NO
+- Hablan de un pedido ya atendido: "ya se fue la moto", "gracias, llegó bien" → NO
+- Avisan que NO hace falta: "ya no, el cliente lo recoge", "cancelado" → NO
+- Dicen que lo mandan por otro lado: "lo enviamos con otro delivery" → NO
+- Conversación suelta, saludos, coordinación interna, cosas de otro tema → NO
 
-Ante la duda, responde SI: es peor perder un pedido que responder de más.
+Reglas sobre la hora:
+- Si el mensaje NO dice cuándo, responde solo "SI". No inventes una hora.
+- No uses la hora actual para nada: responde solo con lo que dice el mensaje.
+  "en media hora" siempre es "+30", pase lo que pase.
+- Si dicen una hora sin aclarar mañana o tarde, elige la que tenga sentido
+  para un restaurante: "a las 6" es "@18:00", no las 6 de la mañana.
 
-Responde ÚNICAMENTE con la palabra SI o la palabra NO, sin nada más.`;
+Ante la duda de si es pedido, responde SI: es peor perder un pedido que
+responder de más. Ante la duda de la hora, no pongas hora.`;
 
 function loadData() {
   try {
@@ -95,12 +110,38 @@ function getDecision(texto) {
   return data.decisiones[clave] || null;
 }
 
-function guardarDecision(texto, esPedido, manual) {
+// La hora que entendió la IA, en una forma que NO depende de cuándo se
+// preguntó — si no, no se podría guardar. Dos formas posibles:
+//   { minutos: 30 }        "en media hora"  → siempre 30 minutos después
+//   { hour: 18, minute: 0 } "a las 6 de la tarde" → siempre las 18:00
+function parsearHora(dijo) {
+  const abs = dijo.match(/@\s*(\d{1,2})\s*:\s*(\d{2})/);
+  if (abs) {
+    const hour = Number(abs[1]);
+    const minute = Number(abs[2]);
+    if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) return { hour, minute };
+    return null;
+  }
+  const rel = dijo.match(/\+\s*(\d{1,4})/);
+  if (rel) {
+    const minutos = Number(rel[1]);
+    // Más de un día no tiene sentido para un pedido de comida: si sale eso,
+    // es que entendió cualquier cosa y mejor tratarlo como sin hora.
+    if (minutos > 0 && minutos <= 1440) return { minutos };
+  }
+  return null;
+}
+
+function guardarDecision(texto, esPedido, manual, hora) {
   const clave = claveDe(texto);
   if (!clave) return;
+  // Si no se pasa hora (la corrección desde el panel solo cambia el
+  // veredicto), se conserva la que ya se había aprendido en vez de borrarla.
+  const anterior = data.decisiones[clave];
   data.decisiones[clave] = {
     esPedido: Boolean(esPedido),
     manual: Boolean(manual), // corregida a mano: la IA ya no la vuelve a mirar
+    hora: hora === undefined ? anterior?.hora || null : hora || null,
     texto: String(texto || "").slice(0, 200),
     fecha: new Date().toISOString(),
   };
@@ -120,22 +161,23 @@ function removeDecision(clave) {
   return true;
 }
 
-// Devuelve true si hay que marcar y false si hay que callarse.
-// SIEMPRE devuelve true ante cualquier problema (ver regla 2).
-async function esPedidoDeVerdad(texto) {
+// Las dos respuestas de una: si hay que marcar, y para cuándo es el pedido.
+// SIEMPRE devuelve esPedido:true ante cualquier problema (ver regla 2), y
+// hora:null, que significa "no sé" — ahí mandan las reglas de siempre.
+async function analizar(texto) {
   const clave = claveDe(texto);
-  if (!clave) return true;
+  if (!clave) return { esPedido: true, hora: null };
 
   const recordada = data.decisiones[clave];
-  if (recordada) return recordada.esPedido; // instantáneo y sin costo
+  if (recordada) return { esPedido: recordada.esPedido, hora: recordada.hora || null }; // instantáneo y sin costo
 
-  if (!estaConfigurado()) return true; // sin llave configurada, no aplica
+  if (!estaConfigurado()) return { esPedido: true, hora: null }; // sin llave configurada, no aplica
 
   try {
     const respuesta = await getCliente().messages.create(
       {
         model: MODELO,
-        max_tokens: 5,
+        max_tokens: 12,
         system: [{ type: "text", text: INSTRUCCIONES, cache_control: { type: "ephemeral" } }],
         messages: [{ role: "user", content: texto }],
       },
@@ -152,15 +194,22 @@ async function esPedidoDeVerdad(texto) {
     // Solo un "NO" claro frena al bot. Cualquier otra cosa (respuesta rara,
     // vacía o inesperada) se toma como que sí es pedido.
     const esPedido = !/^NO\b/.test(dijo);
-    guardarDecision(texto, esPedido, false);
-    return esPedido;
+    const hora = esPedido ? parsearHora(dijo) : null;
+    guardarDecision(texto, esPedido, false, hora);
+    return { esPedido, hora };
   } catch (err) {
     console.error("Filtro de IA no disponible, se marca igual:", err.message);
-    return true;
+    return { esPedido: true, hora: null };
   }
 }
 
+// Devuelve true si hay que marcar y false si hay que callarse.
+async function esPedidoDeVerdad(texto) {
+  return (await analizar(texto)).esPedido;
+}
+
 module.exports = {
+  analizar,
   esPedidoDeVerdad,
   estaConfigurado,
   getDecision,

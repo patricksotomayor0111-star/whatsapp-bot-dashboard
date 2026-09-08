@@ -2640,6 +2640,18 @@ const aiFilterEstado = document.getElementById("aiFilterEstado");
 const aiDecisionList = document.getElementById("aiDecisionList");
 const aiDecisionEmpty = document.getElementById("aiDecisionEmpty");
 
+// La hora que entendió la IA, si es que el mensaje mencionaba una. Solo se
+// muestra cuando las reglas de siempre no la habrían visto — igual sirve para
+// notar si entendió cualquier cosa.
+function textoHoraAprendida(hora) {
+  if (!hora) return "";
+  if (typeof hora.minutos === "number") return ` · sale en ${hora.minutos} min`;
+  if (typeof hora.hour === "number") {
+    return ` · sale ${String(hora.hour).padStart(2, "0")}:${String(hora.minute).padStart(2, "0")}`;
+  }
+  return "";
+}
+
 function renderAiDecisions(data) {
   if (data.configurado) {
     aiFilterEstado.className = "rounded-xl border p-3 text-xs mb-2 bg-green-50 border-green-200 text-green-800";
@@ -2669,7 +2681,9 @@ function renderAiDecisions(data) {
     const veredicto = document.createElement("p");
     veredicto.className = `text-[11px] ${d.esPedido ? "text-green-700" : "text-rose-700"}`;
     veredicto.textContent =
-      (d.esPedido ? "Sí es pedido — responde" : "No es pedido — no responde") + (d.manual ? " · corregido por ti" : "");
+      (d.esPedido ? "Sí es pedido — responde" : "No es pedido — no responde") +
+      textoHoraAprendida(d.hora) +
+      (d.manual ? " · corregido por ti" : "");
     texto.appendChild(frase);
     texto.appendChild(veredicto);
     fila.appendChild(texto);

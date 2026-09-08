@@ -422,7 +422,11 @@ function getPeruNow() {
 //   - { targetMs: null }    -> menciona una hora, pero ya pasó (sin
 //                              candidato futuro válido hoy)
 //   - { targetMs: <ms> }    -> el momento futuro exacto al que se refiere
-function calcularObjetivoTiempo(text, now) {
+// `horaIA` es lo que entendió el filtro inteligente, y solo se usa cuando las
+// reglas de siempre no encontraron nada. El orden importa: las reglas son
+// gratis, instantáneas y están probadas — la IA solo llena el hueco de las
+// formas raras de escribir la hora ("apenas termine de freír, 20 minutitos").
+function calcularObjetivoTiempo(text, now, horaIA) {
   const minutosRelativos = extractRelativeMinutes(text);
   if (minutosRelativos !== null) {
     return { targetMs: now.getTime() + minutosRelativos * 60000 };
@@ -449,6 +453,21 @@ function calcularObjetivoTiempo(text, now) {
     if (mejorDiff === null) return { targetMs: null };
     return { targetMs: now.getTime() + mejorDiff * 60000 };
   }
+
+  // Las reglas no entendieron nada. Si la IA sí entendió una hora, se usa
+  // esa; si tampoco, el pedido es para ahora, igual que siempre.
+  if (horaIA) {
+    if (typeof horaIA.minutos === "number") {
+      return { targetMs: now.getTime() + horaIA.minutos * 60000, fuente: "ia" };
+    }
+    if (typeof horaIA.hour === "number") {
+      const diff = horaIA.hour * 60 + horaIA.minute - (now.getHours() * 60 + now.getMinutes());
+      // Una hora que ya pasó no se reprograma para mañana: mismo criterio
+      // que las reglas, no responde y no queda en espera.
+      if (diff < 0) return { targetMs: null, fuente: "ia" };
+      return { targetMs: now.getTime() + diff * 60000, fuente: "ia" };
+    }
+  }
   return null;
 }
 
@@ -471,16 +490,17 @@ function ventanaMinutosDe(sectorId, nombreGrupo) {
   return propia !== null ? propia : getTimeWindowMinutes(sectorId);
 }
 
-function evaluarVentanaTiempo(text, sectorId, now = getPeruNow(), nombreGrupo) {
-  const objetivo = calcularObjetivoTiempo(text, now);
-  if (objetivo === null) return { enVentana: true, esperaMs: null, minutos: null };
+function evaluarVentanaTiempo(text, sectorId, now = getPeruNow(), nombreGrupo, horaIA) {
+  const objetivo = calcularObjetivoTiempo(text, now, horaIA);
+  if (objetivo === null) return { enVentana: true, esperaMs: null, minutos: null, fuente: null };
   const minutos = ventanaMinutosDe(sectorId, nombreGrupo);
-  if (objetivo.targetMs === null) return { enVentana: false, esperaMs: null, minutos };
+  const fuente = objetivo.fuente || "reglas";
+  if (objetivo.targetMs === null) return { enVentana: false, esperaMs: null, minutos, fuente };
   const esperaMs = objetivo.targetMs - minutos * 60000 - now.getTime();
   // targetMs se devuelve para poder mostrar A QUÉ HORA es el pedido (no
   // solo cuándo lo va a marcar el bot) en la lista de pedidos en espera.
-  if (esperaMs <= 0) return { enVentana: true, esperaMs: null, minutos, targetMs: objetivo.targetMs };
-  return { enVentana: false, esperaMs, minutos, targetMs: objetivo.targetMs };
+  if (esperaMs <= 0) return { enVentana: true, esperaMs: null, minutos, targetMs: objetivo.targetMs, fuente };
+  return { enVentana: false, esperaMs, minutos, targetMs: objetivo.targetMs, fuente };
 }
 
 // Versión mínima de un mensaje, suficiente para que Baileys pueda citarlo
@@ -1192,11 +1212,19 @@ async function startBot() {
       // pena pagar por revisar locales que hoy no le importan a nadie. El
       // día que uno vuelve a pedir y se le asigna un sector de verdad, la
       // IA empieza a revisarlo sola, sin configurar nada.
+      // Una sola consulta responde las dos cosas: si es pedido de verdad y
+      // para cuándo es. La hora solo se usa si las reglas de siempre no
+      // entendieron nada (ver calcularObjetivoTiempo).
       const esTriggerDeArchivo = esImagenTrigger || esContactoTrigger || esAudioTrigger;
       const esSectorOlvidado = sectorId === DEFAULT_SECTOR;
-      if (!esTriggerDeArchivo && !esSectorOlvidado && !(await aiClassifier.esPedidoDeVerdad(rawText))) continue;
+      let horaIA = null;
+      if (!esTriggerDeArchivo && !esSectorOlvidado) {
+        const veredicto = await aiClassifier.analizar(rawText);
+        if (!veredicto.esPedido) continue;
+        horaIA = veredicto.hora;
+      }
 
-      const ventana = evaluarVentanaTiempo(text, sectorId, getPeruNow(), grupoActual?.name);
+      const ventana = evaluarVentanaTiempo(text, sectorId, getPeruNow(), grupoActual?.name, horaIA);
       if (!ventana.enVentana) {
         // El pedido se guarda SIEMPRE, aunque la espera automática esté
         // apagada. Antes solo se guardaba con el interruptor prendido, así
@@ -1589,8 +1617,28 @@ function probarFrase(textoCrudo, chatId, numeroCrudo) {
   if (!isGroupSectorActiveEfectivo(chatId, sectorId)) advertencias.push("El sector de este grupo está apagado.");
   if (!isGroupActive(chatId)) advertencias.push("Este grupo está marcado como inactivo.");
 
+  // Lo que el filtro inteligente ya aprendió de esta frase. Se LEE nomás, no
+  // se le pregunta de nuevo: probar una frase no debe gastar ni cambiar nada.
+  const recordadaIA = aiClassifier.getDecision(rawText);
+  if (recordadaIA && !recordadaIA.esPedido) {
+    advertencias.push(
+      recordadaIA.manual
+        ? "Tú marcaste esta frase como que no es un pedido, así que el bot no respondería. Se cambia en Filtro inteligente."
+        : "El filtro inteligente aprendió que esta frase no es un pedido, así que el bot no respondería. Se corrige en Filtro inteligente."
+    );
+  }
+
   // La ventana de tiempo solo cuenta si la frase menciona una hora.
-  const ventana = evaluarVentanaTiempo(text, sectorId, getPeruNow(), nombreGrupo);
+  const ventana = evaluarVentanaTiempo(text, sectorId, getPeruNow(), nombreGrupo, recordadaIA?.hora || null);
+  if (ventana.fuente) {
+    pasos.push({
+      nombre: "Hora del pedido",
+      detalle:
+        ventana.fuente === "ia"
+          ? "la entendió el filtro inteligente (las reglas de siempre no la vieron)"
+          : "la leyeron las reglas de siempre",
+    });
+  }
   if (match && !ventana.enVentana) {
     if (ventana.esperaMs === null) {
       advertencias.push("La hora que menciona ya pasó, así que no se marcaría.");
@@ -1615,4 +1663,7 @@ function probarFrase(textoCrudo, chatId, numeroCrudo) {
   };
 }
 
-module.exports = { startBot, botState, logoutBot, getSock, setBotActivo, probarFrase, marcarPendienteAhora };
+// evaluarVentanaTiempo se exporta para poder probarla sin levantar el bot:
+// es la que decide si un pedido se marca ya o queda en espera, y conviene
+// poder verificarla con horas inventadas.
+module.exports = { startBot, botState, logoutBot, getSock, setBotActivo, probarFrase, marcarPendienteAhora, evaluarVentanaTiempo };
