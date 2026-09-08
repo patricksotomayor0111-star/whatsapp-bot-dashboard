@@ -252,7 +252,10 @@ function analizarDeteccion(text, chatId, senderNumber, grupoActual, opciones = {
       : "Este número está en la lista de ignorados";
     match = buscarExcepcionNumero(text, chatId, senderNumber, grupoActual?.name);
     anotar("Frases autorizadas para este número", match ? `coincide "${match.keyword}"` : "ninguna coincide");
-    return { match, pasos, contexto: motivo };
+    // Esto no lo adivinó nadie: Patrick escribió esa frase, para ESE número y
+    // ESE grupo. Es la configuración más explícita que existe en el bot, así
+    // que manda sobre el filtro de IA — igual que una corrección a mano.
+    return { match, pasos, contexto: motivo, configuradoAMano: Boolean(match) };
   }
 
   match = buscarKeywordEspecial(text, chatId);
@@ -1156,7 +1159,7 @@ async function startBot() {
       // copiados de otro chat, no un pedido directo.
       if (esMensajeReenviado(msg)) continue;
 
-      const { match } = analizarDeteccion(text, chatId, senderNumber, grupoActual, {
+      const { match, configuradoAMano } = analizarDeteccion(text, chatId, senderNumber, grupoActual, {
         bloqueadoGlobal,
         esImagenTrigger,
         esContactoTrigger,
@@ -1215,10 +1218,14 @@ async function startBot() {
       // Una sola consulta responde las dos cosas: si es pedido de verdad y
       // para cuándo es. La hora solo se usa si las reglas de siempre no
       // entendieron nada (ver calcularObjetivoTiempo).
+      //
+      // Tampoco opina cuando la frase la autorizaste tú a mano para ese
+      // número y ese grupo (el caso de REPORTES): ahí ya dijiste que eso es
+      // un pedido, y no tiene por qué venir la IA a contradecirte.
       const esTriggerDeArchivo = esImagenTrigger || esContactoTrigger || esAudioTrigger;
       const esSectorOlvidado = sectorId === DEFAULT_SECTOR;
       let horaIA = null;
-      if (!esTriggerDeArchivo && !esSectorOlvidado) {
+      if (!esTriggerDeArchivo && !esSectorOlvidado && !configuradoAMano) {
         const veredicto = await aiClassifier.analizar(rawText);
         if (!veredicto.esPedido) continue;
         horaIA = veredicto.hora;
@@ -1601,7 +1608,7 @@ function probarFrase(textoCrudo, chatId, numeroCrudo) {
 
   const bloqueadoGlobal = soloAutorizados || excludedNumbers.isExcluded(numero);
 
-  const { match, pasos, contexto } = ignorado
+  const { match, pasos, contexto, configuradoAMano } = ignorado
     ? { match: null, pasos: [], contexto: "El bot ignora este grupo por completo" }
     : analizarDeteccion(text, chatId, numero, grupoActual, { bloqueadoGlobal });
 
@@ -1620,7 +1627,12 @@ function probarFrase(textoCrudo, chatId, numeroCrudo) {
   // Lo que el filtro inteligente ya aprendió de esta frase. Se LEE nomás, no
   // se le pregunta de nuevo: probar una frase no debe gastar ni cambiar nada.
   const recordadaIA = aiClassifier.getDecision(rawText);
-  if (recordadaIA && !recordadaIA.esPedido) {
+  if (configuradoAMano) {
+    pasos.push({
+      nombre: "Filtro inteligente",
+      detalle: "no opina: esta frase la autorizaste tú para este número y este grupo",
+    });
+  } else if (recordadaIA && !recordadaIA.esPedido) {
     advertencias.push(
       recordadaIA.manual
         ? "Tú marcaste esta frase como que no es un pedido, así que el bot no respondería. Se cambia en Filtro inteligente."
@@ -1663,7 +1675,17 @@ function probarFrase(textoCrudo, chatId, numeroCrudo) {
   };
 }
 
-// evaluarVentanaTiempo se exporta para poder probarla sin levantar el bot:
-// es la que decide si un pedido se marca ya o queda en espera, y conviene
-// poder verificarla con horas inventadas.
-module.exports = { startBot, botState, logoutBot, getSock, setBotActivo, probarFrase, marcarPendienteAhora, evaluarVentanaTiempo };
+// evaluarVentanaTiempo y analizarDeteccion se exportan para poder probarlas
+// sin levantar el bot (probarFrase no sirve para eso: necesita la lista de
+// grupos en vivo). Son las dos que deciden si un mensaje se marca y cuándo.
+module.exports = {
+  startBot,
+  botState,
+  logoutBot,
+  getSock,
+  setBotActivo,
+  probarFrase,
+  marcarPendienteAhora,
+  evaluarVentanaTiempo,
+  analizarDeteccion,
+};
