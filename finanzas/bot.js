@@ -102,26 +102,19 @@ const PRICES_GROUP_NAME = "PRECIOS GENERAL DE PRODUCTOS";
 function parseCashboxLine(rawLine) {
   const text = rawLine.trim();
   if (!text) return null;
+  const norm = normalizeText(text);
+
+  // EL ORDEN IMPORTA. Primero las sintaxis propias del bot (custodia,
+  // deudas, pagos, conteo de caja) y solo después las cuentas de
+  // referencia. Al revés, tener configurada una palabra como "debe" o
+  // "total" rompía el registro de deudas: "menos 100 Juan debe" se
+  // guardaba como anotación en vez de como deuda.
 
   // Plata de otra persona en custodia (aparte de la caja): solo si el
   // mensaje dice "guardo" además del nombre de alguien de la lista (para
   // no chocar con "Ana debe" / "Ana pago", que son deudas, no custodia).
   // "5 Ana guardo"       -> Ana me deja plata para guardar.
   // "menos 5 Ana guardo" -> le devuelvo / gasta de lo suyo.
-  // El nombre ya no está fijo: cada cuenta arma su propia lista de
-  // personas, así que esto funciona igual con "mamá" o "mi socio".
-  const norm = normalizeText(text);
-
-  // Cuentas de referencia (Yape/Plin/Sip/Efectivo, configurables desde el
-  // panel). Se pregunta PRIMERO: si la frase nombra una cuenta es una
-  // anotacion suya, no un movimiento, asi que no suma ni resta ni sale en
-  // Movimientos. Se guarda con el primer numero que traiga, o sin monto
-  // si no trae ninguno.
-  const cuentaRef = referenceAccounts.matchNombre(norm);
-  if (cuentaRef) {
-    const numRef = text.match(/(\d+(?:\.\d+)?)/);
-    return { type: "referencia", monto: numRef ? parseFloat(numRef[1]) : 0, cuenta: cuentaRef, descripcion: text };
-  }
   if (/\bguardo\b/.test(norm)) {
     const persona = custodias.personaEnTexto(text);
     const num = text.match(/(\d+(?:\.\d+)?)\s*(mil)?/i);
@@ -132,10 +125,13 @@ function parseCashboxLine(rawLine) {
     }
   }
 
-  let m = text.match(/^menos\s+(\d+(?:\.\d+)?)\s*(mil)?\s*(.*)$/i);
-  if (m) {
-    const monto = parseFloat(m[1]) * (m[2] ? 1000 : 1);
-    const resto = m[3].trim();
+  const mMenos = text.match(/^menos\s+(\d+(?:\.\d+)?)\s*(mil)?\s*(.*)$/i);
+  const mMas = mMenos ? null : text.match(/^(\d+(?:\.\d+)?)\s*(mil)?\s*(.*)$/i);
+  const montoDe = (m) => parseFloat(m[1]) * (m[2] ? 1000 : 1);
+
+  if (mMenos) {
+    const monto = montoDe(mMenos);
+    const resto = mMenos[3].trim();
     const restoNorm = normalizeText(resto);
 
     // "Menos X Nombre debe": Nombre te debe X (no resta de la caja).
@@ -149,14 +145,11 @@ function parseCashboxLine(rawLine) {
     if (/\bfalto\b/.test(restoNorm)) {
       return { type: "faltante", monto, descripcion: resto };
     }
-
-    return { type: "gasto", monto, descripcion: resto };
   }
 
-  m = text.match(/^(\d+(?:\.\d+)?)\s*(mil)?\s*(.*)$/i);
-  if (m) {
-    const monto = parseFloat(m[1]) * (m[2] ? 1000 : 1);
-    const descripcion = m[3].trim();
+  if (mMas) {
+    const monto = montoDe(mMas);
+    const descripcion = mMas[3].trim();
     const descNorm = normalizeText(descripcion);
 
     // "X Nombre pago": salda la deuda de Nombre (no suma a la caja).
@@ -166,13 +159,25 @@ function parseCashboxLine(rawLine) {
     }
 
     // "1050 caja" o "1050 caja chica" no es una ganancia: es el conteo
-    // físico de la caja (borrón y cuenta nueva, ver cashbox.setCaja).
+    // físico de la caja (ver cashbox.setCaja).
     if (descNorm === "caja" || descNorm === "caja chica") {
       return { type: "caja", monto, descripcion: descNorm };
     }
-
-    return { type: "ganancia", monto, descripcion };
   }
+
+  // Cuentas de referencia (Yape/Plin/Sip/Efectivo y las que agregue desde
+  // el panel). Si la frase nombra una, es una anotación suya: no suma ni
+  // resta ni sale en Movimientos. Se guarda con el primer número que
+  // traiga, o sin monto si no trae ninguno.
+  const cuentaRef = referenceAccounts.matchNombre(norm);
+  if (cuentaRef) {
+    const numRef = text.match(/(\d+(?:\.\d+)?)/);
+    return { type: "referencia", monto: numRef ? parseFloat(numRef[1]) : 0, cuenta: cuentaRef, descripcion: text };
+  }
+
+  // Y al final lo genérico.
+  if (mMenos) return { type: "gasto", monto: montoDe(mMenos), descripcion: mMenos[3].trim() };
+  if (mMas) return { type: "ganancia", monto: montoDe(mMas), descripcion: mMas[3].trim() };
 
   return null;
 }
@@ -851,16 +856,17 @@ async function checkCashboxSchedule(bot) {
   const hoyLabel = businessDay.businessDayLabel();
   if (cashbox.getLastClosedDay() === hoyLabel) return;
 
-  const chatId = chatDeCaja(bot);
-  if (!chatId) return;
-
   // La meta de producción que estuvo vigente el día que se está cerrando
   // se calcula ANTES de cerrar (closeDay agrega el cierre de hoy, lo que
   // recalcularía la meta para el día siguiente en vez de la de hoy).
   const mesQueCierra = hoyLabel.slice(0, 7);
   const progresoAntes = productionGoals.getProgresoMes(mesQueCierra);
 
+  // Se cierra SIEMPRE. El aviso es un extra: si no hay chat configurado o
+  // la conexion se cayo, los numeros ya quedaron bien de todas formas.
   const resumenDia = cashbox.closeDay(hoyLabel);
+  const chatId = chatDeCaja(bot);
+  if (!chatId) return;
 
   // La meta del día siguiente ya sale recalculada con el cierre de hoy
   // incluido; puede caer en otro mes (ej. cerrar el 31 y empezar el 1).
@@ -980,6 +986,21 @@ async function checkMorningSchedule(bot) {
 }
 
 setInterval(() => {
+  // El cierre del dia NO depende de WhatsApp. Antes solo corria a las 3am
+  // en punto y con el bot conectado: si en ese minuto estaba reiniciando,
+  // ese dia no cerraba nunca y sus ganancias se le sumaban al dia
+  // siguiente. Ahora cualquier cambio de dia laboral lo cierra solo.
+  for (const bot of bots.values()) {
+    contexto.correrComo(bot.userId, () => {
+      try {
+        cashbox.asegurarDiaCorriente();
+      } catch (err) {
+        console.error(`[${bot.userId}] No se pudo cerrar el dia:`, err.message);
+      }
+    });
+  }
+
+  // Los avisos si necesitan conexion.
   botsActivos().forEach((bot) => {
     contexto.correrComo(bot.userId, () => {
       checkCashboxSchedule(bot).catch((err) => console.error(`[${bot.userId}] checkCashboxSchedule:`, err.message));

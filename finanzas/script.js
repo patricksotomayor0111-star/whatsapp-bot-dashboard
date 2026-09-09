@@ -1180,7 +1180,7 @@ let categoriasParaSelector = [];
 
 // Crea un <select> para asignar/mover la categoría de un gasto puntual.
 // Se usa tanto en Movimientos como en Presupuesto > Ver gastos.
-function crearSelectorCategoria(categoriaActualId, movIndex, categorias, onCambiado) {
+function crearSelectorCategoria(categoriaActualId, movId, categorias, onCambiado) {
   const select = document.createElement("select");
   select.className = "w-full bg-white rounded-lg px-2 py-1.5 text-xs border border-slate-200";
   categorias.forEach((c) => {
@@ -1214,7 +1214,7 @@ function crearSelectorCategoria(categoriaActualId, movIndex, categorias, onCambi
       }
       destino = creada.categoria.id;
     }
-    await fetch(`/api/finance/movements/${movIndex}`, {
+    await fetch(`/api/finance/movements/${movId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ categoriaId: destino }),
@@ -1230,7 +1230,7 @@ function crearSelectorCategoria(categoriaActualId, movIndex, categorias, onCambi
 // restaurante dio el pedido.
 let fuentesCache = [];
 
-function crearSelectorFuente(fuenteActualId, movIndex, fuentes, onCambiado) {
+function crearSelectorFuente(fuenteActualId, movId, fuentes, onCambiado) {
   const select = document.createElement("select");
   select.className = "w-full bg-white rounded-lg px-2 py-1.5 text-xs border border-slate-200";
   fuentes.forEach((f) => {
@@ -1265,7 +1265,7 @@ function crearSelectorFuente(fuenteActualId, movIndex, fuentes, onCambiado) {
       destino = creada.fuente.id;
       await cargarFuentes();
     }
-    await fetch(`/api/finance/movements/${movIndex}`, {
+    await fetch(`/api/finance/movements/${movId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ fuenteId: destino }),
@@ -1356,7 +1356,7 @@ function renderMovimientos() {
         if (!Number.isFinite(nuevoMonto) || nuevoMonto <= 0) return;
         const nuevaDescripcion = prompt("Nueva descripción:", m.descripcion || "");
         if (nuevaDescripcion === null) return;
-        await fetch(`/api/finance/movements/${m.index}`, {
+        await fetch(`/api/finance/movements/${m.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ monto: nuevoMonto, descripcion: nuevaDescripcion }),
@@ -1370,7 +1370,7 @@ function renderMovimientos() {
       delBtn.className = "w-7 h-7 flex items-center justify-center";
       delBtn.addEventListener("click", async () => {
         if (!confirm("¿Eliminar este movimiento?")) return;
-        await fetch(`/api/finance/movements/${m.index}`, { method: "DELETE" });
+        await fetch(`/api/finance/movements/${m.id}`, { method: "DELETE" });
         await fetchMovimientos();
         fetchCashboxToday();
       });
@@ -1384,7 +1384,7 @@ function renderMovimientos() {
       if (m.tipo === "ganancia" && fuentesCache.length) {
         const selectFuente = crearSelectorFuente(
           m.fuenteEfectiva || fuentesCache[0].id,
-          m.index,
+          m.id,
           fuentesCache,
           fetchMovimientos
         );
@@ -1395,7 +1395,7 @@ function renderMovimientos() {
       if (m.tipo === "gasto") {
         const selectCategoria = crearSelectorCategoria(
           m.categoriaEfectiva || "otros",
-          m.index,
+          m.id,
           categoriasParaSelector,
           fetchMovimientos
         );
@@ -3016,7 +3016,7 @@ function renderCategoriaMovimientos(container, catId, todasCategorias) {
       row.appendChild(linea1);
       row.appendChild(linea2);
 
-      const select = crearSelectorCategoria(catId, m.index, todasCategorias, fetchBudgetCategories);
+      const select = crearSelectorCategoria(catId, m.id, todasCategorias, fetchBudgetCategories);
       row.appendChild(select);
       container.appendChild(row);
     });

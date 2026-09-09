@@ -17,6 +17,11 @@ const almacen = crearAlmacen("cashbox-data.json", function (parsed) {
       cierres: parsed.cierres || [],
       lastClosedDay: parsed.lastClosedDay || null,
       lastClosedWeek: parsed.lastClosedWeek || null,
+      // A que dia laboral pertenece lo acumulado en todayGanancias/todayGastos.
+      // Sin esto, si el cierre programado no llegaba a correr, lo del dia
+      // siguiente se sumaba a los totales del anterior y el resumen de los
+      // dos dias quedaba mal (paso el 20/08 y el 06/09).
+      diaEnCurso: parsed.diaEnCurso || null,
       // Plata de Ana (aparte de la caja): saldos acumulados que NO se
       // reinician con el día ni la semana, y su propio detalle para el Excel.
       anaGuardado: parsed.anaGuardado || 0,
@@ -34,6 +39,7 @@ const almacen = crearAlmacen("cashbox-data.json", function (parsed) {
       cierres: [],
       lastClosedDay: null,
       lastClosedWeek: null,
+      diaEnCurso: null,
       anaGuardado: 0,
       anaGastado: 0,
       anaMovimientos: [],
@@ -46,7 +52,7 @@ const save = almacen.guardar;
 
 // Fecha y hora actuales en Perú (UTC-5, sin horario de verano), sin
 // depender de la zona horaria del servidor.
-const { peruAhora, fechaLabel, horaLabel, businessDayLabel, diasEnMes: diasEnMesDe } = businessDay;
+const { peruAhora, fechaLabel, horaLabel, businessDayLabel, addDays, diasEnMes: diasEnMesDe } = businessDay;
 
 // Cada movimiento queda registrado con el DÍA LABORAL (7am-7am, no el
 // calendario) y la hora real (Perú), para que un registro de la madrugada
@@ -62,11 +68,35 @@ function nuevoMovimientoId() {
   return `mov_${Date.now()}_${contadorMovimientos}`;
 }
 
+// A que dia laboral se esta anotando. Si el dia laboral ya cambio y el
+// cierre programado no llego a correr (bot caido, reinicio, o el minuto
+// exacto de las 3am pasado de largo), se cierra ACA mismo. Es lo que
+// evita que lo de hoy se le sume a los totales de ayer.
+//
+// No se inventan cierres vacios: si pasaron varios dias sin actividad, se
+// cierra el que tiene los acumulados y el resto se saltea.
+function asegurarDiaCorriente() {
+  const hoy = businessDayLabel();
+  if (!datos().diaEnCurso) {
+    datos().diaEnCurso = hoy;
+    save();
+    return hoy;
+  }
+  if (hoy > datos().diaEnCurso) {
+    closeDay(datos().diaEnCurso); // deja diaEnCurso en el dia siguiente
+    if (hoy > datos().diaEnCurso) {
+      datos().diaEnCurso = hoy;
+      save();
+    }
+  }
+  return datos().diaEnCurso;
+}
+
 function registrarMovimiento(tipo, monto, descripcion) {
   const ahora = peruAhora();
   const movimiento = {
     id: nuevoMovimientoId(),
-    fecha: businessDayLabel(),
+    fecha: asegurarDiaCorriente(),
     hora: horaLabel(ahora),
     tipo,
     monto,
@@ -80,6 +110,7 @@ function registrarMovimiento(tipo, monto, descripcion) {
 }
 
 function addGanancia(monto, descripcion) {
+  asegurarDiaCorriente();
   datos().todayGanancias += monto;
   const movimiento = registrarMovimiento("ganancia", monto, descripcion);
   save();
@@ -102,6 +133,7 @@ function marcarRecibo(id) {
 // Devuelve el id del movimiento creado, para poder enlazarlo después
 // (ej. el gasto que genera un faltante).
 function addGasto(monto, descripcion) {
+  asegurarDiaCorriente();
   datos().todayGastos += monto;
   const movimiento = registrarMovimiento("gasto", monto, descripcion);
   save();
@@ -112,14 +144,29 @@ function addGasto(monto, descripcion) {
 // contada ya absorbe lo ganado/gastado hasta ese momento, así que eso pasa
 // al acumulado semanal (para no perderlo del resumen del domingo) y el día
 // arranca de nuevo desde este conteo.
-function setCaja(monto) {
-  datos().weekGanancias += datos().todayGanancias;
-  datos().weekGastos += datos().todayGastos;
-  datos().todayGanancias = 0;
-  datos().todayGastos = 0;
-  datos().cajaInicial = monto;
-  registrarMovimiento("caja", monto, "conteo de caja");
+// Un conteo dice "esto es lo que de verdad tengo".
+//
+// Antes ponia en cero las ganancias y gastos del dia, asi que el resumen de
+// ese dia perdia todo lo generado antes del conteo y los graficos quedaban
+// mal. Ahora se mueve la CAJA INICIAL en vez de los totales del dia: el
+// esperado queda en lo contado y las cifras del dia se conservan intactas.
+// Tampoco se inventa una ganancia por la diferencia (contar 1000 en una caja
+// vacia no es haber ganado 1000); la diferencia queda anotada en el texto
+// del movimiento de conteo, que no suma ni resta.
+function setCaja(montoContado) {
+  asegurarDiaCorriente();
+  const esperadoAntes = datos().cajaInicial + datos().todayGanancias - datos().todayGastos;
+  const diferencia = Math.round((montoContado - esperadoAntes) * 100) / 100;
+
+  datos().cajaInicial = montoContado - datos().todayGanancias + datos().todayGastos;
+
+  const nota =
+    diferencia === 0
+      ? "conteo de caja"
+      : "conteo de caja (" + (diferencia > 0 ? "sobraban +" : "faltaban ") + diferencia + ")";
+  registrarMovimiento("caja", montoContado, nota);
   save();
+  return { contado: montoContado, esperadoAntes, diferencia };
 }
 
 function getToday() {
@@ -222,7 +269,11 @@ function removeAnaMovimiento(indice) {
 // contra la plata física real cuando el usuario quiera).
 function closeDay(dayLabel) {
   const resumen = getToday();
-  datos().cierres.push({ fecha: dayLabel, ...resumen });
+  // Si ya habia un cierre de ese dia se reemplaza, para no terminar con dos
+  // filas del mismo dia sumando doble en los graficos.
+  const yaEstaba = datos().cierres.findIndex((c) => c.fecha === dayLabel);
+  if (yaEstaba === -1) datos().cierres.push({ fecha: dayLabel, ...resumen });
+  else datos().cierres[yaEstaba] = { fecha: dayLabel, ...resumen };
   if (datos().cierres.length > MAX_CIERRES) {
     datos().cierres.splice(0, datos().cierres.length - MAX_CIERRES);
   }
@@ -232,6 +283,8 @@ function closeDay(dayLabel) {
   datos().todayGastos = 0;
   datos().cajaInicial = resumen.esperado;
   datos().lastClosedDay = dayLabel;
+  // Lo que se anote de ahora en adelante pertenece al dia siguiente.
+  datos().diaEnCurso = addDays(dayLabel, 1);
   save();
   return resumen;
 }
@@ -267,7 +320,9 @@ function rebuildDay(fecha, caja, movs, resetAna) {
     else if (m.tipo === "gasto") gs += monto;
   });
   const cajaNum = Number(caja) || 0;
-  const esHoy = fecha === businessDayLabel();
+  // Contra el dia de los acumuladores, no businessDayLabel(): entre el
+  // cierre (3am) y el cambio de dia laboral (7am) no coinciden.
+  const esHoy = fecha === (datos().diaEnCurso || businessDayLabel());
   if (esHoy) {
     datos().todayGanancias = g;
     datos().todayGastos = gs;
@@ -301,7 +356,9 @@ function getMovimientos() {
 // addMovimientoManual para que el panel pueda corregir cualquier
 // movimiento sin romper el efectivo esperado.
 function ajustarTotalesPorFecha(fecha, deltaGanancia, deltaGasto) {
-  const esHoy = fecha === businessDayLabel();
+  // Contra el dia de los acumuladores, no businessDayLabel(): entre el
+  // cierre (3am) y el cambio de dia laboral (7am) no coinciden.
+  const esHoy = fecha === (datos().diaEnCurso || businessDayLabel());
   if (esHoy) {
     datos().todayGanancias += deltaGanancia;
     datos().todayGastos += deltaGasto;
@@ -572,6 +629,7 @@ module.exports = {
   getPreviousMonthTotals,
   getDiasDelMes,
   getRangoTotals,
+  asegurarDiaCorriente,
   getQuincenaSoFar,
   addAnaGuardo,
   addAnaGasto,

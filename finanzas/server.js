@@ -465,8 +465,21 @@ app.post("/api/finance/movements", (req, res) => {
   }
 });
 
-app.put("/api/finance/movements/:index", (req, res) => {
-  const mov = cashbox.editMovimiento(Number(req.params.index), req.body || {});
+// El panel manda la IDENTIDAD del movimiento (mov_...), no su posición en
+// la lista. Por posición se podía tocar el que no era: basta con que la
+// lista haya cambiado entre que se cargó y que se tocó el botón, y eso
+// pasa si tiene el panel abierto en el celular y en la computadora a la
+// vez. Se acepta igual un número por si quedó una pestaña vieja abierta.
+function movimientoPorRef(ref) {
+  const texto = String(ref || "");
+  if (texto.startsWith("mov_")) return cashbox.getMovimientos().find((m) => m.id === texto) || null;
+  return cashbox.getMovimientos()[Number(texto)] || null;
+}
+
+app.put("/api/finance/movements/:ref", (req, res) => {
+  const objetivo = movimientoPorRef(req.params.ref);
+  if (!objetivo) return res.status(404).json({ error: "Movimiento no encontrado." });
+  const mov = cashbox.editMovimientoPorId(objetivo.id, req.body || {});
   if (!mov) return res.status(404).json({ error: "Movimiento no encontrado." });
   // Si este gasto salió de un faltante, el total de faltantes tiene que
   // seguir el mismo cambio (si no, quedaría contando el monto viejo).
@@ -474,12 +487,14 @@ app.put("/api/finance/movements/:index", (req, res) => {
   res.json({ ok: true, movimiento: mov });
 });
 
-app.delete("/api/finance/movements/:index", (req, res) => {
-  // Se mira el id ANTES de borrarlo, para poder descontar el faltante que
-  // lo haya generado.
-  const movimientoId = cashbox.getMovimientos()[Number(req.params.index)]?.id;
-  const ok = cashbox.removeMovimiento(Number(req.params.index));
-  if (!ok) return res.status(404).json({ error: "Movimiento no encontrado." });
+app.delete("/api/finance/movements/:ref", (req, res) => {
+  const objetivo = movimientoPorRef(req.params.ref);
+  if (!objetivo) return res.status(404).json({ error: "Movimiento no encontrado." });
+  const movimientoId = objetivo.id;
+  if (!cashbox.removeMovimientoPorId(movimientoId)) {
+    return res.status(404).json({ error: "Movimiento no encontrado." });
+  }
+  // El faltante que lo haya generado se descuenta junto con él.
   if (movimientoId) shortfalls.removePorMovimiento(movimientoId);
   res.json({ ok: true });
 });
