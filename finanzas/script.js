@@ -1019,6 +1019,9 @@ addTaskBtn.addEventListener("click", async () => {
 const statDeudasTotal = document.getElementById("statDeudasTotal");
 const statFaltanteTotal = document.getElementById("statFaltanteTotal");
 
+const irAAjustesBtn = document.getElementById("irAAjustesBtn");
+if (irAAjustesBtn) irAAjustesBtn.addEventListener("click", () => showFinanceTab("financeTabAjustes"));
+
 const financeTabButtons = document.querySelectorAll(".finance-tab-btn");
 const financeTabPanels = document.querySelectorAll(".finance-tab-panel");
 
@@ -1032,6 +1035,7 @@ function showFinanceTab(tabId) {
   if (tabId === "financeTabResumen") {
     fetchCashboxToday();
     fetchFinanceSummaryExtras();
+    fetchGoalsAndProgress();
   } else if (tabId === "financeTabMovimientos") {
     fetchDailyHistory();
     fetchMovimientos();
@@ -1056,6 +1060,8 @@ function showFinanceTab(tabId) {
     fetchCustodias();
   } else if (tabId === "financeTabConsultas") {
     fetchQueryIntents();
+  } else if (tabId === "financeTabGuia") {
+    renderGuia();
   } else if (tabId === "financeTabPrecios") {
     fetchPrices();
   }
@@ -2717,6 +2723,7 @@ if (ahorroHasta) ahorroHasta.addEventListener("change", cargarAhorroRango);
 
 function renderGoalProgress(data) {
   renderMetasAutomaticas(data.automaticas);
+  pintarMetaEnResumen(data);
   goalProgressList.innerHTML = "";
   // Una sola barra: cuanto de lo que necesita ya tiene cubierto.
   // Antes habia tres (diaria/semanal/mensual) y estaban mal por
@@ -4359,4 +4366,538 @@ function pintarConteoLibres(m) {
     nota.textContent = "Los amarillos vienen de un botón de la semana, no de tus fechas.";
     diasLibresConteo.appendChild(nota);
   }
+}
+
+// La meta del dia en la pestaña Resumen: el numero que le dice cuanto
+// tiene que hacer hoy, con una barra de cuanto lleva. Se alimenta de lo
+// mismo que la pestaña Metas, para que los dos digan siempre igual.
+const resumenMetaDia = document.getElementById("resumenMetaDia");
+const resumenMetaBarra = document.getElementById("resumenMetaBarra");
+const resumenMetaTexto = document.getElementById("resumenMetaTexto");
+
+function pintarMetaEnResumen(data) {
+  if (!resumenMetaDia || !data) return;
+  const m = data.automaticas;
+  const ganadoHoy = (data.diaria && data.diaria.actual) || 0;
+  if (!m) return;
+
+  if (m.cubierto) {
+    resumenMetaDia.textContent = "Listo";
+    resumenMetaDia.className = "text-lg font-extrabold text-emerald-600 leading-none";
+    resumenMetaBarra.style.width = "100%";
+    resumenMetaBarra.className = "h-full bg-emerald-500 transition-all duration-500";
+    resumenMetaTexto.textContent = "Ya cubriste todo lo que tienes que pagar este mes.";
+    return;
+  }
+
+  resumenMetaDia.textContent = formatSoles(m.diaria);
+  resumenMetaDia.className = "text-lg font-extrabold text-brand-green leading-none";
+  const pct = m.diaria > 0 ? Math.min(Math.max(ganadoHoy / m.diaria, 0), 1) : 0;
+  resumenMetaBarra.style.width = Math.round(pct * 100) + "%";
+  resumenMetaBarra.className =
+    "h-full transition-all duration-500 " + (pct >= 1 ? "bg-emerald-500" : "bg-brand-green");
+
+  const falta = Math.max(m.diaria - ganadoHoy, 0);
+  resumenMetaTexto.textContent =
+    falta <= 0
+      ? "Ya hiciste tu meta de hoy. Llevas " + formatSoles(ganadoHoy) + "."
+      : "Llevas " + formatSoles(ganadoHoy) + ". Te faltan " + formatSoles(falta) + " para la meta de hoy.";
+}
+
+// ---------- Guía: el manual de la app ----------
+// Todo lo que la app sabe hacer, explicado como se usa y no como está
+// programado. Vive acá y no en el HTML para poder buscarlo y para que
+// agregar un tema sea agregar un objeto a esta lista.
+const GUIA = [
+  {
+    icono: "💬",
+    titulo: "Anotar desde WhatsApp",
+    resumen: "La forma más rápida: escribes en el chat y listo.",
+    bloques: [
+      {
+        tipo: "texto",
+        texto:
+          "Escribes en el chat que elegiste en Ajustes. El bot lee ese chat y nada más. " +
+          "Puedes mandar varias cosas en un mismo mensaje: una por línea.",
+      },
+      {
+        tipo: "ejemplos",
+        titulo: "Lo del día a día",
+        items: [
+          ["7 bum", "Ganaste S/7 en un reparto para Bumanguesa"],
+          ["15.50 pollo", "Los decimales también valen"],
+          ["menos 20 gasolina", "Gastaste S/20 en gasolina"],
+          ["menos 38.5 grifo", "Igual, con decimales"],
+        ],
+      },
+      {
+        tipo: "ejemplos",
+        titulo: "Cuadrar la caja",
+        items: [
+          ["1050 caja", "Contaste y tienes S/1,050. Ajusta el efectivo esperado a ese número"],
+          ["menos 10 falto", "Faltaron S/10 al cuadrar. Resta de la caja y suma al total de faltantes"],
+        ],
+      },
+      {
+        tipo: "ejemplos",
+        titulo: "Plata de otras personas",
+        items: [
+          ["menos 100 Juan debe", "Juan te debe S/100. No resta de tu caja"],
+          ["100 Juan pago", "Juan te pagó. Baja su deuda, no suma a tu caja"],
+          ["50 Ana guardo", "Ana te dejó S/50 para guardar. Va aparte, no es tuya"],
+          ["menos 30 Ana guardo", "Gastó S/30 de lo suyo, o se lo devolviste"],
+        ],
+      },
+      {
+        tipo: "aviso",
+        texto:
+          "Para que funcione lo de guardar plata de alguien, esa persona tiene que estar dada de alta " +
+          "en la pestaña Custodia. Si no, el bot no sabe de quién hablas.",
+      },
+      {
+        tipo: "ejemplos",
+        titulo: "Anotaciones que NO tocan la caja",
+        items: [
+          ["685 efectivo", "Queda como nota en la pestaña Cuentas"],
+          ["Total 1463.67", "Igual, es parte de tu conteo"],
+        ],
+      },
+      {
+        tipo: "texto",
+        texto:
+          "Cualquier frase que mencione una de tus cuentas configuradas (yape, plin, efectivo, y las que " +
+          "agregues) se guarda como anotación y no suma ni resta. Es para que puedas pegar tu conteo " +
+          "completo sin que ensucie la caja.",
+      },
+      {
+        tipo: "texto",
+        texto:
+          "Si mandas una FOTO con el texto del gasto de pie de foto, se registra el gasto y además queda " +
+          "guardada la boleta. La ves después en Movimientos, en 'Ver boleta'.",
+      },
+    ],
+  },
+  {
+    icono: "📊",
+    titulo: "Qué significa cada número",
+    resumen: "Para que el Resumen se entienda de un vistazo.",
+    bloques: [
+      {
+        tipo: "definiciones",
+        items: [
+          ["Efectivo esperado", "Lo que deberías tener en la mano ahora. Es la caja inicial más lo que ganaste hoy menos lo que gastaste."],
+          ["Caja inicial", "Con cuánto empezaste el día. Sale del cierre del día anterior."],
+          ["Ganaste hoy / Gastaste hoy", "Solo del día en curso. El día corre de 7am a 7am, así que lo que anotes a la 1am cuenta para el día anterior."],
+          ["Tu meta de hoy", "Cuánto necesitas hacer hoy para cubrir todo lo que tienes que pagar. Baja sola cuando entra plata."],
+          ["Te deben", "Lo que otros te deben a ti. No es plata en mano, por eso va aparte."],
+          ["Faltantes", "Todo lo que se ha perdido al cuadrar la caja, sumado."],
+          ["Guardas de otros", "Plata que te dejaron a guardar. No es tuya y no entra a tu caja."],
+        ],
+      },
+    ],
+  },
+  {
+    icono: "🎯",
+    titulo: "Metas y ahorro",
+    resumen: "La app calcula sola cuánto tienes que hacer.",
+    bloques: [
+      {
+        tipo: "texto",
+        texto:
+          "No escribes tus metas: salen de lo que realmente tienes que pagar. La cuenta es: " +
+          "lo que tienes que gastar de aquí a una fecha, menos lo que ya tienes. Eso repartido en los días que te quedan.",
+      },
+      {
+        tipo: "definiciones",
+        items: [
+          ["Lo que tienes que gastar", "Pendientes por pagar + gastos programados + tu meta de ahorro."],
+          ["Lo que ya tienes", "El efectivo esperado. Por eso la meta baja sola cada vez que anotas un ingreso."],
+          ["Hasta cuándo", "Con los botones Fin de mes / Quincena / Otra fecha eliges el plazo. Todo se recalcula."],
+          ["Días que descansas", "Marca los días que no sales. La meta se reparte solo entre los días que sí trabajas."],
+          ["Plan de ahorro", "Cuánto quieres juntar y hasta qué día. Se suma a lo que tienes que generar."],
+        ],
+      },
+      {
+        tipo: "aviso",
+        texto:
+          "Lo que te deben NO se cuenta como plata tuya. Sale como aviso aparte: si lo cobras, tu meta baja.",
+      },
+    ],
+  },
+  {
+    icono: "🔔",
+    titulo: "Pendientes (pagos que se repiten)",
+    resumen: "Luz, internet, cuotas: te avisa y registra el gasto.",
+    bloques: [
+      {
+        tipo: "texto",
+        texto:
+          "Das de alta un pago con su monto y cada cuándo toca: cada semana, un día fijo del mes, " +
+          "fin de mes, o una sola vez. Cuando le toca, te aparece como pendiente.",
+      },
+      {
+        tipo: "definiciones",
+        items: [
+          ["Ya pagué", "Marca el pendiente y además registra el gasto en tu caja."],
+          ["Si ya lo escribiste en el grupo", "No lo duplica: lo detecta y solo marca el pendiente."],
+          ["Montos que cambian", "Al marcar te pregunta cuánto pagaste. La luz y el agua no siempre son igual."],
+        ],
+      },
+      {
+        tipo: "texto",
+        texto:
+          "Los pendientes alimentan tus metas: son la mayor parte de 'lo que tienes que gastar'. " +
+          "Salen ordenados del que vence más pronto al más lejano.",
+      },
+    ],
+  },
+  {
+    icono: "🔁",
+    titulo: "Gastos programados",
+    resumen: "Los de todos los días: almuerzo, gasolina.",
+    bloques: [
+      {
+        tipo: "texto",
+        texto:
+          "Distintos de los pendientes. Un pendiente es un pago puntual que marcas cuando lo haces; " +
+          "un gasto programado es algo que sabes que vas a gastar todos los días o todas las semanas, " +
+          "y sirve para proyectar. No se registra solo: es una previsión.",
+      },
+      {
+        tipo: "ejemplos",
+        titulo: "Ejemplos",
+        items: [
+          ["Almuerzo, S/10 por día", "Proyecta S/10 por cada día que falte"],
+          ["Gasolina, S/40 los lunes", "Proyecta S/40 por cada lunes que quede"],
+        ],
+      },
+    ],
+  },
+];
+
+GUIA.push(
+  {
+    icono: "🏷️",
+    titulo: "Clasificar gastos y ganancias",
+    resumen: "Categorías para lo que sale, fuentes para lo que entra.",
+    bloques: [
+      {
+        tipo: "definiciones",
+        items: [
+          ["Categorías (gastos)", "Comida, servicios, cuotas. Se detectan por palabra y las corriges a mano en Movimientos."],
+          ["Fuentes (ganancias)", "De qué tipo es esa plata: delivery, otro trabajo, una venta."],
+          ["Locales", "Otra cosa: QUÉ restaurante te dio el pedido. Un movimiento tiene fuente y local a la vez."],
+        ],
+      },
+      {
+        tipo: "texto",
+        texto:
+          "A cada categoría o fuente le pones palabras clave y la app clasifica sola lo que escribas. " +
+          "Busca palabra completa: si le pones 'taller', un gasto que diga 'tallerista' no cae ahí.",
+      },
+      {
+        tipo: "texto",
+        texto:
+          "En Presupuesto le pones un límite mensual a cada categoría y te avisa cuando te estás pasando. " +
+          "Los locales tienen su ranking: cuál te da más pedidos y cuánto te deja cada uno.",
+      },
+    ],
+  },
+  {
+    icono: "🧾",
+    titulo: "Cuentas de referencia (tu conteo)",
+    resumen: "Para pegar tu cuadre sin ensuciar la caja.",
+    bloques: [
+      {
+        tipo: "texto",
+        texto:
+          "Son palabras que marcan una línea como anotación en vez de movimiento. Vienen yape, plin, " +
+          "sip y efectivo, y agregas las que uses. Cualquier frase que contenga una de ellas se guarda " +
+          "en la pestaña Cuentas y no toca tu caja.",
+      },
+      {
+        tipo: "ejemplos",
+        titulo: "Un conteo completo, tal cual lo pegas",
+        items: [
+          ["870 efectivo", "anotación"],
+          ["237.09 - 5 yape", "anotación"],
+          ["Total 1764.14", "anotación"],
+        ],
+      },
+      {
+        tipo: "aviso",
+        texto:
+          "Cuidado con palabras comunes. Si pones 'efectivo', un mensaje como '50 pedido efectivo' " +
+          "también se va a anotaciones en vez de contarse como ganancia. Si eso te pasa, sácala de la lista.",
+      },
+    ],
+  },
+  {
+    icono: "🤖",
+    titulo: "Preguntarle al bot",
+    resumen: "Le escribes por WhatsApp y te responde con tus números.",
+    bloques: [
+      {
+        tipo: "ejemplos",
+        titulo: "Algunas de las que entiende",
+        items: [
+          ["cuánto vendí hoy", "Las ganancias del día"],
+          ["cuánto gasté hoy", "Los gastos del día"],
+          ["cuánto hay en caja", "El efectivo esperado"],
+          ["cuánto puedo gastar hoy", "Lo que te sobra sin descuidar tus pagos"],
+          ["quién me debe", "La lista de deudas por cobrar"],
+          ["cuánto debe Juan", "La deuda de una persona"],
+          ["pagos de la semana", "Lo que vence pronto"],
+          ["resumen del mes", "Cómo vas en el mes"],
+          ["cuál fue mi gasto más fuerte", "El gasto más grande"],
+        ],
+      },
+      {
+        tipo: "texto",
+        texto:
+          "Las frases son editables en la pestaña Consultas: puedes cambiar cómo se pregunta y cómo te responde.",
+      },
+    ],
+  },
+  {
+    icono: "⚙️",
+    titulo: "Ajustes y respaldo",
+    resumen: "Dónde escucha el bot, avisos y copia de seguridad.",
+    bloques: [
+      {
+        tipo: "definiciones",
+        items: [
+          ["Dónde anotas", "El chat que el bot va a leer. Si trabajas solo, lo más cómodo es usar tus propios mensajes."],
+          ["Notificaciones", "Te avisa en el celular si no llegaste a la meta o si tienes pagos pendientes."],
+          ["Descargar respaldo", "Una copia de todo tu historial. Guárdala cada tanto en tu celular o Drive."],
+          ["Restaurar", "Reemplaza TODO por lo del archivo. Primero te muestra qué trae para que confirmes."],
+        ],
+      },
+      {
+        tipo: "aviso",
+        texto:
+          "El respaldo no incluye la sesión de WhatsApp a propósito: son tus credenciales. Si restauras, " +
+          "vuelves a escanear el QR y listo.",
+      },
+    ],
+  },
+  {
+    icono: "🩺",
+    titulo: "Si algo no cuadra",
+    resumen: "Los problemas más comunes y cómo resolverlos.",
+    bloques: [
+      {
+        tipo: "definiciones",
+        items: [
+          [
+            "Escribí algo y no aparece en Movimientos",
+            "Fíjate primero en la pestaña Cuentas: si la frase tenía una palabra configurada (efectivo, yape, total…), se guardó como anotación. Si tampoco está ahí, revisa que el bot diga Conectado.",
+          ],
+          [
+            "Busqué un monto y no lo encuentro",
+            "El buscador de Movimientos busca por descripción y por monto. Revisa también que los filtros de fecha estén vacíos.",
+          ],
+          [
+            "Marqué un pendiente y no registró el gasto",
+            "Quiere decir que encontró un gasto parecido dentro del mismo ciclo y no lo duplicó. Búscalo en Movimientos; si de verdad no está, desmarca el pendiente y vuelve a marcarlo.",
+          ],
+          [
+            "La app dice que tengo más de lo que tengo",
+            "Haz un conteo: escribe el monto real seguido de la palabra caja (ejemplo: 1050 caja). Ajusta el esperado sin borrar lo que ganaste ese día.",
+          ],
+          [
+            "Un movimiento entró mal",
+            "En Movimientos, el lápiz corrige el monto y la descripción; el bote de basura lo elimina. Los totales del día se ajustan solos.",
+          ],
+        ],
+      },
+    ],
+  },
+  {
+    icono: "💡",
+    titulo: "Cosas que quizá no sabías",
+    resumen: "Funciones que están y se usan poco.",
+    bloques: [
+      {
+        tipo: "definiciones",
+        items: [
+          ["Rendimiento de la gasolina", "En Gráficos: cuánto generas por cada sol de combustible, y si bajó respecto al mes pasado."],
+          ["Ahorro entre dos fechas", "En Metas: eliges desde y hasta, y te dice cuánto te quedó neto en ese tramo."],
+          ["Excel de todo", "En Resumen, abajo: descarga el historial completo día por día."],
+          ["Precios de productos", "Un segundo chat donde anotas precios y después le preguntas cuánto cuesta algo."],
+          ["Tareas", "Pendientes que no son plata (botar la basura) y te insisten hasta que los marcas."],
+          ["Corregir un día entero", "En Movimientos, en el historial diario, el lápiz corrige las cifras de un día ya cerrado."],
+        ],
+      },
+    ],
+  }
+);
+
+// Dibuja la guía: un buscador arriba y las secciones plegadas. Se arma una
+// sola vez, la primera vez que se abre la pestaña.
+const guiaPanel = document.getElementById("financeTabGuia");
+let guiaArmada = false;
+const guiaIndice = []; // { seccion, texto } para poder filtrar al buscar
+
+function guiaCrearBloque(b) {
+  if (b.tipo === "texto") {
+    const p = document.createElement("p");
+    p.className = "text-xs text-slate-500 leading-relaxed";
+    p.textContent = b.texto;
+    return p;
+  }
+
+  if (b.tipo === "aviso") {
+    const d = document.createElement("div");
+    d.className = "rounded-xl bg-amber-50 border border-amber-200 px-3 py-2";
+    const p = document.createElement("p");
+    p.className = "text-xs text-amber-800 leading-relaxed";
+    p.textContent = b.texto;
+    d.appendChild(p);
+    return d;
+  }
+
+  if (b.tipo === "ejemplos") {
+    const d = document.createElement("div");
+    if (b.titulo) {
+      const t = document.createElement("p");
+      t.className = "text-[11px] font-bold text-slate-400 tracking-wide mb-1.5";
+      t.textContent = b.titulo.toUpperCase();
+      d.appendChild(t);
+    }
+    b.items.forEach(([escribe, hace]) => {
+      const fila = document.createElement("div");
+      fila.className = "flex flex-col gap-0.5 mb-2";
+      const code = document.createElement("code");
+      code.className =
+        "self-start rounded-lg bg-slate-800 text-emerald-300 px-2 py-1 text-[11px] font-mono";
+      code.textContent = escribe;
+      const exp = document.createElement("span");
+      exp.className = "text-[11px] text-slate-500 leading-snug";
+      exp.textContent = hace;
+      fila.appendChild(code);
+      fila.appendChild(exp);
+      d.appendChild(fila);
+    });
+    return d;
+  }
+
+  if (b.tipo === "definiciones") {
+    const d = document.createElement("div");
+    d.className = "space-y-2";
+    b.items.forEach(([termino, texto]) => {
+      const fila = document.createElement("div");
+      const t = document.createElement("p");
+      t.className = "text-xs font-bold text-slate-700";
+      t.textContent = termino;
+      const x = document.createElement("p");
+      x.className = "text-[11px] text-slate-500 leading-relaxed mt-0.5";
+      x.textContent = texto;
+      fila.appendChild(t);
+      fila.appendChild(x);
+      d.appendChild(fila);
+    });
+    return d;
+  }
+
+  return document.createElement("div");
+}
+
+function guiaTextoDe(seccion) {
+  const partes = [seccion.titulo, seccion.resumen];
+  (seccion.bloques || []).forEach((b) => {
+    if (b.texto) partes.push(b.texto);
+    if (b.titulo) partes.push(b.titulo);
+    (b.items || []).forEach((par) => partes.push(par[0], par[1]));
+  });
+  return partes.join(" ").toLowerCase();
+}
+
+function renderGuia() {
+  if (!guiaPanel || guiaArmada) return;
+  guiaArmada = true;
+  guiaPanel.innerHTML = "";
+
+  const intro = document.createElement("section");
+  intro.className = "card bg-white border border-slate-100 py-3";
+  const introTitulo = document.createElement("p");
+  introTitulo.className = "text-sm font-bold text-slate-800";
+  introTitulo.textContent = "Cómo funciona tu app";
+  const introTexto = document.createElement("p");
+  introTexto.className = "text-xs text-slate-500 mt-1 leading-relaxed";
+  introTexto.textContent =
+    "Todo lo que puede hacer, explicado con ejemplos. Busca abajo o toca un tema para abrirlo.";
+  const buscador = document.createElement("input");
+  buscador.type = "text";
+  buscador.placeholder = "Buscar: gasolina, deuda, meta, respaldo…";
+  buscador.className =
+    "w-full mt-2 bg-white rounded-xl px-3 py-2 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-green/40";
+  intro.appendChild(introTitulo);
+  intro.appendChild(introTexto);
+  intro.appendChild(buscador);
+  guiaPanel.appendChild(intro);
+
+  const vacio = document.createElement("p");
+  vacio.className = "hidden text-xs text-slate-400 text-center py-6";
+  vacio.textContent = "No encontré nada con eso. Prueba con otra palabra.";
+  guiaPanel.appendChild(vacio);
+
+  GUIA.forEach((seccion) => {
+    const card = document.createElement("section");
+    card.className = "card bg-white border border-slate-100 py-3";
+
+    const cabecera = document.createElement("button");
+    cabecera.className = "w-full flex items-center gap-3 text-left active:scale-[0.99] transition-all";
+    const icono = document.createElement("span");
+    icono.className = "text-xl shrink-0";
+    icono.textContent = seccion.icono;
+    const textos = document.createElement("div");
+    textos.className = "min-w-0 flex-1";
+    const t = document.createElement("p");
+    t.className = "text-sm font-bold text-slate-800";
+    t.textContent = seccion.titulo;
+    const r = document.createElement("p");
+    r.className = "text-[11px] text-slate-400 mt-0.5";
+    r.textContent = seccion.resumen;
+    textos.appendChild(t);
+    textos.appendChild(r);
+    const flecha = document.createElement("i");
+    flecha.className = "fa-solid fa-chevron-down text-slate-300 text-xs shrink-0 transition-transform";
+    cabecera.appendChild(icono);
+    cabecera.appendChild(textos);
+    cabecera.appendChild(flecha);
+
+    const cuerpo = document.createElement("div");
+    cuerpo.className = "hidden mt-3 pt-3 border-t border-slate-100 space-y-3";
+    (seccion.bloques || []).forEach((b) => cuerpo.appendChild(guiaCrearBloque(b)));
+
+    cabecera.addEventListener("click", () => {
+      const abierto = !cuerpo.classList.toggle("hidden");
+      flecha.style.transform = abierto ? "rotate(180deg)" : "";
+    });
+
+    card.appendChild(cabecera);
+    card.appendChild(cuerpo);
+    guiaPanel.appendChild(card);
+    guiaIndice.push({ card, cuerpo, flecha, texto: guiaTextoDe(seccion) });
+  });
+
+  buscador.addEventListener("input", () => {
+    const q = buscador.value.trim().toLowerCase();
+    let visibles = 0;
+    guiaIndice.forEach(({ card, cuerpo, flecha, texto }) => {
+      const calza = !q || texto.includes(q);
+      card.classList.toggle("hidden", !calza);
+      if (calza) visibles++;
+      // Buscando, se abren solas para que se vea el contenido que calzó.
+      if (q && calza) {
+        cuerpo.classList.remove("hidden");
+        flecha.style.transform = "rotate(180deg)";
+      } else if (!q) {
+        cuerpo.classList.add("hidden");
+        flecha.style.transform = "";
+      }
+    });
+    vacio.classList.toggle("hidden", visibles > 0);
+  });
 }
