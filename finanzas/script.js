@@ -2179,6 +2179,8 @@ async function fetchGraficos() {
     renderChartHistoria(historyData.cierres || [], historyData.hoy);
     renderChartMensual(historyData.cierres || [], historyData.hoy);
     renderChartProduccion(productionData.hoy);
+    renderChartDiaSemana(historyData.cierres || [], historyData.hoy);
+    fetchChartLocales(mesGraficoLocales);
     renderMapaActividad();
   } catch (err) {
     console.error("No se pudo obtener los datos para los gráficos:", err);
@@ -2529,6 +2531,8 @@ async function fetchGoalsAndProgress() {
     renderGoalProgress(progressData);
   } catch (err) {
     console.error("No se pudo obtener las metas:", err);
+    // Que no quede en "Calculando…" para siempre si el servidor no respondio.
+    if (resumenMetaTexto) resumenMetaTexto.textContent = "No se pudo cargar. Baja para recargar.";
   }
 }
 
@@ -4899,5 +4903,165 @@ function renderGuia() {
       }
     });
     vacio.classList.toggle("hidden", visibles > 0);
+  });
+}
+
+// ---------- Qué día de la semana rinde más ----------
+// Promedio de ganancias por día de la semana, de todo el historial cerrado.
+// Un promedio y no un total, para que no gane un día solo por haber
+// aparecido más veces en el calendario.
+let chartDiaSemanaInstance = null;
+const NOMBRES_DIA_SEMANA = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+
+function renderChartDiaSemana(cierres, hoy) {
+  const canvas = document.getElementById("chartDiaSemana");
+  const empty = document.getElementById("chartDiaSemanaEmpty");
+  if (!canvas) return;
+
+  const acumulado = NOMBRES_DIA_SEMANA.map(() => ({ total: 0, dias: 0 }));
+  const sumar = (fecha, ganancias) => {
+    if (!fecha) return;
+    const [y, m, d] = fecha.split("-").map(Number);
+    const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+    acumulado[dow].total += ganancias || 0;
+    acumulado[dow].dias += 1;
+  };
+  (cierres || []).forEach((c) => sumar(c.fecha, c.ganancias));
+  if (hoy && hoy.fecha) sumar(hoy.fecha, hoy.ganancias);
+
+  const conDatos = acumulado.some((a) => a.dias > 0);
+  if (!conDatos) {
+    canvas.classList.add("hidden");
+    if (empty) empty.classList.remove("hidden");
+    return;
+  }
+  canvas.classList.remove("hidden");
+  if (empty) empty.classList.add("hidden");
+
+  // Se arranca en lunes, que es como uno piensa la semana.
+  const orden = [1, 2, 3, 4, 5, 6, 0];
+  const promedios = orden.map((i) => (acumulado[i].dias ? acumulado[i].total / acumulado[i].dias : 0));
+  const mejor = Math.max(...promedios);
+
+  if (chartDiaSemanaInstance) chartDiaSemanaInstance.destroy();
+  chartDiaSemanaInstance = new Chart(canvas, {
+    type: "bar",
+    data: {
+      labels: orden.map((i) => NOMBRES_DIA_SEMANA[i].slice(0, 3)),
+      datasets: [
+        {
+          label: "Promedio del día",
+          data: promedios.map((p) => Math.round(p * 100) / 100),
+          // El mejor día resaltado: es la respuesta que uno viene a buscar.
+          backgroundColor: promedios.map((p) => (p === mejor && mejor > 0 ? "#15803D" : "#86EFAC")),
+          borderRadius: 6,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: { y: { beginAtZero: true } },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const i = orden[ctx.dataIndex];
+              return formatSoles(ctx.parsed.y) + " en promedio (" + acumulado[i].dias + " días)";
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
+// ---------- Locales que más te dejan ----------
+let chartLocalesInstance = null;
+let mesGraficoLocales = "";
+
+function renderChartLocales(ranking) {
+  const canvas = document.getElementById("chartLocales");
+  const empty = document.getElementById("chartLocalesEmpty");
+  if (!canvas) return;
+
+  const conPedidos = (ranking || []).filter((l) => l.pedidos > 0).sort((a, b) => b.total - a.total).slice(0, 8);
+  if (!conPedidos.length) {
+    canvas.classList.add("hidden");
+    if (empty) empty.classList.remove("hidden");
+    return;
+  }
+  canvas.classList.remove("hidden");
+  if (empty) empty.classList.add("hidden");
+
+  if (chartLocalesInstance) chartLocalesInstance.destroy();
+  chartLocalesInstance = new Chart(canvas, {
+    type: "bar",
+    data: {
+      labels: conPedidos.map((l) => l.nombre),
+      datasets: [
+        {
+          label: "Ganancia",
+          data: conPedidos.map((l) => Math.round(l.total * 100) / 100),
+          backgroundColor: "#22C55E",
+          borderRadius: 6,
+        },
+      ],
+    },
+    options: {
+      indexAxis: "y", // barras horizontales: los nombres de local no entran arriba
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: { x: { beginAtZero: true } },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const l = conPedidos[ctx.dataIndex];
+              return formatSoles(l.total) + " en " + l.pedidos + " reparto" + (l.pedidos === 1 ? "" : "s");
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
+async function fetchChartLocales(mes) {
+  try {
+    const url = "/api/finance/locales" + (mes ? "?mes=" + encodeURIComponent(mes) : "");
+    const d = await (await fetch(url)).json();
+    renderChartLocales(d.ranking || []);
+    poblarSelectorMesLocales(d.meses || [], mes);
+  } catch (err) {
+    console.error("No se pudo cargar el ranking de locales:", err);
+  }
+}
+
+function poblarSelectorMesLocales(meses, seleccionado) {
+  const sel = document.getElementById("chartLocalesMes");
+  if (!sel || sel.dataset.listo === "1") {
+    if (sel) sel.value = seleccionado || "";
+    return;
+  }
+  sel.innerHTML = "";
+  const todos = document.createElement("option");
+  todos.value = "";
+  todos.textContent = "Todo el historial";
+  sel.appendChild(todos);
+  meses.forEach((m) => {
+    const o = document.createElement("option");
+    o.value = m;
+    const [anio, mes] = m.split("-");
+    o.textContent = MESES_CORTO[Number(mes) - 1] + " " + anio.slice(2);
+    sel.appendChild(o);
+  });
+  sel.value = seleccionado || "";
+  sel.dataset.listo = "1";
+  sel.addEventListener("change", () => {
+    mesGraficoLocales = sel.value;
+    fetchChartLocales(mesGraficoLocales);
   });
 }

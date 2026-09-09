@@ -376,6 +376,26 @@
             </div>
             <p id="chartMensualEmpty" class="hidden text-center text-xs text-slate-400 py-6">Todavía no hay meses cerrados para mostrar.</p>
           </section>
+
+          <section>
+            <p class="eyebrow text-brand-green"><i class="fa-solid fa-calendar-week"></i> QUÉ DÍA DE LA SEMANA RINDE MÁS</p>
+            <p class="text-xs text-slate-400 mt-1 mb-2">Promedio de ganancias por día, de todo tu historial. Sirve para saber cuándo conviene salir.</p>
+            <div class="h-52">
+              <canvas id="chartDiaSemana"></canvas>
+            </div>
+            <p id="chartDiaSemanaEmpty" class="hidden text-center text-xs text-slate-400 py-6">Todavía no hay días cerrados para comparar.</p>
+          </section>
+
+          <section>
+            <div class="flex items-center justify-between gap-2 flex-wrap">
+              <p class="eyebrow text-brand-green"><i class="fa-solid fa-ranking-star"></i> LOCALES QUE MÁS TE DEJAN</p>
+              <select id="chartLocalesMes" class="bg-white rounded-lg px-2 py-1 text-xs border border-slate-200"></select>
+            </div>
+            <div class="h-56 mt-2">
+              <canvas id="chartLocales"></canvas>
+            </div>
+            <p id="chartLocalesEmpty" class="hidden text-center text-xs text-slate-400 py-6">Todavía no tienes locales con repartos ese mes.</p>
+          </section>
           <section>
             <p class="eyebrow text-brand-green"><i class="fa-solid fa-chart-line"></i> EVOLUCIÓN DEL EFECTIVO ESPERADO</p>
             <div class="card bg-white mt-2" style="height: 260px;">
