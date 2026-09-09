@@ -261,6 +261,17 @@ function analizarDeteccion(text, chatId, senderNumber, grupoActual, opciones = {
 
   match = buscarKeywordEspecial(text, chatId);
   anotar("Frases especiales de este grupo", match ? `coincide "${match.keyword}"` : "ninguna coincide");
+  // Igual que las frases autorizadas por número: esto lo escribió Patrick
+  // para ESTE grupo, sabiendo lo que significa ahí. Manda sobre la IA.
+  //
+  // El caso que lo destapó: agregó "envía" como frase especial de CRIOLLO,
+  // porque después de cotizar el local escribe "Me envía" y eso ES el
+  // pedido. La IA, que solo ve dos palabras sueltas, había aprendido que no
+  // era pedido y se lo estaba tumbando.
+  //
+  // Estas frases ya se saltan las palabras excluidas a propósito; que
+  // además se salten la IA es el mismo criterio.
+  if (match) return { match, pasos, contexto: null, configuradoAMano: true };
 
   if (!match && esImagenTrigger) match = { keyword: "(foto)", index: 0, length: 0 };
   if (!match && esContactoTrigger) match = { keyword: "(contacto)", index: 0, length: 0 };
