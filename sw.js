@@ -1,4 +1,4 @@
-const CACHE_NAME = "bot-panel-v4";
+const CACHE_NAME = "bot-panel-v5";
 const CORE_ASSETS = ["/", "/styles.css", "/script.js", "/manifest.json", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (event) => {
@@ -57,7 +57,11 @@ self.addEventListener("push", (event) => {
     badge: "/icon-192.png",
     vibrate: [200, 100, 200],
     // Lo que hay que saber para actuar desde la propia notificación.
-    data: { pendienteId: data.pendienteId || null, groupName: data.groupName || "" },
+    data: {
+      pendienteId: data.pendienteId || null,
+      frenadoId: data.frenadoId || null,
+      groupName: data.groupName || "",
+    },
   };
 
   // Si el aviso es por un pedido esperando decisión, la notificación trae
@@ -74,6 +78,14 @@ self.addEventListener("push", (event) => {
   if (data.pendienteId) {
     options.actions = [{ action: "marcar", title: "✅ Marcar" }];
     options.requireInteraction = true; // que no se vaya sola antes de decidir
+  }
+
+  // Aviso de que el filtro de IA frenó un mensaje. Mismo criterio: UN solo
+  // botón y que no pueda borrar nada. Tocarlo corrige la memoria para
+  // siempre y, si todavía está a tiempo, manda el "Voy".
+  if (data.frenadoId) {
+    options.actions = [{ action: "era-pedido", title: "✅ Sí era pedido" }];
+    options.requireInteraction = true;
   }
 
   event.waitUntil(self.registration.showNotification(title, options));
@@ -116,9 +128,38 @@ async function marcarDesdeNotificacion(pendienteId, groupName) {
   }
 }
 
+// "Sí era pedido": el filtro se equivocó. Corrige la memoria y, si todavía
+// está a tiempo, sale el "Voy". Tampoco puede borrar nada.
+async function corregirFrenado(frenadoId, groupName) {
+  try {
+    const res = await fetch(`/api/ai-blocked/${frenadoId}/marcar`, {
+      method: "POST",
+      credentials: "include",
+    });
+    if (res.status === 401) {
+      return avisar("Sesión vencida", "Abre el panel y vuelve a entrar para poder corregir desde aquí.");
+    }
+    const datos = await res.json().catch(() => ({}));
+    if (!res.ok) return avisar("No se pudo corregir", datos.error || "Intenta desde el panel.");
+    // Se distingue a propósito: corregir la memoria siempre funciona, pero
+    // mandar el "Voy" puede llegar tarde. Sin esta diferencia uno cree que
+    // salió el mensaje cuando en realidad solo se aprendió la lección.
+    return datos.marcado
+      ? avisar("✅ Marcado", `${groupName || "Pedido"} — y el filtro ya no se equivoca con esa frase.`)
+      : avisar("Corregido, pero sin marcar", `${datos.motivo || "Ya no se pudo marcar."} El filtro ya aprendió que sí es pedido.`);
+  } catch (err) {
+    return avisar("No se pudo corregir", "Sin conexión. Intenta desde el panel.");
+  }
+}
+
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const { pendienteId, groupName } = event.notification.data || {};
+  const { pendienteId, frenadoId, groupName } = event.notification.data || {};
+
+  if (frenadoId && event.action) {
+    event.waitUntil(corregirFrenado(frenadoId, groupName));
+    return;
+  }
 
   // Cualquier botón de un aviso de pedido marca. Hoy solo existe "marcar",
   // pero se acepta cualquier acción a propósito: si el celular reportara

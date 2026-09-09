@@ -1,6 +1,6 @@
 const express = require("express");
 const path = require("path");
-const { startBot, botState, logoutBot, getSock, setBotActivo, probarFrase, marcarPendienteAhora } = require("./bot");
+const { startBot, botState, logoutBot, getSock, setBotActivo, probarFrase, marcarPendienteAhora, marcarFrenadoAhora } = require("./bot");
 const quoteConfig = require("./quoteConfig");
 const sectors = require("./sectors");
 const dynamicKeywords = require("./dynamicKeywords");
@@ -14,6 +14,7 @@ const groupDelays = require("./groupDelays");
 const groupTimeWindows = require("./groupTimeWindows");
 const scheduledBroadcasts = require("./scheduledBroadcasts");
 const aiClassifier = require("./aiClassifier");
+const aiBlocked = require("./aiBlocked");
 const backup = require("./backup");
 const auth = require("./auth");
 const multer = require("multer");
@@ -325,6 +326,26 @@ app.post("/api/ai-decisions", (req, res) => {
   if (!texto) return res.status(400).json({ error: "Falta la frase." });
   aiClassifier.guardarDecision(texto, req.body?.esPedido, true);
   res.json({ ok: true, decisiones: aiClassifier.getAll() });
+});
+
+// Mensajes que el filtro frenó. "Sí era pedido" corrige la memoria para
+// siempre y, si todavía está a tiempo, manda el "Voy".
+app.get("/api/ai-blocked", (req, res) => {
+  res.json({ frenados: aiBlocked.getAll() });
+});
+
+app.post("/api/ai-blocked/:id/marcar", async (req, res) => {
+  try {
+    res.json(await marcarFrenadoAhora(req.params.id));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/ai-blocked/:id/descartar", (req, res) => {
+  const ok = aiBlocked.remove(req.params.id);
+  if (!ok) return res.status(404).json({ error: "Ese aviso ya no está." });
+  res.json({ ok: true });
 });
 
 app.post("/api/ai-decisions/remove", (req, res) => {

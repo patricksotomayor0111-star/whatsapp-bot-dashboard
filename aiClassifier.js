@@ -22,12 +22,27 @@ const TIMEOUT_MS = 1000; // tope duro: pasado esto, el bot marca sin esperar
 
 const INSTRUCCIONES = `Eres el filtro de un bot de WhatsApp de una empresa de delivery en Ica, Perú.
 
+LA EMPRESA SE LLAMA "BOX DELIVERY". Los locales le dicen "Box", "el box",
+"boxito" o cosas así. **Cuando un local escribe el nombre de la empresa, casi
+siempre es para llamar a un motorizado**, aunque no diga nada más: un "box"
+suelto en el grupo es un pedido, igual que gritar el nombre de alguien para
+que venga.
+
 La empresa tiene grupos con restaurantes y tiendas. Cuando un local necesita
 que un motorizado vaya a recoger un pedido, lo escribe en su grupo, y el bot
 responde "Voy" para tomar el encargo.
 
-Ya se detectó una palabra clave en el mensaje. Tienes que responder dos cosas
-en una sola línea: si REALMENTE están pidiendo un motorizado, y para cuándo.
+Te va a llegar el mensaje junto con LA PALABRA CLAVE que activó al bot. Esa
+palabra no la eligió una máquina: la configuró el dueño a propósito, porque en
+sus grupos significa que están pidiendo un motorizado. **Tómala como una señal
+fuerte a favor del SI.** Solo responde NO cuando el mensaje deje claro que esta
+vez no están pidiendo nada (preguntan precio, agradecen, cancelan, etc.).
+
+Si el mensaje es corto y básicamente solo dice la palabra clave o el nombre de
+la empresa, es un pedido: responde SI.
+
+Tienes que responder dos cosas en una sola línea: si REALMENTE están pidiendo
+un motorizado, y para cuándo.
 
 Formatos de respuesta, sin nada más:
 - "NO"          → no están pidiendo un motorizado
@@ -37,6 +52,8 @@ Formatos de respuesta, sin nada más:
                   (ejemplo: "SI @18:00")
 
 Responde SI cuando piden que vaya un motorizado. Ejemplos:
+- "box" → SI (están llamando a la empresa)
+- "boxito porfa" → SI
 - "moto" → SI
 - "ya pueden venir por el pedido" → SI
 - "pedido listo para recoger" → SI
@@ -164,14 +181,16 @@ function removeDecision(clave) {
 // Las dos respuestas de una: si hay que marcar, y para cuándo es el pedido.
 // SIEMPRE devuelve esPedido:true ante cualquier problema (ver regla 2), y
 // hora:null, que significa "no sé" — ahí mandan las reglas de siempre.
-async function analizar(texto) {
+async function analizar(texto, keyword) {
   const clave = claveDe(texto);
-  if (!clave) return { esPedido: true, hora: null };
+  if (!clave) return { esPedido: true, hora: null, consultada: false };
 
   const recordada = data.decisiones[clave];
-  if (recordada) return { esPedido: recordada.esPedido, hora: recordada.hora || null }; // instantáneo y sin costo
+  // Instantáneo y sin costo. `consultada: false` importa: quien avisa de un
+  // mensaje frenado solo debe avisar la PRIMERA vez, no cada repetición.
+  if (recordada) return { esPedido: recordada.esPedido, hora: recordada.hora || null, consultada: false };
 
-  if (!estaConfigurado()) return { esPedido: true, hora: null }; // sin llave configurada, no aplica
+  if (!estaConfigurado()) return { esPedido: true, hora: null, consultada: false }; // sin llave configurada, no aplica
 
   try {
     const respuesta = await getCliente().messages.create(
@@ -179,7 +198,15 @@ async function analizar(texto) {
         model: MODELO,
         max_tokens: 12,
         system: [{ type: "text", text: INSTRUCCIONES, cache_control: { type: "ephemeral" } }],
-        messages: [{ role: "user", content: texto }],
+        // La palabra clave va junto al mensaje: sin ella la IA no tiene forma
+        // de saber por qué saltó el bot. Un "box" suelto le parecía una
+        // palabra cualquiera y frenaba un pedido de verdad.
+        messages: [
+          {
+            role: "user",
+            content: keyword ? `Palabra clave que activó al bot: "${keyword}"\n\nMensaje: ${texto}` : texto,
+          },
+        ],
       },
       { timeout: TIMEOUT_MS, maxRetries: 0 } // sin reintentos: el tope es el tope
     );
@@ -196,10 +223,10 @@ async function analizar(texto) {
     const esPedido = !/^NO\b/.test(dijo);
     const hora = esPedido ? parsearHora(dijo) : null;
     guardarDecision(texto, esPedido, false, hora);
-    return { esPedido, hora };
+    return { esPedido, hora, consultada: true };
   } catch (err) {
     console.error("Filtro de IA no disponible, se marca igual:", err.message);
-    return { esPedido: true, hora: null };
+    return { esPedido: true, hora: null, consultada: false };
   }
 }
 

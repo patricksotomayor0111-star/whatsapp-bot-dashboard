@@ -20,6 +20,7 @@ const groupTimeWindows = require("./groupTimeWindows");
 const scheduledBroadcasts = require("./scheduledBroadcasts");
 const pendingTimeMatches = require("./pendingTimeMatches");
 const aiClassifier = require("./aiClassifier");
+const aiBlocked = require("./aiBlocked");
 const { dataPath } = require("./dataDir");
 const { sectorSeedByName, specialSeedByName, numberExceptionSeed } = require("./groupSeed");
 const {
@@ -1226,8 +1227,26 @@ async function startBot() {
       const esSectorOlvidado = sectorId === DEFAULT_SECTOR;
       let horaIA = null;
       if (!esTriggerDeArchivo && !esSectorOlvidado && !configuradoAMano) {
-        const veredicto = await aiClassifier.analizar(rawText);
-        if (!veredicto.esPedido) continue;
+        const veredicto = await aiClassifier.analizar(rawText, match.keyword);
+        if (!veredicto.esPedido) {
+          // Un bot callado se ve igual que un bot que no vio nada, así que un
+          // error del filtro se descubre perdiendo un pedido. Por eso se avisa
+          // la PRIMERA vez que frena una frase — nunca en las repeticiones,
+          // que ya salen de memoria y no volverían a sorprender.
+          if (veredicto.consultada) {
+            avisarFrenadoPorIA({
+              chatId,
+              groupName: grupoActual?.name || chatId,
+              senderNumber,
+              rawText,
+              keyword: match.keyword,
+              matchIndex: match.index,
+              matchLength: match.length,
+              quotedStub: construirQuotedStub(msg, chatId, senderJid, rawText),
+            });
+          }
+          continue;
+        }
         horaIA = veredicto.hora;
       }
 
@@ -1470,6 +1489,52 @@ setInterval(() => {
 // cuando la espera automática está apagada: se ve lo que viene y se decide
 // uno por uno, en vez de que el bot marque solo algo que el local quizá ya
 // canceló. No mira la hora: si se pide marcar, se marca.
+// Avisa que el filtro frenó un mensaje. Se guarda lo necesario para poder
+// mandar el "Voy" desde la notificación, citando el mensaje original.
+function avisarFrenadoPorIA(datos) {
+  const registro = aiBlocked.add(datos);
+  pushSubscriptions
+    .notifyAll({
+      title: "🤔 El filtro frenó un mensaje",
+      body: `${registro.groupName}: "${String(registro.rawText || "").slice(0, 80)}"`,
+      frenadoId: registro.id,
+      groupName: registro.groupName,
+    })
+    .catch((err) => console.error("Error al avisar de un mensaje frenado:", err.message));
+}
+
+// "Sí era pedido": corrige la memoria PARA SIEMPRE y, si todavía está a
+// tiempo, manda el "Voy". La corrección va primero a propósito — es lo que
+// evita que el error se repita, y no depende de que WhatsApp responda.
+async function marcarFrenadoAhora(id) {
+  const f = aiBlocked.getById(id);
+  if (!f) throw new Error("Ese aviso ya no está.");
+
+  aiClassifier.guardarDecision(f.rawText, true, true);
+  const aTiempo = aiBlocked.sePuedeMarcar(f);
+  aiBlocked.remove(f.id);
+
+  if (!aTiempo) return { groupName: f.groupName, marcado: false, motivo: "Pasó más de media hora." };
+  if (!currentSock || !botState.connected) {
+    return { groupName: f.groupName, marcado: false, motivo: "El bot no está conectado a WhatsApp." };
+  }
+
+  const sectorId = getGroupSector(f.chatId);
+  const marcado = await marcarPedido(currentSock, {
+    chatId: f.chatId,
+    groupName: f.groupName,
+    senderNumber: f.senderNumber,
+    rawText: f.rawText,
+    keyword: f.keyword,
+    matchIndex: f.matchIndex,
+    matchLength: f.matchLength,
+    sinRemarcar: isGroupSinRemarcarEfectivo(f.chatId, sectorId),
+    quotedMsg: f.quotedStub,
+  });
+  if (!marcado) return { groupName: f.groupName, marcado: false, motivo: "No se pudo mandar el mensaje." };
+  return { groupName: f.groupName, marcado: true };
+}
+
 async function marcarPendienteAhora(id) {
   const p = pendingTimeMatches.getById(id);
   if (!p) throw new Error("Ese pedido ya no está en la lista.");
@@ -1686,6 +1751,7 @@ module.exports = {
   setBotActivo,
   probarFrase,
   marcarPendienteAhora,
+  marcarFrenadoAhora,
   evaluarVentanaTiempo,
   analizarDeteccion,
 };
