@@ -542,12 +542,38 @@ const IGNORED_GROUP_NAMES = new Set(["GANANCIAS"]);
 // ya había activado el bot al menos una vez.
 const GRUPOS_SOLO_AUTORIZADOS = new Set(["REPORTES BOX DELIVERY"]);
 
-// Hasta cuántas palabras cuenta como "un llamado", y se marca sin consultarle
-// a la IA. Un mensaje de 3 palabras que además tiene una palabra clave es un
-// pedido: nadie pregunta una tarifa en 3 palabras. Se perdió un pedido por un
-// "box" suelto que la IA frenó, y de paso los pedidos más comunes ahora salen
-// medio segundo más rápido.
-const MAX_PALABRAS_SIN_CONSULTAR = 3;
+// Un mensaje que es SOLO la palabra clave más relleno ("box", "moto porfa",
+// "hola chicos moto") es un llamado y se marca sin consultarle a la IA: se
+// perdió un pedido por un "box" suelto que la IA frenó, y además los pedidos
+// más comunes son justo estos, así que salen medio segundo más rápido.
+//
+// Ojo con la tentación de simplificarlo a "mensajes de hasta N palabras": con
+// esa regla "gracias moto" (2 palabras) se marcaba solo, y "gracias" NO está
+// en las palabras excluidas. La única forma segura es mirar qué queda después
+// de sacar la palabra clave: si sobra algo que no sea relleno, se consulta.
+const PALABRAS_DE_RELLENO = new Set([
+  "hola", "holi", "buenas", "buenos", "dia", "dias", "tarde", "tardes", "noche", "noches",
+  "chicos", "chicas", "amigo", "amigos", "amiga", "causa", "bro", "pe", "ya", "porfa",
+  "porfas", "porfavor", "favor", "por", "plis", "please", "un", "una", "uno", "el", "la",
+  "los", "las", "de", "del", "y", "ahi", "aca", "aqui", "alguien", "alguno", "algun",
+]);
+
+// Tope de seguridad: por más que todo sea relleno, un mensaje largo se
+// consulta igual. Nadie llama con una parrafada.
+const MAX_RELLENO = 4;
+
+// ¿El mensaje es solo la palabra clave y relleno? Se le saca la keyword
+// exactamente donde coincidió y se mira lo que sobra.
+function esSoloLaClave(text, match) {
+  if (!match || typeof match.index !== "number" || !match.length) return false;
+  const restante = `${text.slice(0, match.index)} ${text.slice(match.index + match.length)}`;
+  const sobra = restante
+    .split(/\s+/)
+    .map((p) => p.replace(/[^a-z0-9]/gi, ""))
+    .filter(Boolean);
+  if (sobra.length > MAX_RELLENO) return false;
+  return sobra.every((p) => PALABRAS_DE_RELLENO.has(p));
+}
 
 function esGrupoSoloAutorizados(nombreGrupo) {
   return GRUPOS_SOLO_AUTORIZADOS.has(String(nombreGrupo || "").trim().toUpperCase());
@@ -1233,17 +1259,16 @@ async function startBot() {
       const esTriggerDeArchivo = esImagenTrigger || esContactoTrigger || esAudioTrigger;
       const esSectorOlvidado = sectorId === DEFAULT_SECTOR;
       //
-      // Y tampoco opina sobre los mensajes CORTOS. Cuando un local escribe
-      // "box", "moto" o "recojo porfa" está llamando, punto: nadie escribe
-      // tres palabras para preguntar una tarifa. Los falsos positivos que
-      // molestan son largos ("cuanto cobran hasta la vecinal", "numero para
-      // el pago del delivery"), y esos sí se consultan.
+      // Y tampoco opina cuando el mensaje es SOLO la palabra clave más
+      // relleno: "box", "moto porfa", "hola chicos moto". Eso es un llamado
+      // y punto (ver PALABRAS_DE_RELLENO). Los falsos positivos que molestan
+      // siempre traen algo más — "gracias", "cuanto", "ya no" — y esos sí se
+      // consultan.
       //
       // Esto no es solo puntería: es velocidad. Los pedidos más comunes son
-      // justo los cortos, y ahora se marcan sin esperar medio segundo. Acá
-      // se compite contra otros delivery que responden en 1 o 2 segundos.
-      const palabras = String(rawText || "").trim().split(/\s+/).filter(Boolean).length;
-      const esLlamadoCorto = palabras > 0 && palabras <= MAX_PALABRAS_SIN_CONSULTAR;
+      // justo estos, y ahora se marcan sin esperar medio segundo. Acá se
+      // compite contra otros delivery que responden en 1 o 2 segundos.
+      const esLlamadoCorto = esSoloLaClave(text, match);
 
       let horaIA = null;
       if (!esTriggerDeArchivo && !esSectorOlvidado && !configuradoAMano && !esLlamadoCorto) {
@@ -1773,5 +1798,6 @@ module.exports = {
   marcarPendienteAhora,
   marcarFrenadoAhora,
   evaluarVentanaTiempo,
+  esSoloLaClave,
   analizarDeteccion,
 };

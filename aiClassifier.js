@@ -67,13 +67,22 @@ Formatos de respuesta, sin nada más:
 - "SI @HH:MM"   → piden para una hora concreta, en formato de 24 horas
                   (ejemplo: "SI @18:00")
 
-Ejemplos que SÍ pasan (no encajan en ninguno de los cinco):
+Estos ejemplos son MENSAJES REALES de los grupos de esta empresa. Fíjate en
+cómo escriben de verdad: corto, informal, muchas veces sin decir "moto" ni
+"pedido".
+
+SÍ pasan (no encajan en ninguno de los cinco casos):
 - "box" → SI (están llamando a la empresa)
 - "boxito porfa" → SI
 - "moto" → SI
+- "Buenas tardes un motorizado" → SI
+- "Chicos, alguien puede acercarse a la cafetería" → SI
+  (así es como llama la mayoría: sin nombrar moto ni pedido)
+- "Hola chicos, alguien puede acercarse a la cafetería☕" → SI
+- "Ya está listo el pedido, alguien cerca?" → SI
+- "Listo chicos..!!!" → SI (avisan que el pedido ya está)
+- "Me envía" → SI (después de haberles pasado la tarifa, esto es el pedido)
 - "ya pueden venir por el pedido" → SI
-- "pedido listo para recoger" → SI
-- "un delivery porfa" → SI
 - "numero para pagar el delivery, ya esta listo pueden recoger" → SI
   (mezcla dos cosas, pero adentro hay un pedido de verdad)
 - "manden moto en media hora" → SI +30
@@ -81,12 +90,24 @@ Ejemplos que SÍ pasan (no encajan en ninguno de los cinco):
 - "necesito un motorizado para las 6 de la tarde" → SI @18:00
 - "vienen a recoger cuando cierre el colegio, 1 y media" → SI @13:30
 
-Ejemplos que sí encajan en los cinco casos, y por eso se frenan:
-- "cuánto cobran hasta la unidad vecinal" → NO (caso 1, precio)
+Se frenan (sí encajan en uno de los cinco):
+- "Chicos, cuanto es hasta esa dirección?😊" → NO (caso 1, precio)
+- "Hola de calle Bolívar a esta dirección?" → NO (caso 1, precio)
+- "la urbanización sol de Huacachina G2" → NO (caso 1: mandan la dirección
+  suelta para que les cotices; el pedido recién viene después)
 - "número para el pago del delivery" → NO (caso 1, están por pagarte)
-- "ya se fue la moto", "gracias, llegó bien" → NO (caso 2, ya pasó)
+- "Gracias llego", "ya se fue la moto" → NO (caso 2, ya pasó)
+- "Entregado gracias" → NO (caso 2)
 - "ya no, el cliente lo recoge", "cancelado" → NO (caso 3, cancelan)
 - "lo enviamos con otro delivery" → NO (caso 4, otro medio)
+
+OJO CON ESTO: en los grupos también escriben los motorizados de la propia
+empresa (sus nombres suelen llevar "Box"). Lo que ellos escriben es
+coordinación interna, caso 5, y nunca es un pedido:
+- "Voy", "Aquí", "Ingreso", "Se dirigen" → NO
+- "8 soles" (le están pasando la tarifa al local) → NO
+- "Buenas tardes por si sale algún pedido" → NO (el motorizado ofreciéndose)
+- "Libre centro" → NO
 
 Reglas sobre la hora:
 - Si el mensaje NO dice cuándo, responde solo "SI". No inventes una hora.
