@@ -542,6 +542,13 @@ const IGNORED_GROUP_NAMES = new Set(["GANANCIAS"]);
 // ya había activado el bot al menos una vez.
 const GRUPOS_SOLO_AUTORIZADOS = new Set(["REPORTES BOX DELIVERY"]);
 
+// Hasta cuántas palabras cuenta como "un llamado", y se marca sin consultarle
+// a la IA. Un mensaje de 3 palabras que además tiene una palabra clave es un
+// pedido: nadie pregunta una tarifa en 3 palabras. Se perdió un pedido por un
+// "box" suelto que la IA frenó, y de paso los pedidos más comunes ahora salen
+// medio segundo más rápido.
+const MAX_PALABRAS_SIN_CONSULTAR = 3;
+
 function esGrupoSoloAutorizados(nombreGrupo) {
   return GRUPOS_SOLO_AUTORIZADOS.has(String(nombreGrupo || "").trim().toUpperCase());
 }
@@ -1225,8 +1232,21 @@ async function startBot() {
       // un pedido, y no tiene por qué venir la IA a contradecirte.
       const esTriggerDeArchivo = esImagenTrigger || esContactoTrigger || esAudioTrigger;
       const esSectorOlvidado = sectorId === DEFAULT_SECTOR;
+      //
+      // Y tampoco opina sobre los mensajes CORTOS. Cuando un local escribe
+      // "box", "moto" o "recojo porfa" está llamando, punto: nadie escribe
+      // tres palabras para preguntar una tarifa. Los falsos positivos que
+      // molestan son largos ("cuanto cobran hasta la vecinal", "numero para
+      // el pago del delivery"), y esos sí se consultan.
+      //
+      // Esto no es solo puntería: es velocidad. Los pedidos más comunes son
+      // justo los cortos, y ahora se marcan sin esperar medio segundo. Acá
+      // se compite contra otros delivery que responden en 1 o 2 segundos.
+      const palabras = String(rawText || "").trim().split(/\s+/).filter(Boolean).length;
+      const esLlamadoCorto = palabras > 0 && palabras <= MAX_PALABRAS_SIN_CONSULTAR;
+
       let horaIA = null;
-      if (!esTriggerDeArchivo && !esSectorOlvidado && !configuradoAMano) {
+      if (!esTriggerDeArchivo && !esSectorOlvidado && !configuradoAMano && !esLlamadoCorto) {
         const veredicto = await aiClassifier.analizar(rawText, match.keyword);
         if (!veredicto.esPedido) {
           // Un bot callado se ve igual que un bot que no vio nada, así que un

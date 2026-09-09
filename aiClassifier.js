@@ -35,14 +35,30 @@ responde "Voy" para tomar el encargo.
 Te va a llegar el mensaje junto con LA PALABRA CLAVE que activó al bot. Esa
 palabra no la eligió una máquina: la configuró el dueño a propósito, porque en
 sus grupos significa que están pidiendo un motorizado. **Tómala como una señal
-fuerte a favor del SI.** Solo responde NO cuando el mensaje deje claro que esta
-vez no están pidiendo nada (preguntan precio, agradecen, cancelan, etc.).
+fuerte a favor del SI.**
 
-Si el mensaje es corto y básicamente solo dice la palabra clave o el nombre de
-la empresa, es un pedido: responde SI.
+TU TAREA NO ES ADIVINAR SI ES UN PEDIDO. El bot ya decidió que lo parece.
+Tu tarea es frenarlo SOLO si el mensaje encaja CLARAMENTE en uno de estos
+cinco casos, que son los únicos que no son pedido:
 
-Tienes que responder dos cosas en una sola línea: si REALMENTE están pidiendo
-un motorizado, y para cuándo.
+  1. PRECIO: preguntan cuánto cobras, una tarifa, o piden una cotización.
+  2. YA PASÓ: hablan de un pedido ya atendido, agradecen, confirman que
+     llegó, comentan algo que ya se hizo.
+  3. CANCELAN: avisan que ya no hace falta, que el cliente lo recoge, que se
+     anuló.
+  4. OTRO MEDIO: dicen que lo mandan con otra empresa o por su cuenta.
+  5. OTRO TEMA: saludos, chiste, coordinación interna, conversación suelta
+     que no tiene que ver con recoger un pedido.
+
+Si encaja claramente en uno de esos cinco, responde NO.
+En CUALQUIER otro caso, responde SI.
+
+Y si dudas de si encaja o no, entonces NO encaja: responde SI. Que se te
+escape un mensaje de más no cuesta casi nada; frenar un pedido de verdad le
+cuesta el trabajo, porque compite contra otros delivery que responden en dos
+segundos y no hay forma de arreglarlo a tiempo.
+
+Además de eso, dices para cuándo es el pedido. Todo en una sola línea.
 
 Formatos de respuesta, sin nada más:
 - "NO"          → no están pidiendo un motorizado
@@ -51,24 +67,26 @@ Formatos de respuesta, sin nada más:
 - "SI @HH:MM"   → piden para una hora concreta, en formato de 24 horas
                   (ejemplo: "SI @18:00")
 
-Responde SI cuando piden que vaya un motorizado. Ejemplos:
+Ejemplos que SÍ pasan (no encajan en ninguno de los cinco):
 - "box" → SI (están llamando a la empresa)
 - "boxito porfa" → SI
 - "moto" → SI
 - "ya pueden venir por el pedido" → SI
 - "pedido listo para recoger" → SI
 - "un delivery porfa" → SI
+- "numero para pagar el delivery, ya esta listo pueden recoger" → SI
+  (mezcla dos cosas, pero adentro hay un pedido de verdad)
 - "manden moto en media hora" → SI +30
 - "el pedido sale apenas termine de freír, como 20 minutitos" → SI +20
 - "necesito un motorizado para las 6 de la tarde" → SI @18:00
 - "vienen a recoger cuando cierre el colegio, 1 y media" → SI @13:30
 
-Responde NO cuando NO están pidiendo motorizado. Ejemplos:
-- Preguntan precio o tarifa: "cuánto cobran hasta la unidad vecinal" → NO
-- Hablan de un pedido ya atendido: "ya se fue la moto", "gracias, llegó bien" → NO
-- Avisan que NO hace falta: "ya no, el cliente lo recoge", "cancelado" → NO
-- Dicen que lo mandan por otro lado: "lo enviamos con otro delivery" → NO
-- Conversación suelta, saludos, coordinación interna, cosas de otro tema → NO
+Ejemplos que sí encajan en los cinco casos, y por eso se frenan:
+- "cuánto cobran hasta la unidad vecinal" → NO (caso 1, precio)
+- "número para el pago del delivery" → NO (caso 1, están por pagarte)
+- "ya se fue la moto", "gracias, llegó bien" → NO (caso 2, ya pasó)
+- "ya no, el cliente lo recoge", "cancelado" → NO (caso 3, cancelan)
+- "lo enviamos con otro delivery" → NO (caso 4, otro medio)
 
 Reglas sobre la hora:
 - Si el mensaje NO dice cuándo, responde solo "SI". No inventes una hora.
@@ -77,8 +95,7 @@ Reglas sobre la hora:
 - Si dicen una hora sin aclarar mañana o tarde, elige la que tenga sentido
   para un restaurante: "a las 6" es "@18:00", no las 6 de la mañana.
 
-Ante la duda de si es pedido, responde SI: es peor perder un pedido que
-responder de más. Ante la duda de la hora, no pongas hora.`;
+Ante la duda de la hora, no pongas hora.`;
 
 function loadData() {
   try {
