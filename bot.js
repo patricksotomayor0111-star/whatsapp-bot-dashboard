@@ -562,6 +562,32 @@ const PALABRAS_DE_RELLENO = new Set([
 // consulta igual. Nadie llama con una parrafada.
 const MAX_RELLENO = 4;
 
+// Una palabra clave de 3 o más palabras no es una palabra: es una frase de
+// intención. "alguien puede acercarse" o "ya esta listo el pedido" solo se
+// escriben para llamar a un motorizado. Cuando una de esas coincide, se marca
+// SIN consultarle a la IA — Patrick lo confirmó mirando sus propios grupos:
+// "estos sí son pedidos, no necesita preguntar".
+//
+// Se comprobó contra los mensajes reales que NO son pedido ("gracias moto",
+// "ya se fue la moto", "cuanto cobran...", "gracias por acercarse"): ninguna
+// frase larga coincide ahí. Si alguna vez se agrega una frase larga ambigua,
+// esta regla la dará por buena sin preguntar — ojo con eso.
+const MIN_PALABRAS_FRASE_CLARA = 3;
+
+function cuentaPalabras(keyword) {
+  return normalizeText(String(keyword || "")).trim().split(/\s+/).filter(Boolean).length;
+}
+
+function esFraseInequivoca(text, match) {
+  if (match && cuentaPalabras(match.keyword) >= MIN_PALABRAS_FRASE_CLARA) return true;
+  // La keyword que reportó el match puede ser la corta ("acercarse") aunque
+  // en el mensaje haya también una larga ("alguien puede acercarse"), porque
+  // gana la que aparece antes en la lista. Por eso se buscan aparte.
+  return [...getBasePositiveMatchers(), ...getExtraPositiveMatchers()].some(
+    ({ keyword, regex }) => cuentaPalabras(keyword) >= MIN_PALABRAS_FRASE_CLARA && regex.test(text)
+  );
+}
+
 // ¿El mensaje es solo la palabra clave y relleno? Se le saca la keyword
 // exactamente donde coincidió y se mira lo que sobra.
 function esSoloLaClave(text, match) {
@@ -1268,7 +1294,10 @@ async function startBot() {
       // Esto no es solo puntería: es velocidad. Los pedidos más comunes son
       // justo estos, y ahora se marcan sin esperar medio segundo. Acá se
       // compite contra otros delivery que responden en 1 o 2 segundos.
-      const esLlamadoCorto = esSoloLaClave(text, match);
+      //
+      // Lo mismo con las frases largas ("alguien puede acercarse"): son
+      // inequívocas, no hay nada que preguntar.
+      const esLlamadoCorto = esSoloLaClave(text, match) || esFraseInequivoca(text, match);
 
       let horaIA = null;
       if (!esTriggerDeArchivo && !esSectorOlvidado && !configuradoAMano && !esLlamadoCorto) {
@@ -1799,5 +1828,6 @@ module.exports = {
   marcarFrenadoAhora,
   evaluarVentanaTiempo,
   esSoloLaClave,
+  esFraseInequivoca,
   analizarDeteccion,
 };
