@@ -2639,6 +2639,18 @@ probarFraseBtn.addEventListener("click", async () => {
 const aiFilterEstado = document.getElementById("aiFilterEstado");
 const aiDecisionList = document.getElementById("aiDecisionList");
 const aiDecisionEmpty = document.getElementById("aiDecisionEmpty");
+const aiDecisionToggleBtn = document.getElementById("aiDecisionToggleBtn");
+const aiDecisionResumen = document.getElementById("aiDecisionResumen");
+const aiDecisionChevron = document.getElementById("aiDecisionChevron");
+const aiDecisionPanel = document.getElementById("aiDecisionPanel");
+const aiDecisionVerTodasBtn = document.getElementById("aiDecisionVerTodasBtn");
+
+// La lista crece sin parar (una entrada por frase nueva), así que va plegada
+// y mostrando primero las rojas, que son las únicas que hay que revisar. Las
+// verdes quedan detrás de "ver todas": están bien, no hay nada que hacer con
+// ellas, y llenaban la pantalla.
+let aiDecisionAbierta = false;
+let aiDecisionVerTodas = false;
 
 // La hora que entendió la IA, si es que el mensaje mencionaba una. Solo se
 // muestra cuando las reglas de siempre no la habrían visto — igual sirve para
@@ -2664,9 +2676,27 @@ function renderAiDecisions(data) {
 
   aiDecisionList.innerHTML = "";
   const decisiones = data.decisiones || [];
+  const rojas = decisiones.filter((d) => !d.esPedido);
+  const verdes = decisiones.filter((d) => d.esPedido);
+
+  // Resumen en el botón plegado: lo que importa es cuántas frenó.
+  aiDecisionResumen.textContent = rojas.length
+    ? `${decisiones.length} · ${rojas.length} en rojo`
+    : `${decisiones.length}`;
+  aiDecisionResumen.className = `shrink-0 text-xs font-bold ${rojas.length ? "text-brand-red" : "text-slate-400"}`;
+  aiDecisionChevron.className = `fa-solid fa-chevron-${aiDecisionAbierta ? "up" : "down"} text-[9px] text-slate-400 shrink-0 ml-auto`;
+  aiDecisionPanel.classList.toggle("hidden", !aiDecisionAbierta);
+
   aiDecisionEmpty.classList.toggle("hidden", decisiones.length > 0);
 
-  decisiones.forEach((d) => {
+  // Las rojas siempre; las verdes solo si las pides.
+  const visibles = aiDecisionVerTodas ? [...rojas, ...verdes] : rojas;
+  aiDecisionVerTodasBtn.classList.toggle("hidden", verdes.length === 0);
+  aiDecisionVerTodasBtn.textContent = aiDecisionVerTodas
+    ? "Ocultar las que sí responde"
+    : `Ver las ${verdes.length} que sí responde`;
+
+  visibles.forEach((d) => {
     const fila = document.createElement("div");
     fila.className = `flex items-center gap-2 rounded-xl border px-3 py-2 ${
       d.esPedido ? "bg-green-50 border-green-200" : "bg-rose-50 border-rose-200"
@@ -2702,7 +2732,10 @@ function renderAiDecisions(data) {
           body: JSON.stringify({ texto: d.texto || d.clave, esPedido: !d.esPedido }),
         });
         const r = await res.json();
-        if (res.ok) renderAiDecisions({ ...data, decisiones: r.decisiones });
+        if (res.ok) {
+          aiDecisionUltima = { ...data, decisiones: r.decisiones };
+          renderAiDecisions(aiDecisionUltima);
+        }
       } catch (err) {
         voltear.disabled = false;
       }
@@ -2723,7 +2756,10 @@ function renderAiDecisions(data) {
           body: JSON.stringify({ clave: d.clave }),
         });
         const r = await res.json();
-        if (res.ok) renderAiDecisions({ ...data, decisiones: r.decisiones });
+        if (res.ok) {
+          aiDecisionUltima = { ...data, decisiones: r.decisiones };
+          renderAiDecisions(aiDecisionUltima);
+        }
       } catch (err) {
         borrar.disabled = false;
       }
@@ -2734,14 +2770,27 @@ function renderAiDecisions(data) {
   });
 }
 
+let aiDecisionUltima = null;
+
 async function fetchAiDecisions() {
   try {
     const res = await fetch("/api/ai-decisions");
-    renderAiDecisions(await res.json());
+    aiDecisionUltima = await res.json();
+    renderAiDecisions(aiDecisionUltima);
   } catch (err) {
     console.error("No se pudo obtener el filtro inteligente:", err);
   }
 }
+
+aiDecisionToggleBtn.addEventListener("click", () => {
+  aiDecisionAbierta = !aiDecisionAbierta;
+  if (aiDecisionUltima) renderAiDecisions(aiDecisionUltima);
+});
+
+aiDecisionVerTodasBtn.addEventListener("click", () => {
+  aiDecisionVerTodas = !aiDecisionVerTodas;
+  if (aiDecisionUltima) renderAiDecisions(aiDecisionUltima);
+});
 
 // ---------- Respaldo de la configuración ----------
 // La descarga es un <a href="/api/backup" download>, no hace falta JS.

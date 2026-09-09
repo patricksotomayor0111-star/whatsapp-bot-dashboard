@@ -156,10 +156,22 @@
           <div id="aiFilterEstado" class="rounded-xl border p-3 text-xs mb-2 bg-slate-50 border-slate-200 text-slate-500">
             Cargando…
           </div>
-          <div id="aiDecisionList" class="space-y-1.5"></div>
-          <p id="aiDecisionEmpty" class="hidden text-xs text-slate-400 py-2">
-            Todavía no aprendió ninguna frase.
-          </p>
+
+          <!-- La lista va plegada: crece sin parar conforme aprende, y ocupaba
+               toda la pantalla. Se abre solo si la quieres mirar. -->
+          <button id="aiDecisionToggleBtn" class="w-full flex items-center gap-1.5 text-left rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+            <span class="text-xs text-slate-600 truncate">Lo que aprendió</span>
+            <span id="aiDecisionResumen" class="shrink-0 text-xs font-bold text-slate-400">0</span>
+            <i id="aiDecisionChevron" class="fa-solid fa-chevron-down text-[9px] text-slate-400 shrink-0 ml-auto"></i>
+          </button>
+
+          <div id="aiDecisionPanel" class="hidden mt-2">
+            <div id="aiDecisionList" class="space-y-1.5"></div>
+            <button id="aiDecisionVerTodasBtn" class="hidden w-full mt-2 rounded-xl px-3 py-2 text-xs font-semibold bg-white border border-slate-200 text-slate-600 active:scale-95 transition-all"></button>
+            <p id="aiDecisionEmpty" class="hidden text-xs text-slate-400 py-2">
+              Todavía no aprendió ninguna frase.
+            </p>
+          </div>
         </section>
 
         <!-- Keywords globales -->
