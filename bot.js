@@ -598,10 +598,15 @@ const PALABRAS_DE_RELLENO = new Set([
   "otra", "otro", "otras", "otros",
 ]);
 
-// Un número suelto también es relleno: "1 móvil", "2 motos". Es cuántos
-// piden, no un cambio de sentido.
+// Un número CHICO es relleno: "1 móvil", "2 motos", "3 motos" — es cuántos
+// piden. Uno grande no: "moto 30" o "movil 20" muy probablemente signifiquen
+// 30 minutos, y marcar al toque un pedido que sale en media hora es peor que
+// perder medio segundo preguntando. Del 10 para arriba se consulta.
+const MAX_NUMERO_DE_CANTIDAD = 9;
+
 function esRelleno(palabra) {
-  return PALABRAS_DE_RELLENO.has(palabra) || /^\d+$/.test(palabra);
+  if (PALABRAS_DE_RELLENO.has(palabra)) return true;
+  return /^\d+$/.test(palabra) && Number(palabra) <= MAX_NUMERO_DE_CANTIDAD;
 }
 
 // Tope de seguridad: por más que todo sea relleno, un mensaje largo se
@@ -1541,6 +1546,15 @@ async function revisarPendientes() {
   }
 
   for (const p of due) {
+    // marcarPedido APAGA el bot al responder — es a propósito: se toma un
+    // pedido y se pausa. Si dos pedidos en espera llegan a su hora en la
+    // misma revisión, sin esta guarda se marcaban los dos seguidos, con el
+    // bot ya apagado desde el primero.
+    //
+    // Los que quedan NO se pierden: siguen en la cola y se avisan al celular
+    // en la próxima revisión (que ya entra por la rama de "bot apagado").
+    if (!botState.active) break;
+
     // Se saca de la cola ANTES de marcar (igual que los mensajes
     // programados): si falla el envío, no se reintenta solo para no
     // duplicar si el problema era transitorio.
