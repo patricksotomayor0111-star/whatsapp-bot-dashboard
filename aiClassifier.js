@@ -83,6 +83,12 @@ SÍ pasan (no encajan en ninguno de los cinco casos):
 - "Listo chicos..!!!" → SI (avisan que el pedido ya está)
 - "Me envía" → SI (después de haberles pasado la tarifa, esto es el pedido)
 - "ya pueden venir por el pedido" → SI
+- "Una móvil", "1 móvil", "La móvil por favor" → SI
+  (a la moto también le dicen "móvil"; es lo mismo)
+- "Una movil porfis", "Buenas noches una movil porfis" → SI
+- "Otra moto" → SI (piden un segundo motorizado, es otro pedido)
+- "Buenas tarde, una móvil q se dirija. A tienda, ocupo enviar documentos a
+  mi contador" → SI (mandar documentos también es un encargo)
 - "numero para pagar el delivery, ya esta listo pueden recoger" → SI
   (mezcla dos cosas, pero adentro hay un pedido de verdad)
 - "manden moto en media hora" → SI +30
@@ -91,6 +97,13 @@ SÍ pasan (no encajan en ninguno de los cinco casos):
 - "vienen a recoger cuando cierre el colegio, 1 y media" → SI @13:30
 
 Se frenan (sí encajan en uno de los cinco):
+- "cotizar", "Cotización", "Cotización ?", "buenas cotizar" → NO (caso 1)
+  Es lo que más escriben para pedir precio, muchas veces una palabra sola.
+  Después de que les pasan la tarifa recién viene el pedido de verdad.
+- "Costo" → NO (caso 1, una palabra: están preguntando cuánto)
+- "cto esta cobrnado por movilidad?" → NO (caso 1, aunque diga "movilidad")
+- "CLIENTE CANCELO TODO YO LE YAPEO EN BREVE" → NO (caso 3, cancelan)
+- "Podrian traerme monedas porfavor" → NO (caso 5, no es un encargo del bot)
 - "Chicos, cuanto es hasta esa dirección?😊" → NO (caso 1, precio)
 - "Hola de calle Bolívar a esta dirección?" → NO (caso 1, precio)
 - "la urbanización sol de Huacachina G2" → NO (caso 1: mandan la dirección
@@ -100,6 +113,14 @@ Se frenan (sí encajan en uno de los cinco):
 - "Entregado gracias" → NO (caso 2)
 - "ya no, el cliente lo recoge", "cancelado" → NO (caso 3, cancelan)
 - "lo enviamos con otro delivery" → NO (caso 4, otro medio)
+
+ESCRIBEN MAL, Y A VECES A PROPÓSITO. Van apurados, en el celular, con una
+mano. También hay locales que deforman las palabras aposta para que un bot no
+los detecte. Un mensaje mal escrito sigue siendo un pedido:
+- "v3nir", "venie", "ven8r", "ve nir" (separado) → SI, están diciendo "venir"
+- "una movil porfis", "porfia" → SI
+- "Recojode client", "Pendient" → SI
+No frenes nada por estar mal escrito.
 
 OJO CON ESTO: en los grupos también escriben los motorizados de la propia
 empresa (sus nombres suelen llevar "Box"). Lo que ellos escriben es

@@ -165,18 +165,38 @@ function buscarVenirTypo(text, grupoActual) {
   const nombre = (grupoActual?.name || "").trim().toUpperCase();
   if (!VENIR_FUZZY_GROUPS.has(nombre)) return null;
 
-  const palabras = text.split(/[^a-z0-9]+/).filter(Boolean);
-  const candidatos = [...palabras];
-  for (let i = 0; i < palabras.length - 1; i++) {
-    candidatos.push(palabras[i] + palabras[i + 1]);
+  // Se guarda dónde empieza cada palabra para poder marcar el trozo exacto,
+  // incluso cuando el candidato sale de juntar dos palabras separadas.
+  const tokens = [];
+  const re = /[a-z0-9]+/g;
+  let t;
+  while ((t = re.exec(text)) !== null) tokens.push({ palabra: t[0], index: t.index });
+
+  const candidatos = tokens.map((tk) => ({ ...tk, pegado: false }));
+  for (let i = 0; i < tokens.length - 1; i++) {
+    const a = tokens[i];
+    const b = tokens[i + 1];
+    candidatos.push({
+      palabra: a.palabra + b.palabra,
+      index: a.index,
+      length: b.index + b.palabra.length - a.index,
+      pegado: true,
+    });
   }
 
-  for (const palabra of candidatos) {
-    if (palabra === PALABRA_VENIR) continue; // esa ya la agarra la keyword normal
-    if (palabra.length < 3 || palabra.length > 7) continue;
-    if (editDistanceAcotada(palabra, PALABRA_VENIR, 1) <= 1) {
-      const index = text.indexOf(palabra);
-      return { keyword: `venir (typo: "${palabra}")`, index: index < 0 ? 0 : index, length: palabra.length };
+  for (const c of candidatos) {
+    // Una palabra suelta que ya es "venir" la agarra la keyword normal. Pero
+    // si "venir" sale de PEGAR dos palabras ("ve nir"), la keyword normal NO
+    // la ve — y ese es justo el caso que hay que cazar acá. Saltarse los dos
+    // por igual dejaba pasar "ve nir" sin que nadie respondiera.
+    if (!c.pegado && c.palabra === PALABRA_VENIR) continue;
+    if (c.palabra.length < 3 || c.palabra.length > 7) continue;
+    if (editDistanceAcotada(c.palabra, PALABRA_VENIR, 1) <= 1) {
+      return {
+        keyword: `venir (typo: "${c.palabra}")`,
+        index: c.index,
+        length: c.length || c.palabra.length,
+      };
     }
   }
   return null;
@@ -299,6 +319,11 @@ function analizarDeteccion(text, chatId, senderNumber, grupoActual, opciones = {
             '"venir" mal escrito',
             !aplica ? "no aplica en este grupo" : match ? `coincide "${match.keyword}"` : "no se parece"
           );
+          // Esto solo corre en los 3 grupos donde Patrick lo pidió, y es
+          // justo para gente que escribe mal a propósito. Si la IA opinara,
+          // vería "v3nir" o "ve nir" como texto raro y podría frenarlo — que
+          // es exactamente lo que este código existe para evitar.
+          if (match) return { match, pasos, contexto: null, configuradoAMano: true };
         }
       }
     }
@@ -565,9 +590,19 @@ const GRUPOS_SOLO_AUTORIZADOS = new Set(["REPORTES BOX DELIVERY"]);
 const PALABRAS_DE_RELLENO = new Set([
   "hola", "holi", "buenas", "buenos", "dia", "dias", "tarde", "tardes", "noche", "noches",
   "chicos", "chicas", "amigo", "amigos", "amiga", "causa", "bro", "pe", "ya", "porfa",
-  "porfas", "porfavor", "favor", "por", "plis", "please", "un", "una", "uno", "el", "la",
-  "los", "las", "de", "del", "y", "ahi", "aca", "aqui", "alguien", "alguno", "algun",
+  "porfas", "porfis", "porfia", "porfi", "porfavor", "favor", "por", "plis", "pliss",
+  "please", "un", "una", "uno", "el", "la", "los", "las", "de", "del", "y", "ahi", "aca",
+  "aqui", "alguien", "alguno", "algun",
+  // "otra moto", "otro movil": están pidiendo un segundo motorizado, es un
+  // llamado igual que el primero.
+  "otra", "otro", "otras", "otros",
 ]);
+
+// Un número suelto también es relleno: "1 móvil", "2 motos". Es cuántos
+// piden, no un cambio de sentido.
+function esRelleno(palabra) {
+  return PALABRAS_DE_RELLENO.has(palabra) || /^\d+$/.test(palabra);
+}
 
 // Tope de seguridad: por más que todo sea relleno, un mensaje largo se
 // consulta igual. Nadie llama con una parrafada.
@@ -603,13 +638,19 @@ function esFraseInequivoca(text, match) {
 // exactamente donde coincidió y se mira lo que sobra.
 function esSoloLaClave(text, match) {
   if (!match || typeof match.index !== "number" || !match.length) return false;
-  const restante = `${text.slice(0, match.index)} ${text.slice(match.index + match.length)}`;
+  // La palabra clave puede ser el COMIENZO de una palabra más larga: "box"
+  // dentro de "boxito", "moto" dentro de "motorizado", "movil" dentro de
+  // "moviles". Se saca la palabra entera, si no quedaría suelto un "ito" o
+  // un "rizado" que no es relleno y mandaría a consultar sin necesidad.
+  let fin = match.index + match.length;
+  while (fin < text.length && /[a-z0-9]/i.test(text[fin])) fin++;
+  const restante = `${text.slice(0, match.index)} ${text.slice(fin)}`;
   const sobra = restante
     .split(/\s+/)
     .map((p) => p.replace(/[^a-z0-9]/gi, ""))
     .filter(Boolean);
   if (sobra.length > MAX_RELLENO) return false;
-  return sobra.every((p) => PALABRAS_DE_RELLENO.has(p));
+  return sobra.every(esRelleno);
 }
 
 function esGrupoSoloAutorizados(nombreGrupo) {

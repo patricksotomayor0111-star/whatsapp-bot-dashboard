@@ -26,6 +26,10 @@ const positiveKeywords = [
   "alguien puede acercarse", "alguien cerca", "hay alguien", "viniendo", "recoger pedido",
   "el pedido esta listo pueden pasar por el",
   "pueden pasar por el pedido", "pasen por el pedido",
+  // Frases largas: además de detectar, hacen que el bot responda SIN
+  // consultarle a la IA (ver esFraseInequivoca en bot.js). Solo poner acá
+  // frases que no puedan significar otra cosa.
+  "pueden venir por el pedido", "vengan por el pedido",
 ];
 
 // Si el mensaje contiene alguna de estas frases, el bot NO responde,
