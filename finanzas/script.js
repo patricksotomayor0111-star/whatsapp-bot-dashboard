@@ -5288,6 +5288,9 @@ const desgloseCuerpo = document.getElementById("desgloseCuerpo");
 let desgloseConfig = null;
 let desglosePeriodo = "mes";
 let desgloseDatos = null; // { movimientos, hoy }
+// id -> nombre legible. Sin esto el desglose mostraba "comida_diaria" y
+// "patrick_gastos", que son los identificadores internos.
+const nombresDeGrupo = new Map();
 
 const PERIODOS = [
   { id: "hoy", label: "Hoy" },
@@ -5353,7 +5356,7 @@ function agruparMovimientos(movs) {
   const total = movs.reduce((s, m) => s + (m.monto || 0), 0);
   return Array.from(porGrupo.entries())
     .map((par) => ({
-      nombre: par[0],
+      nombre: nombresDeGrupo.get(par[0]) || par[0],
       monto: par[1].monto,
       cantidad: par[1].cantidad,
       pct: total > 0 ? Math.round((par[1].monto / total) * 100) : 0,
@@ -5582,6 +5585,19 @@ async function abrirDesglose(config) {
     const histRes = await fetch("/api/finance/history");
     const mov = await movRes.json();
     const hist = await histRes.json();
+
+    // Los nombres se piden una sola vez y se guardan.
+    if (!nombresDeGrupo.size) {
+      try {
+        const cats = await (await fetch("/api/budget/categories")).json();
+        (cats.categorias || []).forEach((c) => nombresDeGrupo.set(c.id, c.label || c.id));
+        nombresDeGrupo.set("otros", "Otros gastos");
+        const fts = await (await fetch("/api/finance/fuentes")).json();
+        (fts.fuentes || []).forEach((f) => nombresDeGrupo.set(f.id, f.label || f.id));
+      } catch (err) {
+        console.error("No se pudieron cargar los nombres de las categorías:", err);
+      }
+    }
     desgloseDatos = {
       movimientos: mov.movimientos || [],
       hoy: (hist.hoy && hist.hoy.fecha) || new Date().toISOString().slice(0, 10),
