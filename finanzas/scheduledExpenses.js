@@ -63,9 +63,12 @@ function addGasto({ label, monto, tipo, fechaInicio, fechaFin, dia }) {
     activo: true,
   };
   if (tipo === "rango") {
-    if (!fechaInicio || !fechaFin) throw new Error("Un gasto de tipo 'rango' necesita fechaInicio y fechaFin.");
+    if (!fechaInicio) throw new Error("Un gasto diario necesita al menos una fecha de inicio.");
     nuevo.fechaInicio = fechaInicio;
-    nuevo.fechaFin = fechaFin;
+    // Sin fecha de fin sigue corriendo. Antes era obligatoria y los gastos
+    // de todos los dias (almuerzo, gasolina) se dejaban de proyectar en
+    // silencio al terminar el mes que se les habia puesto.
+    nuevo.fechaFin = fechaFin || null;
   } else {
     nuevo.dia = Number(dia);
     nuevo.fechaInicio = fechaInicio || businessDayLabel();
@@ -163,7 +166,7 @@ function getProyeccion(fechaInicioLabel, fechaFinLabel, movimientos) {
 
     if (g.tipo === "rango") {
       const desde = maxLabel(fechaInicioLabel, g.fechaInicio);
-      const hasta = minLabel(fechaFinLabel, g.fechaFin);
+      const hasta = g.fechaFin ? minLabel(fechaFinLabel, g.fechaFin) : fechaFinLabel;
       if (desde > hasta) return;
       const dias = diasEnRangoInclusive(desde, hasta);
       const subtotal = dias * g.monto;

@@ -590,12 +590,16 @@
                 <input id="schedExpLabel" type="text" placeholder="Nombre (ej: Gasolina)" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200" />
                 <input id="schedExpMonto" type="number" placeholder="Monto (S/) por día/ocurrencia" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200" />
                 <select id="schedExpTipo" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200">
-                  <option value="rango">Todos los días de un rango de fechas</option>
+                  <option value="rango">Todos los días</option>
                   <option value="semanal">Un día fijo de la semana</option>
                 </select>
                 <div id="schedExpRangoFields" class="space-y-2">
-                  <input id="schedExpFechaInicio" type="date" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200" />
-                  <input id="schedExpFechaFin" type="date" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200" />
+                  <label class="block text-[11px] font-semibold text-slate-400">Desde
+                    <input id="schedExpFechaInicio" type="date" class="w-full mt-0.5 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200" />
+                  </label>
+                  <label class="block text-[11px] font-semibold text-slate-400">Hasta (opcional: vacío = sin fecha de fin)
+                    <input id="schedExpFechaFin" type="date" class="w-full mt-0.5 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200" />
+                  </label>
                 </div>
                 <div id="schedExpSemanalFields" class="hidden space-y-2">
                   <select id="schedExpDia" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200">

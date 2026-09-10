@@ -3350,8 +3350,35 @@ function renderScheduledExpenses(gastos) {
     detalle.className = "text-xs text-slate-500 mt-1";
     detalle.textContent =
       g.tipo === "rango"
-        ? `Del ${g.fechaInicio} al ${g.fechaFin}`
+        ? (g.fechaFin ? `Todos los días, del ${g.fechaInicio} al ${g.fechaFin}` : `Todos los días desde ${g.fechaInicio} (sin fecha de fin)`)
         : `Cada ${DIAS_SEMANA_LABEL[g.dia]}${g.fechaFin ? ` (hasta ${g.fechaFin})` : " (indefinido)"}, desde ${g.fechaInicio}`;
+
+    // Un gasto con fecha de fin pasada deja de proyectarse y nada lo
+    // decia: sus almuerzos y su gasolina llevaban semanas sin contarse.
+    const hoyLabel = new Date().toISOString().slice(0, 10);
+    const vencido = g.activo !== false && g.fechaFin && g.fechaFin < hoyLabel;
+    let avisoVencido = null;
+    if (vencido) {
+      avisoVencido = document.createElement("div");
+      avisoVencido.className = "mt-2 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2";
+      const txt = document.createElement("p");
+      txt.className = "text-[11px] text-amber-800";
+      txt.textContent = "Se venció el " + g.fechaFin + ": ya no se está contando en tus metas.";
+      const btn = document.createElement("button");
+      btn.className = "mt-1.5 w-full rounded-lg px-3 py-1.5 text-xs font-semibold bg-amber-500 text-white active:scale-95 transition-all";
+      btn.textContent = "Quitarle la fecha de fin";
+      btn.addEventListener("click", async () => {
+        await fetch(`/api/finance/scheduled-expenses/${g.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fechaFin: null }),
+        });
+        await fetchScheduledExpenses();
+        fetchGoalsAndProgress();
+      });
+      avisoVencido.appendChild(txt);
+      avisoVencido.appendChild(btn);
+    }
 
     const acciones = document.createElement("div");
     acciones.className = "flex items-center gap-2 mt-2";
@@ -3397,6 +3424,7 @@ function renderScheduledExpenses(gastos) {
 
     row.appendChild(nombre);
     row.appendChild(detalle);
+    if (avisoVencido) row.appendChild(avisoVencido);
     row.appendChild(acciones);
     scheduledExpensesList.appendChild(row);
   });
@@ -3410,12 +3438,14 @@ addSchedExpBtn.addEventListener("click", async () => {
 
   const body = { label, monto, tipo };
   if (tipo === "rango") {
-    if (!schedExpFechaInicio.value || !schedExpFechaFin.value) {
-      alert("Elige fecha de inicio y fecha de fin.");
+    // La fecha de fin es opcional: un almuerzo de todos los dias no tiene
+    // por que morirse a fin de mes.
+    if (!schedExpFechaInicio.value) {
+      alert("Elige desde qué fecha empieza.");
       return;
     }
     body.fechaInicio = schedExpFechaInicio.value;
-    body.fechaFin = schedExpFechaFin.value;
+    body.fechaFin = schedExpFechaFin.value || null;
   } else {
     if (!schedExpFechaInicioSemanal.value) {
       alert("Elige desde qué fecha empieza a repetirse.");
