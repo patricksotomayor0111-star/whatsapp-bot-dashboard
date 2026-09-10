@@ -776,6 +776,25 @@
       </div>
     </div>
 
+    <!-- Desglose: se abre tocando cualquier cifra del Resumen. Muestra de
+         donde sale ese numero, con filtro de periodo y buscador. -->
+    <div id="desgloseOverlay" class="fixed inset-0 bg-brand-bg z-50 hidden flex-col">
+      <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-white shrink-0">
+        <span id="desgloseTitulo" class="font-bold text-slate-900">Desglose</span>
+        <button id="closeDesglose" class="w-9 h-9 rounded-xl flex items-center justify-center hover:bg-slate-100 active:scale-90 transition-all">
+          <i class="fa-solid fa-xmark text-lg text-slate-500"></i>
+        </button>
+      </div>
+      <div id="desglosePeriodos" class="flex gap-1 px-4 py-2 bg-white border-b border-slate-100 overflow-x-auto shrink-0"></div>
+      <div id="desgloseRango" class="hidden grid grid-cols-2 gap-2 px-5 py-2 bg-white border-b border-slate-100 shrink-0">
+        <input id="desgloseDesde" type="date" class="bg-white rounded-xl px-3 py-2 text-xs border border-slate-200" />
+        <input id="desgloseHasta" type="date" class="bg-white rounded-xl px-3 py-2 text-xs border border-slate-200" />
+      </div>
+      <div class="px-5 py-2 bg-white border-b border-slate-100 shrink-0">
+        <input id="desgloseBuscar" type="text" placeholder="Buscar dentro de esto: ana, gasolina, bum..." class="w-full bg-white rounded-xl px-3 py-2 text-xs border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-green/40" />
+      </div>
+      <div id="desgloseCuerpo" class="flex-1 overflow-y-auto px-5 py-4 space-y-4"></div>
+    </div>
     <div id="remindersOverlay" class="fixed inset-0 bg-brand-bg z-50 hidden flex-col">
       <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-white">
         <span class="font-bold text-slate-900">🔔 Pendientes</span>

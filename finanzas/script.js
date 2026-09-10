@@ -5269,4 +5269,386 @@ function renderTodo() {
 }
 
 // Arranque: la app abre en Inicio con la barra ya pintada.
+
+// ---------- Desglose: de donde sale cada cifra ----------
+// Se abre tocando cualquier numero del Resumen. Muestra el total del
+// periodo, como se reparte, la comparacion con el periodo anterior y
+// todos los movimientos que lo componen. Todo se filtra en el navegador
+// sobre los movimientos que ya se descargan, asi que cambiar de periodo
+// es instantaneo y no pega otra vez al servidor.
+const desgloseOverlay = document.getElementById("desgloseOverlay");
+const desgloseTitulo = document.getElementById("desgloseTitulo");
+const desglosePeriodos = document.getElementById("desglosePeriodos");
+const desgloseRango = document.getElementById("desgloseRango");
+const desgloseDesde = document.getElementById("desgloseDesde");
+const desgloseHasta = document.getElementById("desgloseHasta");
+const desgloseBuscar = document.getElementById("desgloseBuscar");
+const desgloseCuerpo = document.getElementById("desgloseCuerpo");
+
+let desgloseConfig = null;
+let desglosePeriodo = "mes";
+let desgloseDatos = null; // { movimientos, hoy }
+
+const PERIODOS = [
+  { id: "hoy", label: "Hoy" },
+  { id: "semana", label: "Semana" },
+  { id: "quincena", label: "Quincena" },
+  { id: "mes", label: "Mes" },
+  { id: "todo", label: "Todo" },
+  { id: "rango", label: "Fechas" },
+];
+
+function sumarDias(label, n) {
+  const partes = label.split("-").map(Number);
+  const dt = new Date(Date.UTC(partes[0], partes[1] - 1, partes[2]));
+  dt.setUTCDate(dt.getUTCDate() + n);
+  return dt.toISOString().slice(0, 10);
+}
+
+// Rango { desde, hasta } del periodo elegido.
+function rangoDelPeriodo(periodo, hoy) {
+  if (periodo === "hoy") return { desde: hoy, hasta: hoy };
+  if (periodo === "semana") {
+    const partes = hoy.split("-").map(Number);
+    const dow = new Date(Date.UTC(partes[0], partes[1] - 1, partes[2])).getUTCDay();
+    return { desde: sumarDias(hoy, -(dow === 0 ? 6 : dow - 1)), hasta: hoy };
+  }
+  if (periodo === "quincena") {
+    const dia = Number(hoy.slice(8, 10));
+    return { desde: hoy.slice(0, 8) + (dia <= 15 ? "01" : "16"), hasta: hoy };
+  }
+  if (periodo === "mes") return { desde: hoy.slice(0, 8) + "01", hasta: hoy };
+  if (periodo === "rango") {
+    return { desde: desgloseDesde.value || "0000-01-01", hasta: desgloseHasta.value || hoy };
+  }
+  return { desde: "0000-01-01", hasta: hoy };
+}
+
+function diasEntreLabels(a, b) {
+  const ms = new Date(b + "T00:00:00Z") - new Date(a + "T00:00:00Z");
+  return Math.round(ms / 86400000) + 1;
+}
+
+function filtrarMovimientos(rango) {
+  const q = (desgloseBuscar.value || "").trim().toLowerCase();
+  return (desgloseDatos.movimientos || []).filter((m) => {
+    if (m.tipo !== desgloseConfig.tipo) return false;
+    if (m.fecha < rango.desde || m.fecha > rango.hasta) return false;
+    if (q && !(m.descripcion || "").toLowerCase().includes(q) && !String(m.monto).includes(q)) return false;
+    return true;
+  });
+}
+
+// Los gastos se agrupan por categoria y las ganancias por fuente: es la
+// clasificacion que ya trae cada movimiento resuelta desde el servidor.
+function agruparMovimientos(movs) {
+  const porGrupo = new Map();
+  movs.forEach((m) => {
+    const clave = desgloseConfig.tipo === "gasto" ? m.categoriaEfectiva || "otros" : m.fuenteEfectiva || "sin fuente";
+    const actual = porGrupo.get(clave) || { monto: 0, cantidad: 0 };
+    actual.monto += m.monto || 0;
+    actual.cantidad += 1;
+    porGrupo.set(clave, actual);
+  });
+  const total = movs.reduce((s, m) => s + (m.monto || 0), 0);
+  return Array.from(porGrupo.entries())
+    .map((par) => ({
+      nombre: par[0],
+      monto: par[1].monto,
+      cantidad: par[1].cantidad,
+      pct: total > 0 ? Math.round((par[1].monto / total) * 100) : 0,
+    }))
+    .sort((a, b) => b.monto - a.monto);
+}
+
+function mensajeDesglose(texto) {
+  desgloseCuerpo.innerHTML = "";
+  const p = document.createElement("p");
+  p.className = "text-xs text-slate-400 text-center py-8";
+  p.textContent = texto;
+  desgloseCuerpo.appendChild(p);
+}
+
+function barraDe(pct, esGasto) {
+  const fondo = document.createElement("div");
+  fondo.className = "w-full h-2 rounded-full bg-slate-100 overflow-hidden";
+  const barra = document.createElement("div");
+  barra.className = "h-full " + (esGasto ? "bg-rose-400" : "bg-brand-green");
+  barra.style.width = pct + "%";
+  fondo.appendChild(barra);
+  return fondo;
+}
+
+function pintarDesglose() {
+  if (!desgloseDatos || !desgloseConfig) return;
+  const hoy = desgloseDatos.hoy;
+  const rango = rangoDelPeriodo(desglosePeriodo, hoy);
+  const movs = filtrarMovimientos(rango);
+  const total = movs.reduce((s, m) => s + (m.monto || 0), 0);
+  const esGasto = desgloseConfig.tipo === "gasto";
+
+  // Mismo largo de periodo corrido hacia atras, para poder comparar.
+  const base = rango.desde === "0000-01-01" ? hoy : rango.desde;
+  const largo = diasEntreLabels(base, rango.hasta);
+  const previos =
+    desglosePeriodo === "todo"
+      ? []
+      : filtrarMovimientos({ desde: sumarDias(base, -largo), hasta: sumarDias(base, -1) });
+  const totalPrevio = previos.reduce((s, m) => s + (m.monto || 0), 0);
+
+  desgloseCuerpo.innerHTML = "";
+
+  const cab = document.createElement("section");
+  cab.className = "card border-0 py-4 text-white";
+  cab.style.background = esGasto
+    ? "linear-gradient(135deg, #F43F5E 0%, #BE123C 100%)"
+    : "linear-gradient(135deg, #22C55E 0%, #15803D 100%)";
+  const et = document.createElement("p");
+  et.className = "text-[10px] font-bold tracking-[0.1em] text-white/75";
+  et.textContent = esGasto ? "TOTAL GASTADO" : "TOTAL GANADO";
+  const num = document.createElement("p");
+  num.className = "text-[34px] font-extrabold leading-none mt-1 tracking-tight";
+  num.textContent = formatSoles(total);
+  const sub = document.createElement("p");
+  sub.className = "text-xs text-white/80 mt-2";
+  const desdeReal = movs.length ? movs.reduce((a, m) => (m.fecha < a ? m.fecha : a), movs[0].fecha) : rango.desde;
+  sub.textContent =
+    (desglosePeriodo === "todo" ? "Desde " + ddmm(desdeReal) : "Del " + ddmm(rango.desde) + " al " + ddmm(rango.hasta)) +
+    " · " +
+    movs.length +
+    (esGasto ? " gastos" : " ingresos");
+  cab.appendChild(et);
+  cab.appendChild(num);
+  cab.appendChild(sub);
+
+  if (desglosePeriodo !== "todo" && totalPrevio > 0) {
+    const pct = Math.round(((total - totalPrevio) / totalPrevio) * 100);
+    const cmp = document.createElement("p");
+    cmp.className = "text-xs mt-2 pt-2 border-t border-white/25 text-white/90";
+    cmp.textContent =
+      pct === 0
+        ? "Igual que el periodo anterior."
+        : Math.abs(pct) +
+          "% " +
+          (pct > 0 ? "más" : "menos") +
+          " que los " +
+          largo +
+          " días anteriores (" +
+          formatSoles(totalPrevio) +
+          ").";
+    cab.appendChild(cmp);
+  }
+  desgloseCuerpo.appendChild(cab);
+
+  if (!movs.length) {
+    const p = document.createElement("p");
+    p.className = "text-xs text-slate-400 text-center py-8";
+    p.textContent = "No hay nada en este periodo.";
+    desgloseCuerpo.appendChild(p);
+    return;
+  }
+
+  // En qué se fue / de dónde vino
+  const grupos = agruparMovimientos(movs);
+  const secGrupos = document.createElement("section");
+  secGrupos.className = "card bg-white border border-slate-100 py-3";
+  const tg = document.createElement("p");
+  tg.className = "eyebrow text-slate-600 mb-2";
+  tg.textContent = esGasto ? "EN QUÉ SE FUE" : "DE DÓNDE VINO";
+  secGrupos.appendChild(tg);
+  grupos.forEach((g) => {
+    const fila = document.createElement("div");
+    fila.className = "mb-2";
+    const top = document.createElement("div");
+    top.className = "flex items-center justify-between gap-2 text-xs mb-1";
+    const n = document.createElement("span");
+    n.className = "font-semibold text-slate-700 truncate";
+    n.textContent = g.nombre + " (" + g.cantidad + ")";
+    const v = document.createElement("span");
+    v.className = "text-slate-500 shrink-0";
+    v.textContent = formatSoles(g.monto) + " · " + g.pct + "%";
+    top.appendChild(n);
+    top.appendChild(v);
+    fila.appendChild(top);
+    fila.appendChild(barraDe(g.pct, esGasto));
+    secGrupos.appendChild(fila);
+  });
+  desgloseCuerpo.appendChild(secGrupos);
+
+  // Día por día
+  const porDia = new Map();
+  movs.forEach((m) => porDia.set(m.fecha, (porDia.get(m.fecha) || 0) + (m.monto || 0)));
+  const dias = Array.from(porDia.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+  if (dias.length > 1) {
+    const secDias = document.createElement("section");
+    secDias.className = "card bg-white border border-slate-100 py-3";
+    const td = document.createElement("p");
+    td.className = "eyebrow text-slate-600 mb-2";
+    td.textContent = "DÍA POR DÍA";
+    secDias.appendChild(td);
+    const maxDia = Math.max.apply(null, dias.map((d) => d[1]));
+    dias.slice(0, 31).forEach((par) => {
+      const fila = document.createElement("div");
+      fila.className = "flex items-center gap-2 mb-1.5";
+      const f = document.createElement("span");
+      f.className = "text-[11px] text-slate-400 w-12 shrink-0";
+      f.textContent = ddmm(par[0]);
+      const contBar = document.createElement("div");
+      contBar.className = "flex-1";
+      contBar.appendChild(barraDe(maxDia > 0 ? Math.round((par[1] / maxDia) * 100) : 0, esGasto));
+      const v = document.createElement("span");
+      v.className = "text-[11px] font-semibold text-slate-600 w-16 text-right shrink-0";
+      v.textContent = formatSoles(par[1]);
+      fila.appendChild(f);
+      fila.appendChild(contBar);
+      fila.appendChild(v);
+      secDias.appendChild(fila);
+    });
+    desgloseCuerpo.appendChild(secDias);
+  }
+
+  // Uno por uno
+  const secLista = document.createElement("section");
+  secLista.className = "card bg-white border border-slate-100 py-3";
+  const tl = document.createElement("p");
+  tl.className = "eyebrow text-slate-600 mb-2";
+  tl.textContent = "UNO POR UNO (" + movs.length + ")";
+  secLista.appendChild(tl);
+  movs
+    .slice()
+    .sort((a, b) => (b.fecha + (b.hora || "")).localeCompare(a.fecha + (a.hora || "")))
+    .slice(0, 300)
+    .forEach((m) => {
+      const fila = document.createElement("div");
+      fila.className = "flex items-baseline justify-between gap-2 py-1 border-b border-slate-50";
+      const izq = document.createElement("div");
+      izq.className = "min-w-0";
+      const d = document.createElement("p");
+      d.className = "text-xs text-slate-700 truncate";
+      d.textContent = m.descripcion || "(sin descripción)";
+      const f = document.createElement("p");
+      f.className = "text-[10px] text-slate-400";
+      f.textContent = ddmm(m.fecha) + " " + (m.hora || "");
+      izq.appendChild(d);
+      izq.appendChild(f);
+      const v = document.createElement("span");
+      v.className = "text-xs font-bold shrink-0 " + (esGasto ? "text-rose-600" : "text-brand-green");
+      v.textContent = (esGasto ? "-" : "+") + formatSoles(m.monto);
+      fila.appendChild(izq);
+      fila.appendChild(v);
+      secLista.appendChild(fila);
+    });
+  if (movs.length > 300) {
+    const nota = document.createElement("p");
+    nota.className = "text-[11px] text-slate-400 text-center mt-2";
+    nota.textContent = "Mostrando los 300 más recientes de " + movs.length + ".";
+    secLista.appendChild(nota);
+  }
+  desgloseCuerpo.appendChild(secLista);
+}
+
+function pintarPeriodos() {
+  desglosePeriodos.innerHTML = "";
+  PERIODOS.forEach((p) => {
+    const b = document.createElement("button");
+    const activo = p.id === desglosePeriodo;
+    b.className =
+      "shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all active:scale-95 " +
+      (activo ? "bg-brand-green text-white" : "bg-slate-100 text-slate-500");
+    b.textContent = p.label;
+    b.addEventListener("click", () => {
+      desglosePeriodo = p.id;
+      desgloseRango.classList.toggle("hidden", p.id !== "rango");
+      pintarPeriodos();
+      pintarDesglose();
+    });
+    desglosePeriodos.appendChild(b);
+  });
+}
+
+async function abrirDesglose(config) {
+  desgloseConfig = config;
+  desglosePeriodo = config.periodo || "mes";
+  desgloseTitulo.textContent = config.titulo;
+  desgloseBuscar.value = config.texto || "";
+  desgloseRango.classList.add("hidden");
+  desgloseOverlay.classList.remove("hidden");
+  desgloseOverlay.classList.add("flex");
+  mensajeDesglose("Cargando…");
+  pintarPeriodos();
+
+  try {
+    const movRes = await fetch("/api/finance/movements");
+    const histRes = await fetch("/api/finance/history");
+    const mov = await movRes.json();
+    const hist = await histRes.json();
+    desgloseDatos = {
+      movimientos: mov.movimientos || [],
+      hoy: (hist.hoy && hist.hoy.fecha) || new Date().toISOString().slice(0, 10),
+    };
+    if (!desgloseDesde.value) desgloseDesde.value = desgloseDatos.hoy.slice(0, 8) + "01";
+    if (!desgloseHasta.value) desgloseHasta.value = desgloseDatos.hoy;
+    pintarDesglose();
+  } catch (err) {
+    mensajeDesglose("No se pudo cargar.");
+  }
+}
+
+if (desgloseOverlay) {
+  document.getElementById("closeDesglose").addEventListener("click", () => {
+    desgloseOverlay.classList.add("hidden");
+    desgloseOverlay.classList.remove("flex");
+  });
+  desgloseBuscar.addEventListener("input", () => pintarDesglose());
+  [desgloseDesde, desgloseHasta].forEach((el) =>
+    el.addEventListener("change", () => {
+      desglosePeriodo = "rango";
+      pintarPeriodos();
+      pintarDesglose();
+    })
+  );
+}
+
+// Las cifras del Resumen se vuelven botones: tocarlas abre su desglose.
+function hacerTocable(id, config) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const tarjeta = el.closest("section");
+  if (!tarjeta) return;
+  tarjeta.classList.add("cursor-pointer", "active:scale-[0.98]", "transition-all");
+  tarjeta.addEventListener("click", () => abrirDesglose(config));
+  // Una pista de que se puede tocar, sin ocupar lugar.
+  if (!tarjeta.querySelector(".pista-toque")) {
+    const pista = document.createElement("p");
+    pista.className = "pista-toque text-[10px] text-slate-300 mt-1";
+    pista.textContent = "Ver detalle ›";
+    tarjeta.appendChild(pista);
+  }
+}
+
+hacerTocable("statGanancias", { tipo: "ganancia", titulo: "Ganancias", periodo: "hoy" });
+hacerTocable("statGastos", { tipo: "gasto", titulo: "Gastos", periodo: "hoy" });
+
+// El resto de las cifras del Resumen llevan a su pantalla, que ya tiene
+// el detalle completo de esa plata.
+function hacerNavegable(id, panelId) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const tarjeta = el.closest("section");
+  if (!tarjeta) return;
+  tarjeta.classList.add("cursor-pointer", "active:scale-[0.98]", "transition-all");
+  tarjeta.addEventListener("click", () => irAPanel(panelId));
+  if (!tarjeta.querySelector(".pista-toque")) {
+    const pista = document.createElement("p");
+    pista.className = "pista-toque text-[10px] text-slate-300 mt-1";
+    pista.textContent = "Ver detalle ›";
+    tarjeta.appendChild(pista);
+  }
+}
+
+hacerNavegable("statDeudasTotal", "financeTabDeudas");
+hacerNavegable("statFaltanteTotal", "financeTabFaltantes");
+hacerNavegable("statAnaSaldo", "financeTabAna");
+hacerNavegable("statEsperado", "financeTabMovimientos");
+
 irAPanel("financeTabResumen");
