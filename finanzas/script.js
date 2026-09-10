@@ -1020,7 +1020,7 @@ const statDeudasTotal = document.getElementById("statDeudasTotal");
 const statFaltanteTotal = document.getElementById("statFaltanteTotal");
 
 const irAAjustesBtn = document.getElementById("irAAjustesBtn");
-if (irAAjustesBtn) irAAjustesBtn.addEventListener("click", () => showFinanceTab("financeTabAjustes"));
+if (irAAjustesBtn) irAAjustesBtn.addEventListener("click", () => irAPanel("financeTabAjustes"));
 
 const financeTabButtons = document.querySelectorAll(".finance-tab-btn");
 const financeTabPanels = document.querySelectorAll(".finance-tab-panel");
@@ -1060,6 +1060,8 @@ function showFinanceTab(tabId) {
     fetchCustodias();
   } else if (tabId === "financeTabConsultas") {
     fetchQueryIntents();
+  } else if (tabId === "financeTabTodo") {
+    renderTodo();
   } else if (tabId === "financeTabGuia") {
     renderGuia();
   } else if (tabId === "financeTabPrecios") {
@@ -3978,7 +3980,8 @@ document.addEventListener("DOMContentLoaded", () => {
   fetchFinanceSummaryExtras();
   fetchReminderBadge();
   setInterval(fetchReminderBadge, 60000);
-  showFinanceTab("financeTabResumen");
+  // La navegacion (barra de abajo + sub-pestanas) arranca sola al final
+  // del archivo con irAPanel("financeTabResumen").
   updatePushStatus();
 });
 
@@ -5065,3 +5068,205 @@ function poblarSelectorMesLocales(meses, seleccionado) {
     fetchChartLocales(mesGraficoLocales);
   });
 }
+
+// ---------- Navegacion por secciones ----------
+// Antes eran 14 pestanas en una fila que se deslizaba: para llegar a
+// "Guia" habia que arrastrar a ciegas y no se veia que habia fuera de
+// pantalla. Ahora son 5 secciones fijas abajo, cada una con sus
+// sub-pestanas, mas una pantalla "Todo" que es el indice buscable.
+const SECCIONES = [
+  { id: "inicio", icono: "fa-house", label: "Inicio",
+    paneles: [["financeTabResumen", "Resumen"]] },
+  { id: "registros", icono: "fa-receipt", label: "Registros",
+    paneles: [
+      ["financeTabMovimientos", "Movimientos"],
+      ["financeTabCuentas", "Anotaciones"],
+      ["financeTabFaltantes", "Faltantes"],
+      ["financeTabDeudas", "Deudas"],
+      ["financeTabAna", "Custodia"],
+    ] },
+  { id: "analisis", icono: "fa-chart-simple", label: "Analisis",
+    paneles: [
+      ["financeTabGraficos", "Graficos"],
+      ["financeTabLocales", "Locales"],
+      ["financeTabPresupuesto", "Presupuesto"],
+    ] },
+  { id: "plan", icono: "fa-bullseye", label: "Plan",
+    paneles: [["financeTabMetas", "Metas y ahorro"]] },
+  { id: "mas", icono: "fa-grip", label: "Mas",
+    paneles: [
+      ["financeTabTodo", "Todo"],
+      ["financeTabPrecios", "Precios"],
+      ["financeTabConsultas", "Consultas"],
+      ["financeTabAjustes", "Ajustes"],
+      ["financeTabGuia", "Guia"],
+    ] },
+];
+
+const bottomNav = document.getElementById("bottomNav");
+const subTabs = document.getElementById("subTabs");
+let seccionActual = "inicio";
+
+function seccionDe(panelId) {
+  return SECCIONES.find((s) => s.paneles.some(([id]) => id === panelId));
+}
+
+// Ir a un panel desde cualquier lado: acomoda la seccion y las
+// sub-pestanas para que la barra de abajo siempre refleje donde estas.
+function irAPanel(panelId) {
+  const seccion = seccionDe(panelId);
+  if (!seccion) return;
+  seccionActual = seccion.id;
+  pintarBottomNav();
+  pintarSubTabs(seccion, panelId);
+  showFinanceTab(panelId);
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function pintarBottomNav() {
+  if (!bottomNav) return;
+  bottomNav.innerHTML = "";
+  SECCIONES.forEach((s) => {
+    const b = document.createElement("button");
+    const activa = s.id === seccionActual;
+    b.className =
+      "flex-1 flex flex-col items-center gap-0.5 py-2.5 active:scale-90 transition-all " +
+      (activa ? "text-brand-green" : "text-slate-400");
+    const i = document.createElement("i");
+    i.className = "fa-solid " + s.icono + " text-[17px]";
+    const t = document.createElement("span");
+    t.className = "text-[10px] font-semibold leading-none";
+    t.textContent = s.label;
+    b.appendChild(i);
+    b.appendChild(t);
+    b.addEventListener("click", () => irAPanel(s.paneles[0][0]));
+    bottomNav.appendChild(b);
+  });
+}
+
+function pintarSubTabs(seccion, panelActivo) {
+  if (!subTabs) return;
+  subTabs.innerHTML = "";
+  // Con un solo panel no hace falta una fila de una sola pestana.
+  if (seccion.paneles.length < 2) {
+    subTabs.classList.add("hidden");
+    return;
+  }
+  subTabs.classList.remove("hidden");
+  seccion.paneles.forEach((par) => {
+    const id = par[0];
+    const nombre = par[1];
+    const b = document.createElement("button");
+    const activo = id === panelActivo;
+    b.className =
+      "shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all active:scale-95 " +
+      (activo ? "bg-brand-green text-white" : "text-slate-500");
+    b.textContent = nombre;
+    b.addEventListener("click", () => irAPanel(id));
+    subTabs.appendChild(b);
+  });
+}
+
+// ---------- La pantalla "Todo": el indice de la app ----------
+const DESTINOS = [
+  { icono: "🏠", nombre: "Resumen", que: "Cuánto tienes hoy y tu meta del día", panel: "financeTabResumen" },
+  { icono: "📒", nombre: "Movimientos", que: "Todo lo anotado: corregir, borrar, filtrar y buscar", panel: "financeTabMovimientos" },
+  { icono: "🧾", nombre: "Anotaciones", que: "Tus conteos de yape, plin y efectivo", panel: "financeTabCuentas" },
+  { icono: "⚠️", nombre: "Faltantes", que: "Lo que se perdió al cuadrar la caja", panel: "financeTabFaltantes" },
+  { icono: "🤝", nombre: "Deudas", que: "Quién te debe y cuánto te han pagado", panel: "financeTabDeudas" },
+  { icono: "🛡️", nombre: "Custodia", que: "Plata de otras personas que guardas", panel: "financeTabAna" },
+  { icono: "📊", nombre: "Gráficos", que: "Qué día rinde más, gasolina, categorías y meses", panel: "financeTabGraficos" },
+  { icono: "🏪", nombre: "Locales", que: "Qué restaurante te deja más", panel: "financeTabLocales" },
+  { icono: "💸", nombre: "Presupuesto", que: "Límites por categoría y gastos programados", panel: "financeTabPresupuesto" },
+  { icono: "🎯", nombre: "Metas y ahorro", que: "Cuánto necesitas por día y tu plan de ahorro", panel: "financeTabMetas" },
+  { icono: "🏷️", nombre: "Precios", que: "Cuánto cuesta cada producto y dónde", panel: "financeTabPrecios" },
+  { icono: "💬", nombre: "Consultas", que: "Las frases que le puedes preguntar al bot", panel: "financeTabConsultas" },
+  { icono: "⚙️", nombre: "Ajustes", que: "Chat que escucha, notificaciones y respaldo", panel: "financeTabAjustes" },
+  { icono: "📖", nombre: "Guía", que: "El manual: qué hace la app y cómo se usa", panel: "financeTabGuia" },
+  { icono: "🔔", nombre: "Pendientes", que: "Pagos que se repiten y tareas por hacer", overlay: "openReminders" },
+  { icono: "👥", nombre: "Mi cuenta", que: "Usuarios, nombre e ícono de la app", overlay: "openCuentas" },
+];
+
+const todoPanel = document.getElementById("financeTabTodo");
+let todoArmado = false;
+
+function renderTodo() {
+  if (!todoPanel || todoArmado) return;
+  todoArmado = true;
+  todoPanel.innerHTML = "";
+
+  const cab = document.createElement("section");
+  cab.className = "card bg-white border border-slate-100 py-3";
+  const t = document.createElement("p");
+  t.className = "text-sm font-bold text-slate-800";
+  t.textContent = "Todo lo que hay";
+  const st = document.createElement("p");
+  st.className = "text-xs text-slate-500 mt-1";
+  st.textContent = "Busca lo que necesites o tócalo en la lista.";
+  const buscador = document.createElement("input");
+  buscador.type = "text";
+  buscador.placeholder = "Buscar: deuda, gasolina, respaldo, meta...";
+  buscador.className =
+    "w-full mt-2 bg-white rounded-xl px-3 py-2 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-green/40";
+  cab.appendChild(t);
+  cab.appendChild(st);
+  cab.appendChild(buscador);
+  todoPanel.appendChild(cab);
+
+  const lista = document.createElement("div");
+  lista.className = "space-y-2";
+  todoPanel.appendChild(lista);
+
+  const vacio = document.createElement("p");
+  vacio.className = "hidden text-xs text-slate-400 text-center py-6";
+  vacio.textContent = "No encontré nada con eso.";
+  todoPanel.appendChild(vacio);
+
+  const filas = DESTINOS.map((d) => {
+    const b = document.createElement("button");
+    b.className =
+      "w-full flex items-center gap-3 text-left rounded-2xl bg-white border border-slate-100 px-3 py-2.5 active:scale-[0.98] transition-all";
+    const ic = document.createElement("span");
+    ic.className = "text-xl shrink-0";
+    ic.textContent = d.icono;
+    const caja = document.createElement("div");
+    caja.className = "min-w-0 flex-1";
+    const n = document.createElement("p");
+    n.className = "text-sm font-bold text-slate-800";
+    n.textContent = d.nombre;
+    const q = document.createElement("p");
+    q.className = "text-[11px] text-slate-400 leading-snug";
+    q.textContent = d.que;
+    caja.appendChild(n);
+    caja.appendChild(q);
+    const fl = document.createElement("i");
+    fl.className = "fa-solid fa-chevron-right text-slate-300 text-xs shrink-0";
+    b.appendChild(ic);
+    b.appendChild(caja);
+    b.appendChild(fl);
+    b.addEventListener("click", () => {
+      if (d.panel) {
+        irAPanel(d.panel);
+        return;
+      }
+      const disparador = document.getElementById(d.overlay);
+      if (disparador) disparador.click();
+    });
+    lista.appendChild(b);
+    return { b, texto: (d.nombre + " " + d.que).toLowerCase() };
+  });
+
+  buscador.addEventListener("input", () => {
+    const q = buscador.value.trim().toLowerCase();
+    let n = 0;
+    filas.forEach((f) => {
+      const calza = !q || f.texto.includes(q);
+      f.b.classList.toggle("hidden", !calza);
+      if (calza) n++;
+    });
+    vacio.classList.toggle("hidden", n > 0);
+  });
+}
+
+// Arranque: la app abre en Inicio con la barra ya pintada.
+irAPanel("financeTabResumen");

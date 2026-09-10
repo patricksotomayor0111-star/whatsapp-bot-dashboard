@@ -54,7 +54,7 @@
 <body class="bg-brand-bg font-poppins text-slate-800 min-h-screen">
 
   <!-- Contenedor Mobile First, centrado, max 420px -->
-  <div class="mx-auto w-full max-w-[420px] min-h-screen bg-brand-bg relative pb-10">
+  <div class="mx-auto w-full max-w-[420px] min-h-screen bg-brand-bg relative pb-24">
 
     <!-- ===================== HEADER ===================== -->
     <header class="sticky top-0 z-30 bg-white/90 backdrop-blur-md shadow-softer">
@@ -103,23 +103,10 @@
         <button id="irAAjustesBtn" class="ml-auto shrink-0 text-[11px] font-semibold text-brand-green active:scale-95 transition-all">Ajustes</button>
       </div>
 
-      <!-- Pestañas de Finanzas -->
-      <div class="flex gap-1 px-4 pt-3 pb-1 bg-white border-b border-slate-100 overflow-x-auto shrink-0">
-        <button data-finance-tab="financeTabResumen" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Resumen</button>
-        <button data-finance-tab="financeTabMovimientos" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Movimientos</button>
-        <button data-finance-tab="financeTabDeudas" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Deudas</button>
-        <button data-finance-tab="financeTabFaltantes" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Faltantes</button>
-        <button data-finance-tab="financeTabLocales" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Locales</button>
-        <button data-finance-tab="financeTabCuentas" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Cuentas</button>
-        <button data-finance-tab="financeTabGraficos" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Gráficos</button>
-        <button data-finance-tab="financeTabMetas" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Metas</button>
-        <button data-finance-tab="financeTabPresupuesto" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Presupuesto</button>
-        <button data-finance-tab="financeTabAna" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Custodia</button>
-        <button data-finance-tab="financeTabConsultas" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Consultas</button>
-        <button data-finance-tab="financeTabPrecios" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Precios</button>
-        <button data-finance-tab="financeTabAjustes" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Ajustes</button>
-        <button data-finance-tab="financeTabGuia" class="finance-tab-btn shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold">Guía</button>
-      </div>
+      <!-- Sub-pestañas de la sección abierta. Las arma el script según la
+           sección elegida abajo: antes eran 14 botones en una fila que se
+           deslizaba, y había que adivinar qué había fuera de pantalla. -->
+      <div id="subTabs" class="flex gap-1 px-4 pt-3 pb-1 bg-white border-b border-slate-100 overflow-x-auto shrink-0"></div>
       <div class="flex-1 overflow-y-auto px-5 py-5">
 
         <!-- Tab: Resumen -->
@@ -709,6 +696,9 @@
 
         <!-- Tab: Guía -->
         <div id="financeTabGuia" class="finance-tab-panel hidden space-y-3"></div>
+
+        <!-- Tab: Todo (índice de la app, con buscador) -->
+        <div id="financeTabTodo" class="finance-tab-panel hidden space-y-3"></div>
       </div>
     </div>
 
@@ -850,6 +840,9 @@
     </div>
 
   </div>
+
+  <!-- Barra de secciones, siempre a mano -->
+  <nav id="bottomNav" class="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[420px] bg-white/95 backdrop-blur-md border-t border-slate-100 z-40 flex"></nav>
 
   <script src="script.js"></script>
 </body>
