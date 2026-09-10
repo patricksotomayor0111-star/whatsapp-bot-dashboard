@@ -2730,6 +2730,7 @@ if (ahorroHasta) ahorroHasta.addEventListener("change", cargarAhorroRango);
 function renderGoalProgress(data) {
   renderMetasAutomaticas(data.automaticas);
   pintarMetaEnResumen(data);
+  pintarRitmo(data);
   goalProgressList.innerHTML = "";
   // Una sola barra: cuanto de lo que necesita ya tiene cubierto.
   // Antes habia tres (diaria/semanal/mensual) y estaban mal por
@@ -5666,5 +5667,102 @@ hacerNavegable("statDeudasTotal", "financeTabDeudas");
 hacerNavegable("statFaltanteTotal", "financeTabFaltantes");
 hacerNavegable("statAnaSaldo", "financeTabAna");
 hacerNavegable("statEsperado", "financeTabMovimientos");
+
+
+// ---------- A tu ritmo, y si te alcanza ----------
+// El promedio es de GANANCIAS por dia trabajado. "Lo que te falta" ya es
+// lo que hay que generar, porque los gastos que vienen estan contados
+// dentro de "lo que tienes que gastar": promediar el neto restaria dos
+// veces lo mismo.
+const ritmoPromedio = document.getElementById("ritmoPromedio");
+const ritmoDetalle = document.getElementById("ritmoDetalle");
+const ritmoVeredicto = document.getElementById("ritmoVeredicto");
+const alcanzaMonto = document.getElementById("alcanzaMonto");
+const alcanzaBtn = document.getElementById("alcanzaBtn");
+const alcanzaResp = document.getElementById("alcanzaResp");
+
+let ultimasMetas = null; // para el "me alcanza" sin volver a pedir nada
+
+function pintarRitmo(data) {
+  if (!ritmoPromedio || !data || !data.automaticas) return;
+  const m = data.automaticas;
+  ultimasMetas = m;
+  const r = m.ritmo;
+  if (!r) return;
+
+  ritmoPromedio.textContent = formatSoles(r.promedioDiario) + " por día";
+
+  if (r.diasMedidos === 0) {
+    ritmoDetalle.textContent = "Todavía no hay días trabajados para sacar un promedio.";
+    ritmoVeredicto.textContent = "";
+    return;
+  }
+
+  ritmoDetalle.textContent =
+    "Promedio de tus últimos " + r.diasMedidos + (r.diasMedidos === 1 ? " día" : " días") +
+    " trabajados. En los " + m.diasHabiles + " que te quedan harías " + formatSoles(r.proyectado) + ".";
+
+  if (m.cubierto) {
+    ritmoVeredicto.className = "text-xs font-semibold mt-2 text-emerald-600";
+    ritmoVeredicto.textContent = "Ya cubriste todo lo del mes.";
+    return;
+  }
+
+  if (r.alcanza) {
+    ritmoVeredicto.className = "text-xs font-semibold mt-2 text-emerald-600";
+    ritmoVeredicto.textContent =
+      "A este ritmo te alcanza: te sobrarían " + formatSoles(r.diferencia) + ".";
+  } else {
+    const porDia = m.diasHabiles > 0 ? m.falta / m.diasHabiles : m.falta;
+    ritmoVeredicto.className = "text-xs font-semibold mt-2 text-brand-red";
+    ritmoVeredicto.textContent =
+      "A este ritmo NO te alcanza: te faltarían " + formatSoles(Math.abs(r.diferencia)) +
+      ". Tendrías que hacer " + formatSoles(porDia) + " por día.";
+  }
+}
+
+// ¿Me alcanza para un gasto de X? Se compara contra lo que sobraría
+// despues de cubrir todo, al ritmo actual.
+function responderAlcanza() {
+  if (!alcanzaResp) return;
+  const monto = parseFloat(alcanzaMonto.value);
+  if (!Number.isFinite(monto) || monto <= 0) {
+    alcanzaResp.className = "text-xs mt-2 text-slate-400";
+    alcanzaResp.textContent = "Escribe cuánto quieres gastar.";
+    return;
+  }
+  if (!ultimasMetas || !ultimasMetas.ritmo) {
+    alcanzaResp.className = "text-xs mt-2 text-slate-400";
+    alcanzaResp.textContent = "Todavía no cargaron tus números. Espera un momento.";
+    return;
+  }
+  const m = ultimasMetas;
+  // Lo que sobra: lo que tienes mas lo que harias a tu ritmo, menos todo
+  // lo que hay que pagar.
+  const sobra = m.tengo + m.ritmo.proyectado - m.necesito;
+
+  if (monto <= sobra) {
+    alcanzaResp.className = "text-xs mt-2 text-emerald-600 font-semibold";
+    alcanzaResp.textContent =
+      "Sí te alcanza. Después de cubrir todo lo del mes te quedarían " +
+      formatSoles(sobra - monto) + ".";
+    return;
+  }
+
+  const faltaria = monto - sobra;
+  const porDiaExtra = m.diasHabiles > 0 ? faltaria / m.diasHabiles : faltaria;
+  alcanzaResp.className = "text-xs mt-2 text-brand-red font-semibold";
+  alcanzaResp.textContent =
+    "No te alcanza: te faltarían " + formatSoles(faltaria) +
+    ". Tendrías que hacer " + formatSoles(m.ritmo.promedioDiario + porDiaExtra) +
+    " por día en vez de " + formatSoles(m.ritmo.promedioDiario) + ".";
+}
+
+if (alcanzaBtn) alcanzaBtn.addEventListener("click", responderAlcanza);
+if (alcanzaMonto) {
+  alcanzaMonto.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") responderAlcanza();
+  });
+}
 
 irAPanel("financeTabResumen");

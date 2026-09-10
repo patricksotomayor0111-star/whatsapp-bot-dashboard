@@ -462,7 +462,7 @@ function calcularRespuestaConsulta(intent, variable) {
     const progreso = productionGoals.getProgresoHoy();
     const mes = cashbox.getMonthSoFar();
     const compromisos = reminders.getComprisosDelMes();
-    const gastosProgramados = scheduledExpenses.getProyeccionRestoDeMes();
+    const gastosProgramados = scheduledExpenses.getProyeccionRestoDeMes(cashbox.getMovimientos());
     let respuesta = aplicarPlantilla(intent.respuesta, {
       ganancias: formatSoles(mes.ganancias),
       gastos: formatSoles(mes.gastos),

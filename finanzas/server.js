@@ -629,8 +629,11 @@ app.get("/api/finance/scheduled-expenses", (req, res) => {
 
 app.get("/api/finance/scheduled-expenses/proyeccion", (req, res) => {
   const { desde, hasta } = req.query;
-  if (desde && hasta) return res.json(scheduledExpenses.getProyeccion(desde, hasta));
-  res.json(scheduledExpenses.getProyeccionRestoDeMes());
+  // Con los movimientos, la proyeccion descuenta lo ya gastado en cada
+  // concepto en vez de pedir el planeado entero.
+  const movimientos = cashbox.getMovimientos();
+  if (desde && hasta) return res.json(scheduledExpenses.getProyeccion(desde, hasta, movimientos));
+  res.json(scheduledExpenses.getProyeccionRestoDeMes(movimientos));
 });
 
 app.post("/api/finance/scheduled-expenses", (req, res) => {

@@ -131,7 +131,31 @@ function ocurrenciasDiaSemanaEnRango(desde, hasta, diaSemana) {
 // Proyecta cuánto suman los gastos programados ACTIVOS dentro de un rango
 // de fechas [fechaInicioLabel, fechaFinLabel] (inclusive). Es solo un
 // presupuesto planeado: no descuenta nada de la caja real.
-function getProyeccion(fechaInicioLabel, fechaFinLabel) {
+const COMBINING_MARKS = new RegExp("[̀-ͯ]", "g");
+function normalizar(texto) {
+  return String(texto || "").normalize("NFD").replace(COMBINING_MARKS, "").toLowerCase();
+}
+
+// Cuanto ya se gasto DE VERDAD en ese concepto dentro de la ventana.
+// Se reconoce por las palabras del nombre del gasto programado, por
+// palabra completa: "Almuerzo" calza con "menos 20 almuerzo" pero no
+// con "almuercero".
+function yaGastadoEn(label, movimientos, desde, hasta) {
+  const claves = normalizar(label).split(/[^a-z0-9]+/).filter((p) => p.length >= 3);
+  if (!claves.length) return 0;
+  return (movimientos || []).reduce((suma, m) => {
+    if (m.tipo !== "gasto") return suma;
+    if (!m.fecha || m.fecha < desde || m.fecha > hasta) return suma;
+    const palabras = normalizar(m.descripcion).split(/[^a-z0-9]+/).filter(Boolean);
+    return claves.some((k) => palabras.includes(k)) ? suma + (m.monto || 0) : suma;
+  }, 0);
+}
+
+// movimientos (opcional): si se pasan, a cada gasto programado se le
+// descuenta lo que ya se gasto en ese concepto dentro de la ventana. Sin
+// eso, anotar "menos 20 almuerzo" bajaba la caja Y la proyeccion seguia
+// pidiendo el almuerzo completo: el mismo gasto contado dos veces.
+function getProyeccion(fechaInicioLabel, fechaFinLabel, movimientos) {
   const detalle = [];
 
   datos().gastos.forEach((g) => {
@@ -143,29 +167,36 @@ function getProyeccion(fechaInicioLabel, fechaFinLabel) {
       if (desde > hasta) return;
       const dias = diasEnRangoInclusive(desde, hasta);
       const subtotal = dias * g.monto;
-      if (subtotal > 0) detalle.push({ id: g.id, label: g.label, dias, subtotal });
+      const yaGastado = yaGastadoEn(g.label, movimientos, desde, hasta);
+      const restante = Math.max(subtotal - yaGastado, 0);
+      if (subtotal > 0) detalle.push({ id: g.id, label: g.label, dias, subtotal, yaGastado, restante });
     } else if (g.tipo === "semanal") {
       const desde = maxLabel(fechaInicioLabel, g.fechaInicio || fechaInicioLabel);
       const hasta = g.fechaFin ? minLabel(fechaFinLabel, g.fechaFin) : fechaFinLabel;
       if (desde > hasta) return;
       const veces = ocurrenciasDiaSemanaEnRango(desde, hasta, g.dia);
       const subtotal = veces * g.monto;
-      if (subtotal > 0) detalle.push({ id: g.id, label: g.label, veces, subtotal });
+      const yaGastado = yaGastadoEn(g.label, movimientos, desde, hasta);
+      const restante = Math.max(subtotal - yaGastado, 0);
+      if (subtotal > 0) detalle.push({ id: g.id, label: g.label, veces, subtotal, yaGastado, restante });
     }
   });
 
-  const total = detalle.reduce((sum, d) => sum + d.subtotal, 0);
-  return { total, detalle };
+  // El total es lo que FALTA gastar, no lo planeado entero.
+  const total = detalle.reduce((sum, d) => sum + d.restante, 0);
+  const planeado = detalle.reduce((sum, d) => sum + d.subtotal, 0);
+  const yaGastado = detalle.reduce((sum, d) => sum + d.yaGastado, 0);
+  return { total, planeado, yaGastado, detalle };
 }
 
 // Proyección de lo que queda del mes en curso (desde hoy hasta fin de mes),
 // para alimentar cálculos de "cuánto voy a necesitar".
-function getProyeccionRestoDeMes() {
+function getProyeccionRestoDeMes(movimientos) {
   const hoy = businessDayLabel();
   const mesActual = hoy.slice(0, 7);
   const [y, mo] = mesActual.split("-").map(Number);
   const finMes = `${mesActual}-${String(diasEnMes(y, mo)).padStart(2, "0")}`;
-  return getProyeccion(hoy, finMes);
+  return getProyeccion(hoy, finMes, movimientos);
 }
 
 module.exports = {

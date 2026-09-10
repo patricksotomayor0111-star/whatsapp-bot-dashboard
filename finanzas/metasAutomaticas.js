@@ -82,7 +82,10 @@ function calcular(hastaPedido) {
   //    hoy a la fecha limite. Cuenta el de hoy aunque ya lo haya gastado;
   //    al dia siguiente se corrige solo y mientras tanto pide de mas, que
   //    es el lado seguro para equivocarse.
-  const proyeccion = scheduledExpenses.getProyeccion(hoyLabel, hasta);
+  // Se le pasan los movimientos para que descuente lo que ya se gasto de
+  //    verdad en cada concepto: si no, anotar "menos 20 almuerzo" bajaba la
+  //    caja y la proyeccion seguia pidiendo el almuerzo entero.
+  const proyeccion = scheduledExpenses.getProyeccion(hoyLabel, hasta, cashbox.getMovimientos());
   const programados = proyeccion.total || 0;
 
   //    OJO: el modulo debts es plata que OTROS le deben A EL ("deudas por
@@ -115,6 +118,24 @@ function calcular(hastaPedido) {
   const corteSemana = finDeSemana < hasta ? finDeSemana : hasta;
   const diasSemana = diasLibres.contarHabiles(hoyLabel, corteSemana);
 
+  // 4. A su ritmo actual, ¿va a llegar?
+  //    Se promedian las GANANCIAS por dia trabajado, no el neto: "falta"
+  //    ya es lo que tiene que GENERAR, porque los gastos que vienen estan
+  //    contados dentro de "necesito". Promediar el neto restaria dos
+  //    veces lo mismo.
+  //    Solo dias con ganancias: los que descanso o no salio bajarian el
+  //    promedio sin que eso diga nada de como le va cuando trabaja.
+  const DIAS_PARA_EL_PROMEDIO = 30;
+  const diasTrabajados = cashbox
+    .getCierres()
+    .filter((c) => (c.ganancias || 0) > 0)
+    .slice(-DIAS_PARA_EL_PROMEDIO);
+  if ((hoy.ganancias || 0) > 0) diasTrabajados.push({ ganancias: hoy.ganancias });
+  const promedioDiario = diasTrabajados.length
+    ? diasTrabajados.reduce((s, c) => s + (c.ganancias || 0), 0) / diasTrabajados.length
+    : 0;
+  const proyectado = promedioDiario * diasHabiles;
+
   const r2 = (n) => Math.round(n * 100) / 100;
 
   return {
@@ -131,6 +152,14 @@ function calcular(hastaPedido) {
     // Que dias NO trabaja dentro de este periodo, para poder mostrarselos.
     diasLibresEnPeriodo: diasLibres.listarLibres(hoyLabel, hasta),
     diasSemana,
+    // Su ritmo real, para saber si con lo que viene haciendo le alcanza.
+    ritmo: {
+      promedioDiario: r2(promedioDiario),
+      diasMedidos: diasTrabajados.length,
+      proyectado: r2(proyectado),
+      alcanza: proyectado >= falta,
+      diferencia: r2(proyectado - falta),
+    },
     diaria: r2(diaria),
     semanal: r2(diaria * diasSemana),
     mensual: r2(falta),
