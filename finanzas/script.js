@@ -5365,6 +5365,38 @@ function agruparMovimientos(movs) {
     .sort((a, b) => b.monto - a.monto);
 }
 
+const iconoLapiz = "<i class=\"fa-solid fa-pen text-slate-400 text-xs\"></i>";
+const iconoBasura = "<i class=\"fa-solid fa-trash text-rose-400 text-xs\"></i>";
+
+// Tras corregir, se vuelven a pedir los movimientos y se repinta todo:
+// el desglose, el resumen y las metas, para que ninguno quede viejo.
+async function recargarDesglose() {
+  try {
+    const mov = await (await fetch("/api/finance/movements")).json();
+    desgloseDatos.movimientos = mov.movimientos || [];
+    pintarDesglose();
+    fetchCashboxToday();
+    fetchGoalsAndProgress();
+  } catch (err) {
+    console.error("No se pudo recargar el desglose:", err);
+  }
+}
+
+async function editarMovimientoDesdeDesglose(m) {
+  const montoStr = prompt("Nuevo monto:", m.monto);
+  if (montoStr === null) return;
+  const monto = parseFloat(montoStr);
+  if (!Number.isFinite(monto) || monto <= 0) return;
+  const descripcion = prompt("Nueva descripción:", m.descripcion || "");
+  if (descripcion === null) return;
+  await fetch("/api/finance/movements/" + encodeURIComponent(m.id), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ monto, descripcion }),
+  });
+  await recargarDesglose();
+}
+
 function mensajeDesglose(texto) {
   desgloseCuerpo.innerHTML = "";
   const p = document.createElement("p");
@@ -5394,10 +5426,8 @@ function pintarDesglose() {
   // Mismo largo de periodo corrido hacia atras, para poder comparar.
   const base = rango.desde === "0000-01-01" ? hoy : rango.desde;
   const largo = diasEntreLabels(base, rango.hasta);
-  const previos =
-    desglosePeriodo === "todo"
-      ? []
-      : filtrarMovimientos({ desde: sumarDias(base, -largo), hasta: sumarDias(base, -1) });
+  const rangoPrevio = { desde: sumarDias(base, -largo), hasta: sumarDias(base, -1) };
+  const previos = desglosePeriodo === "todo" ? [] : filtrarMovimientos(rangoPrevio);
   const totalPrevio = previos.reduce((s, m) => s + (m.monto || 0), 0);
 
   desgloseCuerpo.innerHTML = "";
@@ -5479,6 +5509,58 @@ function pintarDesglose() {
   });
   desgloseCuerpo.appendChild(secGrupos);
 
+  // Este periodo contra el anterior del mismo largo, rubro por rubro.
+  // Eligiendo "Mes" queda la comparacion de este mes contra el pasado.
+  if (desglosePeriodo !== "todo" && previos.length) {
+    const antes = new Map(agruparMovimientos(previos).map((g) => [g.nombre, g.monto]));
+    const ahora = new Map(grupos.map((g) => [g.nombre, g.monto]));
+    const nombres = Array.from(new Set(Array.from(ahora.keys()).concat(Array.from(antes.keys()))));
+
+    const secCmp = document.createElement("section");
+    secCmp.className = "card bg-white border border-slate-100 py-3";
+    const tc = document.createElement("p");
+    tc.className = "eyebrow text-slate-600";
+    tc.textContent = "CONTRA EL PERIODO ANTERIOR";
+    const sc = document.createElement("p");
+    sc.className = "text-[11px] text-slate-400 mt-0.5 mb-2";
+    sc.textContent = "Del " + ddmm(rangoPrevio.desde) + " al " + ddmm(rangoPrevio.hasta) + ", mismo largo.";
+    secCmp.appendChild(tc);
+    secCmp.appendChild(sc);
+
+    nombres
+      .map((n) => ({ n, a: ahora.get(n) || 0, b: antes.get(n) || 0 }))
+      .sort((x, y) => Math.abs(y.a - y.b) - Math.abs(x.a - x.b))
+      .forEach((f) => {
+        const fila = document.createElement("div");
+        fila.className = "flex items-baseline justify-between gap-2 py-1 border-b border-slate-50";
+        const n = document.createElement("span");
+        n.className = "text-xs text-slate-700 truncate min-w-0";
+        n.textContent = f.n;
+        const der = document.createElement("span");
+        der.className = "text-xs shrink-0 text-right";
+        const dif = f.a - f.b;
+        // Subir un gasto es malo y subir una ganancia es bueno: el color
+        // tiene que decir eso, no solo el signo.
+        const bueno = esGasto ? dif < 0 : dif > 0;
+        const color = dif === 0 ? "text-slate-400" : bueno ? "text-emerald-600" : "text-brand-red";
+        const pct = f.b > 0 ? Math.round((dif / f.b) * 100) : null;
+        der.innerHTML = "";
+        const montos = document.createElement("span");
+        montos.className = "text-slate-500";
+        montos.textContent = formatSoles(f.a) + " vs " + formatSoles(f.b) + "  ";
+        const cambio = document.createElement("b");
+        cambio.className = color;
+        cambio.textContent =
+          dif === 0 ? "igual" : (dif > 0 ? "+" : "") + (pct === null ? formatSoles(dif) : pct + "%");
+        der.appendChild(montos);
+        der.appendChild(cambio);
+        fila.appendChild(n);
+        fila.appendChild(der);
+        secCmp.appendChild(fila);
+      });
+    desgloseCuerpo.appendChild(secCmp);
+  }
+
   // Día por día
   const porDia = new Map();
   movs.forEach((m) => porDia.set(m.fecha, (porDia.get(m.fecha) || 0) + (m.monto || 0)));
@@ -5538,8 +5620,33 @@ function pintarDesglose() {
       const v = document.createElement("span");
       v.className = "text-xs font-bold shrink-0 " + (esGasto ? "text-rose-600" : "text-brand-green");
       v.textContent = (esGasto ? "-" : "+") + formatSoles(m.monto);
+
+      // Corregir sin salir del desglose: si ves algo mal aca, lo arreglas
+      // aca. Antes habia que ir a buscarlo a Movimientos.
+      const acciones = document.createElement("div");
+      acciones.className = "flex items-center gap-1 shrink-0";
+      const editar = document.createElement("button");
+      editar.className = "w-7 h-7 flex items-center justify-center";
+      editar.innerHTML = iconoLapiz;
+      editar.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        editarMovimientoDesdeDesglose(m);
+      });
+      const borrar = document.createElement("button");
+      borrar.className = "w-7 h-7 flex items-center justify-center";
+      borrar.innerHTML = iconoBasura;
+      borrar.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        if (!confirm("¿Eliminar este movimiento?")) return;
+        await fetch("/api/finance/movements/" + encodeURIComponent(m.id), { method: "DELETE" });
+        await recargarDesglose();
+      });
+      acciones.appendChild(editar);
+      acciones.appendChild(borrar);
+
       fila.appendChild(izq);
       fila.appendChild(v);
+      fila.appendChild(acciones);
       secLista.appendChild(fila);
     });
   if (movs.length > 300) {
