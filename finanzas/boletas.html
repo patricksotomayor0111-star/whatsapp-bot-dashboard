@@ -121,6 +121,16 @@
     border-radius: 0 8px 8px 0; font-size: 13px; margin-bottom: 10px; }
   .error { background: #ef444418; border-left: 3px solid var(--mal); padding: 10px 12px;
     border-radius: 0 8px 8px 0; font-size: 13px; margin-bottom: 10px; }
+  label { display: block; margin-bottom: 10px; font-size: 13px; color: var(--suave); }
+  label small { opacity: .75; }
+  label input {
+    display: block; width: 100%; margin-top: 4px; padding: 11px;
+    border: 1px solid var(--borde); border-radius: 10px;
+    background: var(--fondo); color: var(--texto); font: inherit;
+  }
+  label input:focus { border-color: var(--acento); outline: 0; }
+  .dos { display: flex; gap: 10px; }
+  .dos label { flex: 1; }
   textarea {
     width: 100%; border: 1px solid var(--borde); border-radius: 10px; padding: 11px;
     background: var(--fondo); color: inherit; font: 13px/1.5 ui-monospace, Menlo, monospace; resize: vertical;
@@ -213,6 +223,34 @@
     <h2>4 · Cómo va a salir</h2>
     <p class="regla" id="reglaPapel"></p>
     <pre class="previa" id="previa"></pre>
+  </section>
+
+  <!-- NEGOCIO -->
+  <section class="tarjeta">
+    <h2 style="cursor:pointer" id="tituloNegocio">🏪 Mi negocio <span id="estadoNegocio"></span></h2>
+    <div id="cuerpoNegocio" class="oculto">
+      <p class="explica">
+        Esto se escribe una vez y sale en todos tus documentos. No se lee de
+        la foto a propósito: son siempre los mismos datos, y un RUC mal leído
+        se imprime y se reparte.
+      </p>
+      <div id="avisosNegocio"></div>
+      <label>Nombre del negocio<input id="nNombre" placeholder="Minimarket La Esquina"></label>
+      <label>RUC <small>(opcional)</small><input id="nRuc" inputmode="numeric" placeholder="20123456789"></label>
+      <label>Dirección<input id="nDireccion" placeholder="Av. Los Álamos 456"></label>
+      <label>Teléfono<input id="nTelefono" placeholder="962 555 111"></label>
+      <label>Mensaje del pie<input id="nPie" placeholder="¡Gracias por su compra!"></label>
+      <div class="dos">
+        <label>Serie<input id="nSerie" placeholder="NV001"></label>
+        <label>Próximo número<input id="nCorrelativo" inputmode="numeric" placeholder="1"></label>
+      </div>
+      <p class="explica" style="margin:4px 0 12px">
+        Si ya venías con un talonario, pon acá el número que sigue y la app
+        continúa desde ahí. Solo avanza al imprimir, no al previsualizar.
+      </p>
+      <button class="principal" id="btnGuardarNegocio">Guardar</button>
+      <div id="resultadoNegocio"></div>
+    </div>
   </section>
 
   <!-- CATÁLOGO -->
@@ -562,6 +600,52 @@ $("btnImprimir").onclick = () => {
   alert("La conexión con la POS-8001DD es el próximo paso.\n\nLa vista previa de abajo ya es exacta: sale de la misma lista de líneas que recibe la impresora.");
 };
 
+// ---------- Mi negocio ----------
+const CAMPOS_NEGOCIO = {
+  nNombre: "nombre", nRuc: "ruc", nDireccion: "direccion",
+  nTelefono: "telefono", nPie: "pie", nSerie: "serie", nCorrelativo: "correlativo",
+};
+
+$("tituloNegocio").onclick = () => {
+  $("cuerpoNegocio").classList.toggle("oculto");
+};
+
+function pintarNegocio(d) {
+  Object.entries(CAMPOS_NEGOCIO).forEach(([id, campo]) => { $(id).value = d[campo] ?? ""; });
+  // El título avisa de un vistazo si falta configurarlo, para no tener que
+  // abrirlo a ver.
+  $("estadoNegocio").textContent = d.nombre ? "· " + d.nombre : "· sin configurar";
+  const caja = $("avisosNegocio");
+  caja.innerHTML = "";
+  (d.avisos || []).forEach((a) => {
+    const el = document.createElement("div");
+    el.className = "aviso";
+    el.textContent = a.mensaje;
+    caja.append(el);
+  });
+}
+
+async function cargarNegocio() {
+  try {
+    pintarNegocio(await (await fetch("/api/documentos/negocio")).json());
+  } catch (err) { /* sin conexión */ }
+}
+
+$("btnGuardarNegocio").onclick = async () => {
+  const cuerpo = {};
+  Object.entries(CAMPOS_NEGOCIO).forEach(([id, campo]) => { cuerpo[campo] = $(id).value; });
+  const d = await (await fetch("/api/documentos/negocio", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(cuerpo),
+  })).json();
+  pintarNegocio(d);
+  const caja = $("resultadoNegocio");
+  caja.innerHTML = '<div class="ok"></div>';
+  caja.firstElementChild.textContent = "Guardado. El próximo documento sale como " + d.proximoNumero + ".";
+  // Se repinta la previa para que se vean los datos nuevos ya mismo.
+  recalcular();
+};
+
 // ---------- Catálogo ----------
 $("tituloCatalogo").onclick = () => {
   const c = $("cuerpoCatalogo");
@@ -622,6 +706,7 @@ $("btnGuardarProductos").onclick = async () => {
 // Al arrancar se mira cuántos hay, para que el título ya avise si está
 // vacío antes de que alguien se pregunte por qué no autocompleta.
 cargarCatalogo();
+cargarNegocio();
 
 ponerModo("pedido");
 </script>

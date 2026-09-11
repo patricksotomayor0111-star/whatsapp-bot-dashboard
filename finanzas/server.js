@@ -13,6 +13,7 @@ const termica = require("./termica");
 const impresoras = require("./impresoras");
 const productos = require("./productos");
 const foto = require("./foto");
+const negocio = require("./negocio");
 const reminders = require("./reminders");
 const debts = require("./debts");
 const shortfalls = require("./shortfalls");
@@ -1532,6 +1533,18 @@ app.get("/api/documentos/productos", (req, res) => {
   })));
 });
 
+// Los datos del negocio que emite. Se escriben una vez y salen en todos
+// los documentos: no se leen de ninguna foto, porque son siempre los
+// mismos y un RUC borroso leído mal se imprime y se reparte.
+app.get("/api/documentos/negocio", (req, res) => {
+  res.json({ ...negocio.get(), proximoNumero: negocio.proximoNumero(), avisos: negocio.revisar() });
+});
+
+app.post("/api/documentos/negocio", (req, res) => {
+  const guardado = negocio.set(req.body || {});
+  res.json({ ...guardado, proximoNumero: negocio.proximoNumero(), avisos: negocio.revisar() });
+});
+
 // El catálogo: verlo y cargarlo pegando una lista.
 //
 // Sin esto el autocompletado no sugiere nada y parece roto, cuando en
@@ -1561,19 +1574,33 @@ app.delete("/api/documentos/catalogo/:id", (req, res) => {
 // en centavos que genera los bytes de la impresora. Si el navegador hiciera
 // su propia cuenta con decimales, la pantalla podría mostrar un total y el
 // papel salir con otro — y el que vale es el del papel.
+// El navegador manda solo los ítems; los datos del negocio y el número los
+// pone el servidor. Así el emisor no viaja de ida y vuelta en cada tecla, y
+// no hay forma de que una pantalla mande un emisor que no sea el tuyo.
+function armarDocumento(entrada = {}) {
+  const perfilNegocio = negocio.get();
+  return documento.normalizar({
+    ...entrada,
+    emisor: negocio.comoEmisor(),
+    pie: entrada.pie === undefined ? perfilNegocio.pie : entrada.pie,
+    numero: entrada.numero || negocio.proximoNumero(),
+  });
+}
+
 app.post("/api/documentos/previa", (req, res) => {
   try {
-    const perfil = impresoras.perfilDe(req.body?.perfil);
-    const doc = documento.normalizar(req.body?.documento || {});
+    const perfil = impresoras.perfilDe(req.body?.perfil || negocio.get().impresora);
+    const doc = armarDocumento(req.body?.documento || {});
     res.json({
-      previa: termica.previa(doc, { perfil: req.body?.perfil }),
+      previa: termica.previa(doc, { perfil }),
+      numero: doc.numero,
       impresora: perfil.nombre,
       columnas: perfil.columnas,
       importes: doc.items.map((it) => documento.aTexto(documento.importeDe(it))),
       subtotal: documento.aTexto(doc.totales.subtotal),
       igv: documento.aTexto(doc.totales.igv),
       total: documento.aTexto(doc.totales.total),
-      avisos: documento.revisar(doc),
+      avisos: documento.revisar(doc).concat(negocio.revisar()),
     });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -1582,12 +1609,19 @@ app.post("/api/documentos/previa", (req, res) => {
 
 // Los bytes listos para la impresora. Todavía no hay quien los reciba —eso
 // es el Bluetooth— pero el endpoint ya es el mismo que va a usar.
+//
+// ACÁ se gasta el correlativo, no en la previa: emitir es lo que consume un
+// número del talonario. Si avanzara al previsualizar, abrir la pantalla y
+// cerrarla dejaría huecos en la numeración que después hay que explicar.
 app.post("/api/documentos/escpos", (req, res) => {
   try {
-    const bytes = termica.aEscPos(req.body?.documento || {}, {
-      perfil: req.body?.perfil,
+    const numero = negocio.consumirNumero();
+    const doc = armarDocumento({ ...(req.body?.documento || {}), numero });
+    const bytes = termica.aEscPos(doc, {
+      perfil: req.body?.perfil || negocio.get().impresora,
       copias: req.body?.copias,
     });
+    res.set("X-Documento-Numero", numero);
     res.type("application/octet-stream").send(bytes);
   } catch (err) {
     res.status(400).json({ error: err.message });
