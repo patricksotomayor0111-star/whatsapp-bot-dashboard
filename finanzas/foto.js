@@ -19,7 +19,11 @@ const Anthropic = require("@anthropic-ai/sdk");
 //   comercio, la fecha y el total, y eso entra como gasto a tus finanzas.
 //   El resultado es un registro, no un papel para imprimir.
 
-const MODELO = "claude-opus-5";
+// Opus 5 por defecto: leer letra manuscrita torcida, con sombra y en papel
+// arrugado es justo donde se nota el modelo. Si el volumen de fotos crece y
+// pesa más el costo que el acierto, se baja a "claude-haiku-4-5" desde la
+// variable de entorno, sin tocar el código.
+const MODELO = (process.env.ANTHROPIC_MODELO_FOTO || "").trim() || "claude-opus-5";
 const TIMEOUT_MS = 45000;
 const MAX_BYTES = 5 * 1024 * 1024;
 
