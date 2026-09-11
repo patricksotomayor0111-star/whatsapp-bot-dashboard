@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Documentos</title>
+<style>
+  :root {
+    --fondo: #f4f4f5; --papel: #fff; --texto: #18181b; --suave: #71717a;
+    --borde: #e4e4e7; --acento: #0f766e; --acento-suave: #ccfbf1;
+    --ok: #15803d; --duda: #b45309; --mal: #b91c1c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fondo: #18181b; --papel: #27272a; --texto: #fafafa; --suave: #a1a1aa;
+      --borde: #3f3f46; --acento: #2dd4bf; --acento-suave: #134e4a;
+      --ok: #4ade80; --duda: #fbbf24; --mal: #f87171;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--fondo); color: var(--texto);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 0 0 90px;
+  }
+  header {
+    background: var(--papel); border-bottom: 1px solid var(--borde);
+    padding: 14px 16px; position: sticky; top: 0; z-index: 10;
+    display: flex; align-items: center; gap: 12px;
+  }
+  header h1 { font-size: 17px; margin: 0; flex: 1; font-weight: 600; }
+  .modos { display: flex; background: var(--fondo); border-radius: 9px; padding: 3px; }
+  .modos button {
+    border: 0; background: none; color: var(--suave); font: inherit; font-size: 13px;
+    padding: 6px 12px; border-radius: 7px; cursor: pointer; font-weight: 500;
+  }
+  .modos button[aria-pressed="true"] { background: var(--papel); color: var(--texto); box-shadow: 0 1px 3px #0002; }
+  main { padding: 16px; max-width: 720px; margin: 0 auto; }
+  .tarjeta {
+    background: var(--papel); border: 1px solid var(--borde);
+    border-radius: 14px; padding: 16px; margin-bottom: 14px;
+  }
+  .tarjeta h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--suave); margin: 0 0 12px; font-weight: 600; }
+  .explica { color: var(--suave); font-size: 13px; margin: 0 0 14px; }
+
+  .zona-foto {
+    border: 2px dashed var(--borde); border-radius: 14px; padding: 30px 16px;
+    text-align: center; cursor: pointer; background: var(--fondo);
+  }
+  .zona-foto:active { border-color: var(--acento); }
+  .zona-foto .icono { font-size: 40px; display: block; margin-bottom: 8px; }
+  .zona-foto strong { display: block; margin-bottom: 4px; }
+  .zona-foto span { color: var(--suave); font-size: 13px; }
+  #vistaFoto { width: 100%; border-radius: 10px; margin-bottom: 12px; display: none; }
+
+  button.principal {
+    width: 100%; padding: 14px; border: 0; border-radius: 11px;
+    background: var(--acento); color: #fff; font: inherit; font-weight: 600;
+    cursor: pointer;
+  }
+  button.principal:disabled { opacity: .5; cursor: default; }
+  button.secundaria {
+    width: 100%; padding: 11px; border: 1px solid var(--borde); border-radius: 11px;
+    background: var(--papel); color: var(--texto); font: inherit; cursor: pointer; margin-top: 8px;
+  }
+
+  .semaforo { list-style: none; padding: 0; margin: 0 0 12px; }
+  .semaforo li { display: flex; gap: 9px; padding: 7px 0; border-bottom: 1px solid var(--borde); font-size: 14px; }
+  .semaforo li:last-child { border: 0; }
+  .semaforo .punto { flex: none; }
+  .semaforo .campo { color: var(--suave); min-width: 92px; }
+  .semaforo .valor { font-weight: 500; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
+    color: var(--suave); padding-bottom: 8px; font-weight: 600; }
+  th.num, td.num { text-align: right; }
+  td { padding: 7px 0; border-top: 1px solid var(--borde); vertical-align: middle; }
+  td input {
+    border: 1px solid transparent; background: none; color: inherit; font: inherit;
+    padding: 5px 6px; border-radius: 6px; width: 100%;
+  }
+  td input:focus { border-color: var(--acento); background: var(--fondo); outline: 0; }
+  td.num input { text-align: right; }
+  .col-cant { width: 58px; } .col-precio { width: 84px; } .col-importe { width: 78px; } .col-x { width: 32px; }
+  .quitar { border: 0; background: none; color: var(--suave); cursor: pointer; font-size: 17px; padding: 4px; }
+  .baja input { background: #fbbf2420; }
+
+  .fila-agregar { display: flex; gap: 8px; margin-top: 12px; position: relative; }
+  .fila-agregar input {
+    flex: 1; padding: 11px; border: 1px solid var(--borde); border-radius: 10px;
+    background: var(--fondo); color: inherit; font: inherit;
+  }
+  .fila-agregar input.cant { flex: none; width: 64px; text-align: center; }
+  .sugerencias {
+    position: absolute; top: 100%; left: 0; right: 0; z-index: 20; margin-top: 4px;
+    background: var(--papel); border: 1px solid var(--borde); border-radius: 10px;
+    box-shadow: 0 8px 24px #0003; overflow: hidden; display: none;
+  }
+  .sugerencias button {
+    display: flex; width: 100%; border: 0; background: none; color: inherit; font: inherit;
+    padding: 11px 13px; cursor: pointer; text-align: left; gap: 10px;
+  }
+  .sugerencias button:hover, .sugerencias button.activa { background: var(--acento-suave); }
+  .sugerencias .precio { margin-left: auto; color: var(--suave); }
+
+  .totales { margin-top: 14px; padding-top: 12px; border-top: 2px solid var(--borde); }
+  .totales div { display: flex; justify-content: space-between; padding: 4px 0; font-size: 14px; }
+  .totales .grande { font-size: 19px; font-weight: 700; padding-top: 8px; }
+
+  pre.previa {
+    background: #fff; color: #000; font: 12px/1.42 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    padding: 16px 14px; border-radius: 8px; overflow-x: auto; margin: 0;
+    min-height: 60px;
+    white-space: pre; box-shadow: inset 0 0 0 1px #0001;
+  }
+  .regla { font-size: 11px; color: var(--suave); margin: 0 0 8px; }
+
+  .aviso { background: #fbbf2418; border-left: 3px solid var(--duda); padding: 10px 12px;
+    border-radius: 0 8px 8px 0; font-size: 13px; margin-bottom: 10px; }
+  .error { background: #ef444418; border-left: 3px solid var(--mal); padding: 10px 12px;
+    border-radius: 0 8px 8px 0; font-size: 13px; margin-bottom: 10px; }
+  .oculto { display: none !important; }
+  .cargando { text-align: center; padding: 30px 0; color: var(--suave); }
+  .puntitos::after { content: "."; animation: p 1.2s infinite; }
+  @keyframes p { 0%{content:"."} 33%{content:".."} 66%{content:"..."} }
+  .pie-fijo {
+    position: fixed; bottom: 0; left: 0; right: 0; background: var(--papel);
+    border-top: 1px solid var(--borde); padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+    display: flex; gap: 10px; align-items: center;
+  }
+  .pie-fijo .total { flex: 1; }
+  .pie-fijo .total small { display: block; color: var(--suave); font-size: 11px; }
+  .pie-fijo .total strong { font-size: 20px; }
+  .pie-fijo button { width: auto; padding: 13px 22px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Documentos</h1>
+  <div class="modos" role="group">
+    <button id="modoPedido" aria-pressed="true">Pedido</button>
+    <button id="modoGasto" aria-pressed="false">Gasto</button>
+  </div>
+</header>
+
+<main>
+  <!-- PASO 1 -->
+  <section id="paso1" class="tarjeta">
+    <h2>1 · La foto</h2>
+    <p class="explica" id="explicaModo">
+      Fotografía el pedido: la lista escrita a mano, la comanda o la captura del
+      pedido que llegó por WhatsApp. Salen los productos y armamos tu nota de venta.
+    </p>
+    <img id="vistaFoto" alt="">
+    <div class="zona-foto" id="zonaFoto">
+      <span class="icono">📷</span>
+      <strong>Tomar foto</strong>
+      <span>o tocá para elegir una imagen</span>
+    </div>
+    <input type="file" id="archivo" accept="image/*" capture="environment" hidden>
+    <button class="principal oculto" id="btnLeer" style="margin-top:12px">Leer la foto</button>
+    <button class="secundaria" id="btnManual">Cargar a mano, sin foto</button>
+  </section>
+
+  <!-- CARGANDO -->
+  <section id="cargando" class="tarjeta oculto">
+    <div class="cargando"><span class="puntitos">Leyendo la foto</span></div>
+  </section>
+
+  <!-- PASO 2 -->
+  <section id="paso2" class="tarjeta oculto">
+    <h2>2 · Lo que se detectó</h2>
+    <div id="avisos"></div>
+    <ul class="semaforo" id="semaforo"></ul>
+  </section>
+
+  <!-- PASO 3 -->
+  <section id="paso3" class="tarjeta oculto">
+    <h2>3 · El documento</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Producto</th><th class="num col-cant">Cant.</th>
+          <th class="num col-precio">Precio</th><th class="num col-importe">Importe</th><th class="col-x"></th>
+        </tr>
+      </thead>
+      <tbody id="items"></tbody>
+    </table>
+    <div class="fila-agregar">
+      <input id="nuevoNombre" placeholder="Agregar producto…" autocomplete="off">
+      <input id="nuevaCant" class="cant" value="1" inputmode="decimal">
+      <div class="sugerencias" id="sugerencias"></div>
+    </div>
+    <div class="totales" id="totales"></div>
+  </section>
+
+  <!-- PASO 4 -->
+  <section id="paso4" class="tarjeta oculto">
+    <h2>4 · Cómo va a salir</h2>
+    <p class="regla" id="reglaPapel"></p>
+    <pre class="previa" id="previa"></pre>
+  </section>
+</main>
+
+<div class="pie-fijo oculto" id="pieFijo">
+  <div class="total"><small id="pieDetalle">0 productos</small><strong id="pieTotal">S/ 0.00</strong></div>
+  <button class="principal" id="btnImprimir">Imprimir</button>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const estado = { modo: "pedido", items: [], deteccion: null, perfil: "pos-8001dd" };
+let proximoId = 1;
+
+// ---------- Modo ----------
+const TEXTOS = {
+  pedido: "Fotografía el pedido: la lista escrita a mano, la comanda o la captura del pedido que llegó por WhatsApp. Salen los productos y armamos tu nota de venta.",
+  gasto: "Fotografía la boleta que te dieron al comprar. Sale el comercio, la fecha y el total, y entra como gasto a tus finanzas.",
+};
+function ponerModo(modo) {
+  estado.modo = modo;
+  $("modoPedido").setAttribute("aria-pressed", String(modo === "pedido"));
+  $("modoGasto").setAttribute("aria-pressed", String(modo === "gasto"));
+  $("explicaModo").textContent = TEXTOS[modo];
+}
+$("modoPedido").onclick = () => ponerModo("pedido");
+$("modoGasto").onclick = () => ponerModo("gasto");
+
+// ---------- Foto ----------
+let imagenLista = null;
+
+$("zonaFoto").onclick = () => $("archivo").click();
+$("archivo").onchange = async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  imagenLista = await achicar(file);
+  $("vistaFoto").src = imagenLista.dataUrl;
+  $("vistaFoto").style.display = "block";
+  $("zonaFoto").classList.add("oculto");
+  $("btnLeer").classList.remove("oculto");
+};
+
+// Achicar ANTES de subir. Una foto de celular son 4000px y 6MB: subirla
+// entera tarda con datos móviles y no se lee mejor. 1600px de lado largo
+// alcanza de sobra para leer letra de boleta.
+function achicar(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const escala = Math.min(1, 1600 / Math.max(img.width, img.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(img.width * escala);
+      c.height = Math.round(img.height * escala);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      const dataUrl = c.toDataURL("image/jpeg", 0.85);
+      URL.revokeObjectURL(img.src);
+      resolve({ dataUrl, base64: dataUrl.split(",")[1], mediaType: "image/jpeg" });
+    };
+    img.onerror = () => reject(new Error("No se pudo abrir la imagen."));
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+$("btnLeer").onclick = async () => {
+  if (!imagenLista) return;
+  $("paso1").classList.add("oculto");
+  $("cargando").classList.remove("oculto");
+  try {
+    const r = await fetch("/api/documentos/leer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ modo: estado.modo, ...imagenLista, dataUrl: undefined }),
+    });
+    const datos = await r.json();
+    if (!r.ok) throw new Error(datos.error || "No se pudo leer.");
+    aplicarDeteccion(datos);
+  } catch (err) {
+    $("paso1").classList.remove("oculto");
+    mostrarError(err.message);
+  } finally {
+    $("cargando").classList.add("oculto");
+  }
+};
+
+$("btnManual").onclick = () => {
+  $("paso1").classList.add("oculto");
+  abrirEditor();
+};
+
+function mostrarError(msg) {
+  const d = document.createElement("div");
+  d.className = "error";
+  d.textContent = msg;
+  $("paso1").prepend(d);
+  setTimeout(() => d.remove(), 6000);
+}
+
+// ---------- Semáforo ----------
+const PUNTO = { alta: "🟢", media: "🟡", baja: "🟡" };
+
+function aplicarDeteccion(d) {
+  estado.deteccion = d;
+  const sem = $("semaforo");
+  const avisos = $("avisos");
+  sem.innerHTML = "";
+  avisos.innerHTML = "";
+
+  if (d.tipoDeFoto === "comprobante_ajeno") {
+    avisos.insertAdjacentHTML("beforeend",
+      '<div class="aviso">Esto parece el comprobante de otro negocio. Tomé solo los productos ' +
+      'y las cantidades: el documento sale con <strong>tus</strong> datos.</div>');
+  }
+  (d.avisos || []).forEach((a) => {
+    avisos.insertAdjacentHTML("beforeend", '<div class="aviso"></div>');
+    avisos.lastElementChild.textContent = a;
+  });
+
+  const fila = (campo, valor, conf) => {
+    const li = document.createElement("li");
+    li.innerHTML = '<span class="punto"></span><span class="campo"></span><span class="valor"></span>';
+    li.children[0].textContent = PUNTO[conf] || "🟡";
+    li.children[1].textContent = campo;
+    li.children[2].textContent = valor || "no se leyó";
+    sem.append(li);
+  };
+
+  if (estado.modo === "gasto") {
+    fila("Comercio", d.comercio, d.confianza?.comercio);
+    fila("RUC", d.ruc, d.confianza?.ruc);
+    fila("Fecha", d.fecha, d.confianza?.fecha);
+    fila("Total", d.total ? "S/ " + d.total : null, d.confianza?.total);
+  }
+  const n = (d.items || []).length;
+  fila("Productos", n + (n === 1 ? " detectado" : " detectados"), n ? "alta" : "baja");
+
+  estado.items = (d.items || []).map((it) => ({
+    id: proximoId++,
+    descripcion: it.descripcion,
+    cantidad: it.cantidad || 1,
+    precioUnitario: it.precioUnitario || "",
+    dudoso: it.confianza !== "alta",
+  }));
+
+  $("paso2").classList.remove("oculto");
+  abrirEditor();
+}
+
+// ---------- Editor ----------
+function abrirEditor() {
+  $("paso3").classList.remove("oculto");
+  $("paso4").classList.remove("oculto");
+  $("pieFijo").classList.remove("oculto");
+  // Nada de fila vacía de arranque: el campo "Agregar producto" ya es la
+  // invitación a escribir, y una fila en blanco ensucia los totales y la
+  // previa hasta que alguien la llena.
+  pintarItems();
+  $("nuevoNombre").focus();
+}
+
+function agregarItem(descripcion, cantidad, precio) {
+  estado.items.push({ id: proximoId++, descripcion, cantidad: cantidad || 1, precioUnitario: precio || "", dudoso: false });
+}
+
+function pintarItems() {
+  const tb = $("items");
+  tb.innerHTML = "";
+  estado.items.forEach((it) => {
+    const tr = document.createElement("tr");
+    if (it.dudoso) tr.className = "baja";
+    tr.innerHTML =
+      '<td><input class="d" value=""></td>' +
+      '<td class="num col-cant"><input class="c" inputmode="decimal" value=""></td>' +
+      '<td class="num col-precio"><input class="p" inputmode="decimal" value=""></td>' +
+      '<td class="num col-importe"><span class="imp"></span></td>' +
+      '<td class="col-x"><button class="quitar" title="Quitar">×</button></td>';
+    tr.querySelector(".d").value = it.descripcion;
+    tr.querySelector(".c").value = it.cantidad;
+    tr.querySelector(".p").value = it.precioUnitario;
+    tr.querySelector(".d").oninput = (e) => { it.descripcion = e.target.value; recalcular(); };
+    tr.querySelector(".c").oninput = (e) => { it.cantidad = e.target.value; recalcular(); };
+    tr.querySelector(".p").oninput = (e) => { it.precioUnitario = e.target.value; it.dudoso = false; tr.classList.remove("baja"); recalcular(); };
+    tr.querySelector(".quitar").onclick = () => {
+      estado.items = estado.items.filter((x) => x.id !== it.id);
+      pintarItems();
+    };
+    tb.append(tr);
+  });
+  recalcular();
+}
+
+// ---------- Autocompletado ----------
+let sugerencias = [];
+let activa = -1;
+let temporizador;
+
+$("nuevoNombre").oninput = (e) => {
+  clearTimeout(temporizador);
+  const q = e.target.value;
+  temporizador = setTimeout(() => buscarProductos(q), 160);
+};
+
+async function buscarProductos(q) {
+  if (!q.trim()) return cerrarSugerencias();
+  try {
+    const r = await fetch("/api/documentos/productos?q=" + encodeURIComponent(q));
+    sugerencias = await r.json();
+  } catch (err) { sugerencias = []; }
+  const caja = $("sugerencias");
+  caja.innerHTML = "";
+  if (!sugerencias.length) return cerrarSugerencias();
+  sugerencias.forEach((p, i) => {
+    const b = document.createElement("button");
+    b.innerHTML = '<span class="n"></span><span class="precio"></span>';
+    b.querySelector(".n").textContent = p.nombre;
+    b.querySelector(".precio").textContent = "S/ " + p.precioTexto;
+    b.onclick = () => elegir(i);
+    caja.append(b);
+  });
+  activa = 0;
+  marcarActiva();
+  caja.style.display = "block";
+}
+
+function marcarActiva() {
+  [...$("sugerencias").children].forEach((b, i) => b.classList.toggle("activa", i === activa));
+}
+function cerrarSugerencias() { $("sugerencias").style.display = "none"; activa = -1; }
+
+function elegir(i) {
+  const p = sugerencias[i];
+  if (!p) return;
+  agregarItem(p.nombre, Number($("nuevaCant").value) || 1, p.precioTexto);
+  $("nuevoNombre").value = "";
+  $("nuevaCant").value = "1";
+  cerrarSugerencias();
+  pintarItems();
+  $("nuevoNombre").focus();
+}
+
+$("nuevoNombre").onkeydown = (e) => {
+  const abierto = $("sugerencias").style.display === "block";
+  if (e.key === "ArrowDown" && abierto) { e.preventDefault(); activa = Math.min(activa + 1, sugerencias.length - 1); marcarActiva(); }
+  else if (e.key === "ArrowUp" && abierto) { e.preventDefault(); activa = Math.max(activa - 1, 0); marcarActiva(); }
+  else if (e.key === "Enter") {
+    e.preventDefault();
+    if (abierto && activa >= 0) return elegir(activa);
+    // Sin sugerencia: se agrega tal cual se escribió, sin precio. Escribir
+    // algo que no está en el catálogo no puede ser un callejón sin salida.
+    if ($("nuevoNombre").value.trim()) {
+      agregarItem($("nuevoNombre").value.trim(), Number($("nuevaCant").value) || 1, "");
+      $("nuevoNombre").value = ""; $("nuevaCant").value = "1";
+      cerrarSugerencias(); pintarItems();
+    }
+  } else if (e.key === "Escape") cerrarSugerencias();
+};
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".fila-agregar")) cerrarSugerencias();
+});
+
+// ---------- Totales y previa ----------
+let pendiente;
+function recalcular() {
+  clearTimeout(pendiente);
+  pendiente = setTimeout(async () => {
+    // Las filas sin descripción todavía no son un producto: no van al
+    // documento. Pero SÍ ocupan un lugar en la tabla, así que hay que
+    // recordar a qué fila corresponde cada importe que devuelve el
+    // servidor — si no, los importes salen corridos una fila.
+    const conProducto = [];
+    estado.items.forEach((it, fila) => {
+      if (it.descripcion.trim()) conProducto.push({ it, fila });
+    });
+    const doc = {
+      tipo: "nota",
+      items: conProducto.map(({ it }) => ({
+        descripcion: it.descripcion, cantidad: Number(it.cantidad) || 1, precioUnitario: it.precioUnitario || "0",
+      })),
+    };
+    try {
+      const r = await fetch("/api/documentos/previa", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ documento: doc, perfil: estado.perfil }),
+      });
+      const datos = await r.json();
+      if (!r.ok) return;
+      pintarTotales(datos);
+      $("previa").textContent = datos.previa;
+      $("reglaPapel").textContent = datos.impresora + " · " + datos.columnas + " columnas";
+      ajustarPrevia(datos.columnas);
+      // El importe de cada línea lo calcula el servidor, con la misma
+      // aritmética en centavos que se imprime. Así lo que se ve en pantalla
+      // no puede diferir de lo que sale en el papel.
+      const filas = [...$("items").children];
+      filas.forEach((tr) => { tr.querySelector(".imp").textContent = ""; });
+      conProducto.forEach(({ fila }, i) => {
+        const tr = filas[fila];
+        if (tr) tr.querySelector(".imp").textContent = datos.importes[i] ?? "";
+      });
+    } catch (err) { /* sin conexión: se sigue editando igual */ }
+  }, 180);
+}
+
+// El papel de 80 mm son 48 columnas, que a tamaño normal no entran en la
+// pantalla de un celular. En vez de dejar que se corten (que es justo lo
+// que impide ver si algo se desborda), se achica la letra hasta que la
+// línea completa entre. Es la única forma de que la previa sirva para lo
+// que existe: ver de antemano cómo va a salir.
+function ajustarPrevia(columnas) {
+  const pre = $("previa");
+  const ancho = pre.clientWidth - 28;
+  if (ancho <= 0) return;
+  // En monoespaciada cada carácter mide ~0.6 del tamaño de letra.
+  const tam = Math.max(7, Math.min(13, ancho / (columnas * 0.6)));
+  pre.style.fontSize = tam.toFixed(2) + "px";
+}
+window.addEventListener("resize", () => {
+  const cols = Number(($("reglaPapel").textContent.match(/(\d+) columnas/) || [])[1]);
+  if (cols) ajustarPrevia(cols);
+});
+
+function pintarTotales(d) {
+  $("totales").innerHTML =
+    '<div><span>Subtotal</span><span>S/ ' + d.subtotal + '</span></div>' +
+    '<div><span>IGV (18%)</span><span>S/ ' + d.igv + '</span></div>' +
+    '<div class="grande"><span>TOTAL</span><span>S/ ' + d.total + '</span></div>';
+  const n = d.importes.length;
+  $("pieDetalle").textContent = n + (n === 1 ? " producto" : " productos");
+  $("pieTotal").textContent = "S/ " + d.total;
+}
+
+$("btnImprimir").onclick = () => {
+  alert("La conexión con la POS-8001DD es el próximo paso.\n\nLa vista previa de abajo ya es exacta: sale de la misma lista de líneas que recibe la impresora.");
+};
+
+ponerModo("pedido");
+</script>
+</body>
+</html>

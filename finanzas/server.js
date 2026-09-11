@@ -8,6 +8,11 @@ const pushSubscriptions = require("./pushSubscriptions");
 const budgetCategories = require("./budgetCategories");
 const queryIntents = require("./queryIntents");
 const productPrices = require("./productPrices");
+const documento = require("./documento");
+const termica = require("./termica");
+const impresoras = require("./impresoras");
+const productos = require("./productos");
+const foto = require("./foto");
 const reminders = require("./reminders");
 const debts = require("./debts");
 const shortfalls = require("./shortfalls");
@@ -1489,6 +1494,81 @@ app.post("/api/push/subscribe", (req, res) => {
 app.post("/api/push/unsubscribe", (req, res) => {
   pushSubscriptions.removeSubscription(req.body.endpoint);
   res.json({ ok: true });
+});
+
+
+// ---------- Documentos para imprimir ----------
+// La pantalla donde se toma la foto, se revisa lo detectado y se arma el
+// documento. Va detrás de la sesión como todo lo demás.
+app.get(["/documentos", "/documentos.html"], (req, res) => {
+  res.sendFile(path.join(__dirname, "boletas.html"));
+});
+
+// Leer una foto. Los dos modos son cosas distintas: "pedido" saca los
+// productos de lo que te pidieron para armar TU documento; "gasto" lee el
+// comprobante que te dieron al comprar, y eso queda como registro.
+app.post("/api/documentos/leer", async (req, res) => {
+  if (!foto.disponible()) {
+    return res.status(503).json({
+      error: "Falta la llave ANTHROPIC_API_KEY. Por ahora se carga a mano.",
+    });
+  }
+  try {
+    const { modo, base64, mediaType } = req.body || {};
+    const leer = modo === "gasto" ? foto.leerGasto : foto.leerPedido;
+    res.json(await leer(base64, mediaType));
+  } catch (err) {
+    res.status(400).json({ error: foto.mensajeDeError(err) });
+  }
+});
+
+// Autocompletado del catálogo.
+app.get("/api/documentos/productos", (req, res) => {
+  const encontrados = productos.sugerir(req.query.q || "", 8);
+  res.json(encontrados.map((p) => ({
+    id: p.id,
+    nombre: p.nombre,
+    precioTexto: documento.aTexto(p.precio),
+  })));
+});
+
+// Totales y vista previa.
+//
+// Los importes y el total los calcula el SERVIDOR, con la misma aritmética
+// en centavos que genera los bytes de la impresora. Si el navegador hiciera
+// su propia cuenta con decimales, la pantalla podría mostrar un total y el
+// papel salir con otro — y el que vale es el del papel.
+app.post("/api/documentos/previa", (req, res) => {
+  try {
+    const perfil = impresoras.perfilDe(req.body?.perfil);
+    const doc = documento.normalizar(req.body?.documento || {});
+    res.json({
+      previa: termica.previa(doc, { perfil: req.body?.perfil }),
+      impresora: perfil.nombre,
+      columnas: perfil.columnas,
+      importes: doc.items.map((it) => documento.aTexto(documento.importeDe(it))),
+      subtotal: documento.aTexto(doc.totales.subtotal),
+      igv: documento.aTexto(doc.totales.igv),
+      total: documento.aTexto(doc.totales.total),
+      avisos: documento.revisar(doc),
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Los bytes listos para la impresora. Todavía no hay quien los reciba —eso
+// es el Bluetooth— pero el endpoint ya es el mismo que va a usar.
+app.post("/api/documentos/escpos", (req, res) => {
+  try {
+    const bytes = termica.aEscPos(req.body?.documento || {}, {
+      perfil: req.body?.perfil,
+      copias: req.body?.copias,
+    });
+    res.type("application/octet-stream").send(bytes);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 const PORT = process.env.PORT || 3000;
