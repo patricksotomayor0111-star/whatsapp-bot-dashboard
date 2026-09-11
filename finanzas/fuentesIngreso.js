@@ -12,7 +12,12 @@ const { crearAlmacen } = require("./almacenPorUsuario");
 // Una de las fuentes es la "por defecto": ahi cae todo lo que no matchee
 // con ninguna palabra. Se puede renombrar pero no borrar, porque si no
 // habria ganancias sin ningun lado donde caer.
-const SEMILLA = [{ id: "delivery", label: "Delivery", keywords: [], porDefecto: true }];
+// esTrabajo: si esa plata la genero trabajando. Un deposito del banco o
+// plata de Ana SI es suya y SI sirve para pagar, asi que entra en la caja
+// y en las metas igual que todo. Pero no la gano repartiendo, asi que no
+// debe contar para el promedio por dia: si contara, la app creeria que
+// trabajando hace mas de lo que de verdad hace.
+const SEMILLA = [{ id: "delivery", label: "Delivery", keywords: [], porDefecto: true, esTrabajo: true }];
 
 const almacen = crearAlmacen("fuentes-ingreso-data.json", function (parsed) {
   try {
@@ -35,7 +40,19 @@ function slugify(nombre) {
 }
 
 function getAll() {
-  return datos().fuentes.map((f) => ({ ...f, keywords: (f.keywords || []).slice() }));
+  // esTrabajo por defecto en true: las fuentes creadas antes de que
+  // existiera la marca siguen contando como trabajo, que es lo que eran.
+  return datos().fuentes.map((f) => ({
+    ...f,
+    esTrabajo: f.esTrabajo !== false,
+    keywords: (f.keywords || []).slice(),
+  }));
+}
+
+// Las fuentes que NO son trabajo: plata que entro pero no se genero
+// repartiendo. Sirve para sacarlas del promedio por dia.
+function idsQueNoSonTrabajo() {
+  return getAll().filter((f) => !f.esTrabajo).map((f) => f.id);
 }
 
 function porDefecto() {
@@ -47,12 +64,18 @@ function getFuenteDef(id) {
   return datos().fuentes.find((f) => f.id === id) || porDefecto();
 }
 
-function addFuente({ label, keywords }) {
+function addFuente({ label, keywords, esTrabajo }) {
   const nombre = String(label || "").trim();
   if (!nombre) throw new Error("Ponle un nombre a la fuente.");
   const id = slugify(nombre);
   if (datos().fuentes.some((f) => f.id === id)) throw new Error("Ya tienes una fuente con ese nombre.");
-  const nueva = { id, label: nombre, keywords: normalizarKeywords(keywords), porDefecto: false };
+  const nueva = {
+    id,
+    label: nombre,
+    keywords: normalizarKeywords(keywords),
+    porDefecto: false,
+    esTrabajo: esTrabajo !== false,
+  };
   datos().fuentes.push(nueva);
   save();
   return nueva;
@@ -68,6 +91,7 @@ function editFuente(id, cambios) {
   if (!f) return null;
   if (cambios.label !== undefined && String(cambios.label).trim()) f.label = String(cambios.label).trim();
   if (cambios.keywords !== undefined) f.keywords = normalizarKeywords(cambios.keywords);
+  if (cambios.esTrabajo !== undefined) f.esTrabajo = !!cambios.esTrabajo;
   save();
   return f;
 }
@@ -147,5 +171,6 @@ module.exports = {
   removeFuente,
   clasificar,
   resolveFuenteId,
+  idsQueNoSonTrabajo,
   getResumen,
 };

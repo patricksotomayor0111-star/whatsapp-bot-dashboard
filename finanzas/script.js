@@ -4281,6 +4281,32 @@ function pintarListaFuentes(fuentes) {
     }
     card.appendChild(top);
 
+    // Marcar si esa plata se gano trabajando. La que no (un deposito del
+    // banco, plata de Ana) sigue contando en la caja y en las metas:
+    // solo queda fuera del promedio por dia, para que ese numero diga de
+    // verdad cuanto rinde repartiendo.
+    const marca = document.createElement("button");
+    const esTrabajo = f.esTrabajo !== false;
+    marca.className =
+      "mt-1 rounded-full px-2.5 py-1 text-[11px] font-semibold border active:scale-95 transition-all " +
+      (esTrabajo
+        ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+        : "bg-slate-100 text-slate-500 border-slate-200");
+    marca.textContent = esTrabajo ? "✓ La gano trabajando" : "No la gano trabajando";
+    marca.title = esTrabajo
+      ? "Cuenta para tu promedio por día"
+      : "No cuenta para tu promedio por día, pero sí para tu caja";
+    marca.addEventListener("click", async () => {
+      await fetch("/api/finance/fuentes/" + encodeURIComponent(f.id), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ esTrabajo: !esTrabajo }),
+      });
+      await cargarFuentes();
+      fetchGoalsAndProgress();
+    });
+    card.appendChild(marca);
+
     const chips = document.createElement("div");
     chips.className = "flex flex-wrap gap-1 mt-1";
     (f.keywords || []).forEach((kw) => {
@@ -5677,7 +5703,24 @@ function pintarDesglose() {
       fila.appendChild(izq);
       fila.appendChild(v);
       fila.appendChild(acciones);
-      secLista.appendChild(fila);
+
+      // Moverlo de categoria (o de fuente) sin salir del desglose.
+      const bloque = document.createElement("div");
+      bloque.className = "py-1 border-b border-slate-50";
+      fila.classList.remove("border-b", "border-slate-50");
+      bloque.appendChild(fila);
+      const selector = esGasto
+        ? (categoriasParaSelector.length
+            ? crearSelectorCategoria(m.categoriaEfectiva || "otros", m.id, categoriasParaSelector, recargarDesglose)
+            : null)
+        : (fuentesCache.length
+            ? crearSelectorFuente(m.fuenteEfectiva || fuentesCache[0].id, m.id, fuentesCache, recargarDesglose)
+            : null);
+      if (selector) {
+        selector.classList.add("mt-1");
+        bloque.appendChild(selector);
+      }
+      secLista.appendChild(bloque);
     });
   if (movs.length > 300) {
     const nota = document.createElement("p");
@@ -5740,6 +5783,18 @@ async function abrirDesglose(config) {
       movimientos: mov.movimientos || [],
       hoy: (hist.hoy && hist.hoy.fecha) || new Date().toISOString().slice(0, 10),
     };
+    // Las listas para los selectores: si nunca abrio Movimientos ni
+    // Gráficos todavia estan vacias y no se podria mover nada.
+    if (!categoriasParaSelector.length) {
+      try {
+        const cat = await (await fetch("/api/budget/categories")).json();
+        categoriasParaSelector = cat.categorias || [];
+      } catch (err) {
+        console.error("No se pudieron cargar las categorías:", err);
+      }
+    }
+    if (!fuentesCache.length) await cargarFuentes();
+
     if (!desgloseDesde.value) desgloseDesde.value = desgloseDatos.hoy.slice(0, 8) + "01";
     if (!desgloseHasta.value) desgloseHasta.value = desgloseDatos.hoy;
     pintarDesglose();
@@ -5837,7 +5892,10 @@ function pintarRitmo(data) {
 
   ritmoDetalle.textContent =
     "Promedio de tus últimos " + r.diasMedidos + (r.diasMedidos === 1 ? " día" : " días") +
-    " trabajados. En los " + m.diasHabiles + " que te quedan harías " + formatSoles(r.proyectado) + ".";
+    " trabajados. En los " + m.diasHabiles + " que te quedan harías " + formatSoles(r.proyectado) + "." +
+    (r.ingresosNoTrabajo > 0
+      ? " Aparte entraron " + formatSoles(r.ingresosNoTrabajo) + " que no ganaste trabajando (sí cuentan en tu caja)."
+      : "");
 
   if (m.cubierto) {
     ritmoVeredicto.className = "text-xs font-semibold mt-2 text-emerald-600";

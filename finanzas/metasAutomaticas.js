@@ -125,14 +125,31 @@ function calcular(hastaPedido) {
   //    veces lo mismo.
   //    Solo dias con ganancias: los que descanso o no salio bajarian el
   //    promedio sin que eso diga nada de como le va cuando trabaja.
+  //    Se calcula desde los movimientos y no desde los totales del dia,
+  //    porque hay que poder dejar afuera lo que NO se gano trabajando:
+  //    un deposito del banco o plata de Ana es suya y sirve para pagar,
+  //    pero contarla aca haria creer que repartiendo hace mas de lo real.
   const DIAS_PARA_EL_PROMEDIO = 30;
-  const diasTrabajados = cashbox
-    .getCierres()
-    .filter((c) => (c.ganancias || 0) > 0)
+  const fuentesIngreso = require("./fuentesIngreso");
+  const noEsTrabajo = new Set(fuentesIngreso.idsQueNoSonTrabajo());
+
+  const porDiaTrabajado = new Map();
+  let ingresosNoTrabajo = 0;
+  cashbox.getMovimientos().forEach((m) => {
+    if (m.tipo !== "ganancia") return;
+    if (noEsTrabajo.has(fuentesIngreso.resolveFuenteId(m))) {
+      ingresosNoTrabajo += m.monto || 0;
+      return;
+    }
+    porDiaTrabajado.set(m.fecha, (porDiaTrabajado.get(m.fecha) || 0) + (m.monto || 0));
+  });
+
+  const diasTrabajados = Array.from(porDiaTrabajado.entries())
+    .filter((par) => par[1] > 0)
+    .sort((a, b) => a[0].localeCompare(b[0]))
     .slice(-DIAS_PARA_EL_PROMEDIO);
-  if ((hoy.ganancias || 0) > 0) diasTrabajados.push({ ganancias: hoy.ganancias });
   const promedioDiario = diasTrabajados.length
-    ? diasTrabajados.reduce((s, c) => s + (c.ganancias || 0), 0) / diasTrabajados.length
+    ? diasTrabajados.reduce((s, par) => s + par[1], 0) / diasTrabajados.length
     : 0;
   const proyectado = promedioDiario * diasHabiles;
 
@@ -159,6 +176,9 @@ function calcular(hastaPedido) {
       proyectado: r2(proyectado),
       alcanza: proyectado >= falta,
       diferencia: r2(proyectado - falta),
+      // Plata que entro pero no se gano trabajando (bancos, Ana). Cuenta
+      // en la caja y en las metas; solo queda fuera del promedio.
+      ingresosNoTrabajo: r2(ingresosNoTrabajo),
     },
     diaria: r2(diaria),
     semanal: r2(diaria * diasSemana),
