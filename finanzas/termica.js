@@ -1,4 +1,5 @@
 const doc = require("./documento");
+const impresoras = require("./impresoras");
 
 // Render para impresora térmica.
 //
@@ -8,16 +9,16 @@ const doc = require("./documento");
 // EXACTA: si la previa se arma con las mismas líneas que se le mandan a la
 // impresora, lo que ves es literalmente lo que sale.
 
-// Columnas útiles por ancho de papel, con la fuente A (la normal).
-// Son las de las impresoras compatibles ESC/POS: 58 mm imprime 48 mm
-// útiles y 80 mm imprime 72 mm.
-const PERFILES = {
-  "58": { columnas: 32, puntos: 384 },
-  "80": { columnas: 48, puntos: 576 },
-};
+// Qué impresora es. Acepta el nombre de un modelo ("pos-8001dd"), un
+// ancho de papel ("58" / "80") o un perfil ya armado.
+function perfil(entrada) {
+  return impresoras.perfilDe(entrada);
+}
 
-function perfil(ancho) {
-  return PERFILES[String(ancho)] || PERFILES["58"];
+// De las opciones de impresión sale siempre un perfil: "perfil" si vino,
+// y si no el ancho suelto, por compatibilidad con las llamadas viejas.
+function perfilDeOpciones(opciones = {}) {
+  return perfil(opciones.perfil || opciones.ancho);
 }
 
 // ---------- Texto en grilla ----------
@@ -141,7 +142,7 @@ function lineasDeItem(item, ancho, cols) {
 // tanto la vista previa como los bytes de la impresora.
 function componer(documento, opciones = {}) {
   const d = doc.normalizar(documento);
-  const ancho = perfil(opciones.ancho || "58").columnas;
+  const ancho = perfilDeOpciones(opciones).columnas;
   const L = [];
 
   const texto = (t, extra = {}) => envolver(t, extra.tamano === 2 ? Math.floor(ancho / 2) : ancho)
@@ -320,6 +321,10 @@ function comandoImagen(imagen) {
 // Bytes listos para mandar a la impresora.
 function aEscPos(documento, opciones = {}) {
   const { lineas } = componer(documento, opciones);
+  const perfilImpresora = perfilDeOpciones(opciones);
+  // Por defecto se corta solo si la impresora tiene cuchilla. Se puede
+  // forzar con cortar:true para una que no esté en la lista de perfiles.
+  const cortar = opciones.cortar === undefined ? Boolean(perfilImpresora.cortador) : Boolean(opciones.cortar);
   const copias = Math.min(10, Math.max(1, Number(opciones.copias) || 1));
   const partes = [];
 
@@ -380,26 +385,129 @@ function aEscPos(documento, opciones = {}) {
     if (tamanoActual !== 1) partes.push(Buffer.from([GS, 0x21, 0]));
     if (alineacionActual !== 0) partes.push(Buffer.from([ESC, 0x61, 0]));
 
-    // Avance para que el corte no pase por encima de la última línea: el
-    // cabezal y la cuchilla están separados unos milímetros.
-    partes.push(Buffer.from([ESC, 0x64, 4]));
-    if (opciones.cortar !== false) partes.push(Buffer.from([GS, 0x56, 66, 0]));
+    // El avance final lo manda el perfil. En una portátil sin cuchilla es
+    // lo ÚNICO que separa la última línea de la barra dentada: sin esto se
+    // rasga por encima del total, porque la barra está unos milímetros más
+    // adelante que el cabezal.
+    partes.push(Buffer.from([ESC, 0x64, perfilImpresora.avanceFinal || 4]));
+    if (cortar) partes.push(Buffer.from([GS, 0x56, 66, 0]));
   }
 
   return Buffer.concat(partes);
 }
 
-// Impresión de prueba, para verificar ancho, página de códigos y corte sin
-// gastar un documento real.
-function prueba(opciones = {}) {
-  const ancho = perfil(opciones.ancho || "58").columnas;
-  return aEscPos({
-    tipo: "ticket",
-    emisor: { nombre: "PRUEBA DE IMPRESIÓN" },
-    items: [{ descripcion: `Ancho: ${ancho} columnas`, cantidad: 1, precioUnitario: 0 }],
-    pie: "Acentos: áéíóú ñÑ ¿¡ °\n" + "1234567890".repeat(5).slice(0, ancho),
-    mostrarIgv: false,
-  }, opciones);
+// Hoja de diagnóstico. No es un documento de adorno: cada línea contesta
+// una pregunta que no se puede responder sin ver el papel salir.
+function lineasDiagnostico(p) {
+  const ancho = p.columnas;
+  return [
+    { tipo: "texto", texto: "DIAGNÓSTICO DE IMPRESIÓN", align: "center", negrita: true },
+    { tipo: "texto", texto: p.nombre, align: "center" },
+    { tipo: "espacio" },
+
+    // Si esta línea de gatos entra justa y NO salta a una segunda línea,
+    // el ancho del perfil es el correcto. Si se parte, sobran columnas.
+    { tipo: "texto", texto: `1. Ancho: deben entrar ${ancho} (#) en UNA línea` },
+    { tipo: "texto", texto: "#".repeat(ancho) },
+    { tipo: "espacio" },
+
+    // La regla permite contar a ojo dónde se cortó, si se cortó.
+    { tipo: "texto", texto: "2. Regla (el último número es la columna)" },
+    { tipo: "texto", texto: "1234567890".repeat(Math.ceil(ancho / 10)).slice(0, ancho) },
+    { tipo: "espacio" },
+
+    // Si acá salen símbolos raros, la impresora no está en CP850 y hay
+    // que probar otra página de códigos.
+    { tipo: "texto", texto: "3. Acentos: áéíóú ÁÉÍÓÚ ñÑ üÜ ¿¡ °" },
+    { tipo: "espacio" },
+
+    { tipo: "texto", texto: "4. Negrita:" },
+    { tipo: "texto", texto: "   esta línea va en negrita", negrita: true },
+    { tipo: "texto", texto: "   esta línea va normal" },
+    { tipo: "espacio" },
+
+    { tipo: "texto", texto: "5. Alineación:" },
+    { tipo: "texto", texto: "izquierda", align: "left" },
+    { tipo: "texto", texto: "centro", align: "center" },
+    { tipo: "texto", texto: "derecha", align: "right" },
+    { tipo: "espacio" },
+
+    { tipo: "texto", texto: "6. QR (debe poder escanearse):" },
+    { tipo: "qr", contenido: "https://ejemplo.pe/prueba", tamano: 6, align: "center" },
+    { tipo: "espacio" },
+
+    { tipo: "texto", texto: "7. Código de barras:" },
+    { tipo: "codigoBarras", contenido: "PRUEBA123", align: "center" },
+    { tipo: "espacio" },
+
+    {
+      tipo: "texto",
+      texto: p.cortador
+        ? "8. Debajo de esta línea debe cortar solo."
+        : "8. Sin cuchilla: esta línea tiene que quedar\n   COMPLETA por encima de la barra dentada.",
+    },
+  ];
 }
 
-module.exports = { PERFILES, perfil, envolver, columnas, columnasDeItems, componer, previa, aEscPos, codificar, prueba };
+// Se arma sin pasar por componer(): el diagnóstico no es un documento de
+// venta y no tiene por qué tener totales ni emisor.
+function prueba(opciones = {}) {
+  const p = perfilDeOpciones(opciones);
+  const cortar = opciones.cortar === undefined ? Boolean(p.cortador) : Boolean(opciones.cortar);
+  const partes = [Buffer.from([ESC, 0x40]), Buffer.from([ESC, 0x74, 2])];
+
+  let alineacionActual = 0;
+  let negritaActual = false;
+
+  lineasDiagnostico(p).forEach((l) => {
+    const align = ALINEACION[l.align] === undefined ? 0 : ALINEACION[l.align];
+    if (align !== alineacionActual) {
+      partes.push(Buffer.from([ESC, 0x61, align]));
+      alineacionActual = align;
+    }
+    if (l.tipo === "espacio") return partes.push(Buffer.from([0x0a]));
+    if (l.tipo === "qr") return partes.push(comandoQr(l.contenido, l.tamano), Buffer.from([0x0a]));
+    if (l.tipo === "codigoBarras") return partes.push(comandoCodigoBarras(l.contenido), Buffer.from([0x0a]));
+
+    const negrita = Boolean(l.negrita);
+    if (negrita !== negritaActual) {
+      partes.push(Buffer.from([ESC, 0x45, negrita ? 1 : 0]));
+      negritaActual = negrita;
+    }
+    String(l.texto).split("\n").forEach((linea) => {
+      partes.push(codificar(linea), Buffer.from([0x0a]));
+    });
+    return undefined;
+  });
+
+  if (negritaActual) partes.push(Buffer.from([ESC, 0x45, 0]));
+  if (alineacionActual !== 0) partes.push(Buffer.from([ESC, 0x61, 0]));
+  partes.push(Buffer.from([ESC, 0x64, p.avanceFinal || 4]));
+  if (cortar) partes.push(Buffer.from([GS, 0x56, 66, 0]));
+
+  return Buffer.concat(partes);
+}
+
+// La misma hoja en texto, para verla en pantalla antes de gastar papel.
+function previaDiagnostico(opciones = {}) {
+  const p = perfilDeOpciones(opciones);
+  const centrar = (t) => {
+    const sobra = p.columnas - t.length;
+    return sobra > 0 ? " ".repeat(Math.floor(sobra / 2)) + t : t;
+  };
+  return lineasDiagnostico(p)
+    .map((l) => {
+      if (l.tipo === "espacio") return "";
+      if (l.tipo === "qr") return centrar("[ QR ]");
+      if (l.tipo === "codigoBarras") return centrar("[ CÓDIGO DE BARRAS ]");
+      if (l.align === "center") return centrar(l.texto);
+      if (l.align === "right") return String(l.texto).padStart(p.columnas);
+      return l.texto;
+    })
+    .join("\n");
+}
+
+module.exports = {
+  perfil, perfilDeOpciones, envolver, columnas, columnasDeItems,
+  componer, previa, aEscPos, codificar, prueba, previaDiagnostico,
+};

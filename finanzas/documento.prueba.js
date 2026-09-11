@@ -119,7 +119,26 @@ console.log("\n-- ESC/POS --");
 const bytes = t.aEscPos({ emisor: { nombre: "Mi Bodega" }, items: [{ descripcion: "Pan", cantidad: 1, precioUnitario: "2.50" }] }, { ancho: "58" });
 ok("arranca con ESC @", Array.from(bytes.slice(0, 2)), [0x1b, 0x40]);
 ok("selecciona CP850", Array.from(bytes.slice(2, 5)), [0x1b, 0x74, 2]);
-ok("termina con corte", Array.from(bytes.slice(-4)), [0x1d, 0x56, 66, 0]);
+
+console.log("\n-- la cuchilla la decide el perfil de la impresora --");
+const laTuya = t.aEscPos({ emisor: { nombre: "X" }, items: [{ descripcion: "Pan", cantidad: 1, precioUnitario: "1" }] }, { perfil: "pos-8001dd" });
+ok("la POS-8001DD nunca manda GS V", laTuya.includes(Buffer.from([0x1d, 0x56])), false);
+ok("termina avanzando 5 líneas (ESC d 5)", Array.from(laTuya.slice(-3)), [0x1b, 0x64, 5]);
+
+const mostrador = t.aEscPos({ emisor: { nombre: "X" }, items: [{ descripcion: "Pan", cantidad: 1, precioUnitario: "1" }] }, { perfil: "generica-80" });
+ok("la de mostrador sí corta", Array.from(mostrador.slice(-4)), [0x1d, 0x56, 66, 0]);
+ok("se puede forzar el corte", t.aEscPos({ items: [{ descripcion: "x", cantidad: 1, precioUnitario: "1" }] }, { perfil: "pos-8001dd", cortar: true }).includes(Buffer.from([0x1d, 0x56])), true);
+
+console.log("\n-- perfil de la POS-8001DD --");
+const imp = require("./impresoras");
+const tuya = imp.perfilDe("pos-8001dd");
+ok("48 columnas", tuya.columnas, 48);
+ok("576 puntos", tuya.puntos, 576);
+ok("sin cortador", tuya.cortador, false);
+ok("por defecto es la tuya", imp.perfilDe().columnas, 48);
+ok("ancho personalizado", imp.conAnchoPersonalizado(tuya, 40).columnas, 40);
+ok("personalizado con tope", imp.conAnchoPersonalizado(tuya, 999).columnas, 96);
+ok("el diagnóstico usa el ancho del perfil", t.previaDiagnostico({ perfil: "pos-8001dd" }).split("\n")[4].length, 48);
 const dos = t.aEscPos({ emisor: { nombre: "X" }, items: [{ descripcion: "Pan", cantidad: 1, precioUnitario: "1" }] }, { copias: 2 });
 const uno = t.aEscPos({ emisor: { nombre: "X" }, items: [{ descripcion: "Pan", cantidad: 1, precioUnitario: "1" }] }, { copias: 1 });
 ok("2 copias pesan ~el doble", dos.length > uno.length * 1.8, true);
