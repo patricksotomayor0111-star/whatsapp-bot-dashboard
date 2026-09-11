@@ -1532,6 +1532,29 @@ app.get("/api/documentos/productos", (req, res) => {
   })));
 });
 
+// El catálogo: verlo y cargarlo pegando una lista.
+//
+// Sin esto el autocompletado no sugiere nada y parece roto, cuando en
+// realidad lo que pasa es que todavía no hay productos cargados.
+app.get("/api/documentos/catalogo", (req, res) => {
+  res.json(productos.listar().map((p) => ({
+    id: p.id, nombre: p.nombre, precioTexto: documento.aTexto(p.precio), usos: p.usos || 0,
+  })));
+});
+
+app.post("/api/documentos/catalogo", (req, res) => {
+  try {
+    const r = productos.importarTexto(req.body?.texto || "");
+    res.json({ ...r, total: productos.listar().length });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete("/api/documentos/catalogo/:id", (req, res) => {
+  res.json({ ok: productos.eliminar(req.params.id), total: productos.listar().length });
+});
+
 // Totales y vista previa.
 //
 // Los importes y el total los calcula el SERVIDOR, con la misma aritmética

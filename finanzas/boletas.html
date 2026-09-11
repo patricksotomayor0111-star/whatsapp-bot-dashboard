@@ -121,6 +121,17 @@
     border-radius: 0 8px 8px 0; font-size: 13px; margin-bottom: 10px; }
   .error { background: #ef444418; border-left: 3px solid var(--mal); padding: 10px 12px;
     border-radius: 0 8px 8px 0; font-size: 13px; margin-bottom: 10px; }
+  textarea {
+    width: 100%; border: 1px solid var(--borde); border-radius: 10px; padding: 11px;
+    background: var(--fondo); color: inherit; font: 13px/1.5 ui-monospace, Menlo, monospace; resize: vertical;
+  }
+  code { background: var(--fondo); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  .catalogo { list-style: none; padding: 0; margin: 12px 0 0; }
+  .catalogo li { display: flex; gap: 10px; padding: 8px 0; border-top: 1px solid var(--borde); font-size: 14px; align-items: center; }
+  .catalogo .p { margin-left: auto; color: var(--suave); }
+  .catalogo button { border: 0; background: none; color: var(--suave); cursor: pointer; font-size: 16px; padding: 2px 4px; }
+  .ok { background: #22c55e18; border-left: 3px solid var(--ok); padding: 10px 12px;
+    border-radius: 0 8px 8px 0; font-size: 13px; margin: 10px 0 0; }
   .oculto { display: none !important; }
   .cargando { text-align: center; padding: 30px 0; color: var(--suave); }
   .puntitos::after { content: "."; animation: p 1.2s infinite; }
@@ -202,6 +213,21 @@
     <h2>4 · Cómo va a salir</h2>
     <p class="regla" id="reglaPapel"></p>
     <pre class="previa" id="previa"></pre>
+  </section>
+
+  <!-- CATÁLOGO -->
+  <section class="tarjeta">
+    <h2 style="cursor:pointer" id="tituloCatalogo">📦 Mis productos <span id="cuentaCatalogo"></span></h2>
+    <div id="cuerpoCatalogo" class="oculto">
+      <p class="explica">
+        Pegá tu lista, una por línea. Entiende <code>Coca Cola 500 ml 3.00</code>
+        y también <code>3.00 Coca Cola 500 ml</code>, que es como venís anotando precios.
+      </p>
+      <textarea id="listaProductos" rows="6" placeholder="Inca Kola 500 ml   3.00&#10;Coca Cola 500 ml   3.00&#10;Pan francés   0.50"></textarea>
+      <button class="principal" id="btnGuardarProductos" style="margin-top:10px">Guardar en el catálogo</button>
+      <div id="resultadoCatalogo"></div>
+      <ul class="catalogo" id="catalogo"></ul>
+    </div>
   </section>
 </main>
 
@@ -535,6 +561,67 @@ function pintarTotales(d) {
 $("btnImprimir").onclick = () => {
   alert("La conexión con la POS-8001DD es el próximo paso.\n\nLa vista previa de abajo ya es exacta: sale de la misma lista de líneas que recibe la impresora.");
 };
+
+// ---------- Catálogo ----------
+$("tituloCatalogo").onclick = () => {
+  const c = $("cuerpoCatalogo");
+  c.classList.toggle("oculto");
+  if (!c.classList.contains("oculto")) cargarCatalogo();
+};
+
+async function cargarCatalogo() {
+  try {
+    const r = await fetch("/api/documentos/catalogo");
+    const lista = await r.json();
+    $("cuentaCatalogo").textContent = lista.length ? "· " + lista.length : "· vacío";
+    const ul = $("catalogo");
+    ul.innerHTML = "";
+    lista.forEach((p) => {
+      const li = document.createElement("li");
+      li.innerHTML = '<span class="n"></span><span class="p"></span><button title="Quitar">×</button>';
+      li.querySelector(".n").textContent = p.nombre;
+      li.querySelector(".p").textContent = "S/ " + p.precioTexto;
+      li.querySelector("button").onclick = async () => {
+        await fetch("/api/documentos/catalogo/" + p.id, { method: "DELETE" });
+        cargarCatalogo();
+      };
+      ul.append(li);
+    });
+  } catch (err) { /* sin conexión */ }
+}
+
+$("btnGuardarProductos").onclick = async () => {
+  const texto = $("listaProductos").value;
+  if (!texto.trim()) return;
+  const r = await fetch("/api/documentos/catalogo", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ texto }),
+  });
+  const d = await r.json();
+  const caja = $("resultadoCatalogo");
+  caja.innerHTML = "";
+  const ok = document.createElement("div");
+  ok.className = "ok";
+  ok.textContent = d.agregados + (d.agregados === 1 ? " producto guardado." : " productos guardados.");
+  caja.append(ok);
+  // Las líneas que no se entendieron quedan en el cuadro para corregirlas,
+  // en vez de perderse: es más fácil arreglar tres líneas que volver a
+  // pegar la lista entera.
+  if (d.ignoradas && d.ignoradas.length) {
+    const av = document.createElement("div");
+    av.className = "aviso";
+    av.textContent = "Estas no se entendieron y quedaron abajo para que las corrijas: " + d.ignoradas.length;
+    caja.append(av);
+    $("listaProductos").value = d.ignoradas.join("\n");
+  } else {
+    $("listaProductos").value = "";
+  }
+  cargarCatalogo();
+};
+
+// Al arrancar se mira cuántos hay, para que el título ya avise si está
+// vacío antes de que alguien se pregunte por qué no autocompleta.
+cargarCatalogo();
 
 ponerModo("pedido");
 </script>
