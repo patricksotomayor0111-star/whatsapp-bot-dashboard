@@ -121,6 +121,21 @@
     border-radius: 0 8px 8px 0; font-size: 13px; margin-bottom: 10px; }
   .error { background: #ef444418; border-left: 3px solid var(--mal); padding: 10px 12px;
     border-radius: 0 8px 8px 0; font-size: 13px; margin-bottom: 10px; }
+  .bloque-logo { border: 1px solid var(--borde); border-radius: 12px; padding: 12px; margin-bottom: 14px; }
+  .cabecera-logo { display: flex; align-items: center; margin-bottom: 10px; font-size: 13px; color: var(--suave); }
+  .cabecera-logo button { margin-left: auto; }
+  button.mini { border: 0; background: none; color: var(--suave); font: inherit; font-size: 12px;
+    cursor: pointer; text-decoration: underline; padding: 2px 4px; }
+  .previa-logo {
+    background: #fff; border-radius: 8px; padding: 12px; text-align: center;
+    box-shadow: inset 0 0 0 1px #0001; margin-bottom: 10px; min-height: 56px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .previa-logo .sin-logo { color: #9ca3af; font-size: 13px; }
+  /* Pixelado a propósito: al ampliarlo se tiene que ver el punto real que
+     va a imprimir la térmica, no una versión suavizada que miente. */
+  .previa-logo canvas { max-width: 100%; image-rendering: pixelated; }
+  input[type=range] { width: 100%; margin-top: 6px; accent-color: var(--acento); }
   label { display: block; margin-bottom: 10px; font-size: 13px; color: var(--suave); }
   label small { opacity: .75; }
   label input {
@@ -235,6 +250,34 @@
         se imprime y se reparte.
       </p>
       <div id="avisosNegocio"></div>
+
+      <div class="bloque-logo">
+        <div class="cabecera-logo">
+          <span>Logo</span>
+          <button class="mini" id="btnQuitarLogo">Quitar</button>
+        </div>
+        <div class="previa-logo" id="previaLogo">
+          <span class="sin-logo">Sin logo todavía</span>
+          <canvas id="lienzoLogo" class="oculto"></canvas>
+        </div>
+        <button class="secundaria" id="btnElegirLogo" style="margin-top:0">Elegir imagen</button>
+        <input type="file" id="archivoLogo" accept="image/*" hidden>
+        <div id="controlesLogo" class="oculto">
+          <label>Ancho en el papel <span id="valorAncho"></span>
+            <input type="range" id="anchoLogo" min="20" max="100" value="60">
+          </label>
+          <label>Contraste <span id="valorContraste"></span>
+            <input type="range" id="contrasteLogo" min="50" max="250" value="100">
+          </label>
+          <p class="explica" style="margin:0 0 10px">
+            Así de granulado va a salir en el papel. La térmica solo imprime
+            punto o nada —no hay grises—, así que las fotos se tapan de
+            puntitos; un logo de trazo simple sale mucho mejor.
+          </p>
+          <button class="principal" id="btnGuardarLogo">Guardar logo</button>
+        </div>
+      </div>
+
       <label>Nombre del negocio<input id="nNombre" placeholder="Minimarket La Esquina"></label>
       <label>RUC <small>(opcional)</small><input id="nRuc" inputmode="numeric" placeholder="20123456789"></label>
       <label>Dirección<input id="nDireccion" placeholder="Av. Los Álamos 456"></label>
@@ -600,6 +643,171 @@ $("btnImprimir").onclick = () => {
   alert("La conexión con la POS-8001DD es el próximo paso.\n\nLa vista previa de abajo ya es exacta: sale de la misma lista de líneas que recibe la impresora.");
 };
 
+// ---------- Logo ----------
+//
+// La impresora térmica no tiene grises: cada punto se imprime o no se
+// imprime. Para que una imagen con medios tonos se vea, se usa dithering:
+// se reparte el error de redondeo de cada píxel entre sus vecinos, y de
+// lejos el ojo promedia los puntos y ve el gris que no existe.
+// Floyd-Steinberg es el reparto clásico y el que mejor se ve en papel.
+
+let imagenLogo = null;   // la imagen original, para re-tramar al mover los controles
+let logoListo = null;    // { ancho, alto, bits }
+
+function aMonocromo(img, anchoDestino, contraste) {
+  const escala = anchoDestino / img.width;
+  const alto = Math.max(1, Math.round(img.height * escala));
+  const c = document.createElement("canvas");
+  c.width = anchoDestino;
+  c.height = alto;
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  // Fondo blanco: un PNG con transparencia, sin esto, daría negro y el
+  // logo saldría como un rectángulo sólido que se come el papel.
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, anchoDestino, alto);
+  ctx.drawImage(img, 0, 0, anchoDestino, alto);
+
+  const px = ctx.getImageData(0, 0, anchoDestino, alto).data;
+  const total = anchoDestino * alto;
+  // Float y no enteros: el error del dithering es fraccionario y
+  // redondearlo en cada paso arruina justamente lo que se quiere repartir.
+  const gris = new Float32Array(total);
+  for (let i = 0; i < total; i++) {
+    const r = px[i * 4], g = px[i * 4 + 1], b = px[i * 4 + 2], a = px[i * 4 + 3];
+    // Luminancia perceptual: el verde pesa más que el azul para el ojo.
+    let v = a < 128 ? 255 : 0.299 * r + 0.587 * g + 0.114 * b;
+    v = (v - 128) * contraste + 128;
+    gris[i] = v < 0 ? 0 : v > 255 ? 255 : v;
+  }
+
+  for (let y = 0; y < alto; y++) {
+    for (let x = 0; x < anchoDestino; x++) {
+      const i = y * anchoDestino + x;
+      const nuevo = gris[i] < 128 ? 0 : 255;
+      const err = gris[i] - nuevo;
+      gris[i] = nuevo;
+      if (x + 1 < anchoDestino) gris[i + 1] += err * 7 / 16;
+      if (y + 1 < alto) {
+        if (x > 0) gris[i + anchoDestino - 1] += err * 3 / 16;
+        gris[i + anchoDestino] += err * 5 / 16;
+        if (x + 1 < anchoDestino) gris[i + anchoDestino + 1] += err * 1 / 16;
+      }
+    }
+  }
+
+  // Empaquetado que espera ESC/POS: 8 píxeles por byte, el de más a la
+  // izquierda en el bit más alto, y 1 = punto negro. Cada fila arranca en
+  // un byte nuevo; si no, la imagen sale corrida en diagonal.
+  const bytesPorFila = Math.ceil(anchoDestino / 8);
+  const bits = new Uint8Array(bytesPorFila * alto);
+  for (let y = 0; y < alto; y++) {
+    for (let x = 0; x < anchoDestino; x++) {
+      if (gris[y * anchoDestino + x] < 128) {
+        bits[y * bytesPorFila + (x >> 3)] |= 0x80 >> (x & 7);
+      }
+    }
+  }
+  return { ancho: anchoDestino, alto, bits };
+}
+
+// Dibuja los bits tal cual van a salir, para que lo que se ve sea lo que
+// se imprime y no una aproximación.
+function dibujarLogo(logo) {
+  const c = $("lienzoLogo");
+  c.width = logo.ancho;
+  c.height = logo.alto;
+  const ctx = c.getContext("2d");
+  const img = ctx.createImageData(logo.ancho, logo.alto);
+  const bytesPorFila = Math.ceil(logo.ancho / 8);
+  for (let y = 0; y < logo.alto; y++) {
+    for (let x = 0; x < logo.ancho; x++) {
+      const negro = (logo.bits[y * bytesPorFila + (x >> 3)] >> (7 - (x & 7))) & 1;
+      const i = (y * logo.ancho + x) * 4;
+      const v = negro ? 0 : 255;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
+      img.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  c.classList.remove("oculto");
+  $("previaLogo").querySelector(".sin-logo").classList.add("oculto");
+}
+
+function retramar() {
+  if (!imagenLogo) return;
+  const pct = Number($("anchoLogo").value);
+  const contraste = Number($("contrasteLogo").value) / 100;
+  $("valorAncho").textContent = pct + "%";
+  $("valorContraste").textContent = contraste.toFixed(2) + "x";
+  // Múltiplo de 8: el empaquetado va de a 8 píxeles, así no se desperdicia
+  // una fracción de byte en cada fila.
+  const ancho = Math.max(8, Math.round(576 * pct / 100 / 8) * 8);
+  logoListo = aMonocromo(imagenLogo, ancho, contraste);
+  dibujarLogo(logoListo);
+}
+
+$("btnElegirLogo").onclick = () => $("archivoLogo").click();
+$("archivoLogo").onchange = (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const img = new Image();
+  img.onload = () => {
+    imagenLogo = img;
+    $("controlesLogo").classList.remove("oculto");
+    retramar();
+  };
+  img.onerror = () => alert("No se pudo abrir esa imagen.");
+  img.src = URL.createObjectURL(file);
+};
+$("anchoLogo").oninput = retramar;
+$("contrasteLogo").oninput = retramar;
+
+// btoa() se traga de a poco: con un logo grande, pasarle el array entero
+// de una revienta la pila del navegador.
+function aBase64(u8) {
+  let s = "";
+  const paso = 0x8000;
+  for (let i = 0; i < u8.length; i += paso) {
+    s += String.fromCharCode.apply(null, u8.subarray(i, i + paso));
+  }
+  return btoa(s);
+}
+
+$("btnGuardarLogo").onclick = async () => {
+  if (!logoListo) return;
+  const r = await fetch("/api/documentos/logo", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ancho: logoListo.ancho, alto: logoListo.alto, bits: aBase64(logoListo.bits) }),
+  });
+  const d = await r.json();
+  const caja = $("resultadoNegocio");
+  caja.innerHTML = '<div class="' + (r.ok ? "ok" : "error") + '"></div>';
+  caja.firstElementChild.textContent = r.ok
+    ? "Logo guardado. Ya sale en tus documentos."
+    : (d.error || "No se pudo guardar el logo.");
+  if (r.ok) recalcular();
+};
+
+$("btnQuitarLogo").onclick = async () => {
+  await fetch("/api/documentos/logo", { method: "DELETE" });
+  imagenLogo = null;
+  logoListo = null;
+  $("lienzoLogo").classList.add("oculto");
+  $("controlesLogo").classList.add("oculto");
+  $("previaLogo").querySelector(".sin-logo").classList.remove("oculto");
+  recalcular();
+};
+
+async function cargarLogo() {
+  try {
+    const r = await fetch("/api/documentos/logo");
+    const d = await r.json();
+    if (!d || !d.bits) return;
+    const bits = Uint8Array.from(atob(d.bits), (ch) => ch.charCodeAt(0));
+    dibujarLogo({ ancho: d.ancho, alto: d.alto, bits });
+  } catch (err) { /* sin conexión */ }
+}
+
 // ---------- Mi negocio ----------
 const CAMPOS_NEGOCIO = {
   nNombre: "nombre", nRuc: "ruc", nDireccion: "direccion",
@@ -707,6 +915,7 @@ $("btnGuardarProductos").onclick = async () => {
 // vacío antes de que alguien se pregunte por qué no autocompleta.
 cargarCatalogo();
 cargarNegocio();
+cargarLogo();
 
 ponerModo("pedido");
 </script>

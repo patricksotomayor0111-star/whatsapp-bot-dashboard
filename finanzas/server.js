@@ -14,6 +14,7 @@ const impresoras = require("./impresoras");
 const productos = require("./productos");
 const foto = require("./foto");
 const negocio = require("./negocio");
+const logoNegocio = require("./logo");
 const reminders = require("./reminders");
 const debts = require("./debts");
 const shortfalls = require("./shortfalls");
@@ -1545,6 +1546,23 @@ app.post("/api/documentos/negocio", (req, res) => {
   res.json({ ...guardado, proximoNumero: negocio.proximoNumero(), avisos: negocio.revisar() });
 });
 
+// El logo, ya tramado a 1 bit por el navegador.
+app.get("/api/documentos/logo", (req, res) => {
+  res.json(logoNegocio.get() || {});
+});
+
+app.post("/api/documentos/logo", (req, res) => {
+  try {
+    res.json(logoNegocio.set(req.body || {}));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete("/api/documentos/logo", (req, res) => {
+  res.json({ ok: logoNegocio.quitar() });
+});
+
 // El catálogo: verlo y cargarlo pegando una lista.
 //
 // Sin esto el autocompletado no sugiere nada y parece roto, cuando en
@@ -1582,6 +1600,7 @@ function armarDocumento(entrada = {}) {
   return documento.normalizar({
     ...entrada,
     emisor: negocio.comoEmisor(),
+    logo: logoNegocio.paraImprimir(),
     pie: entrada.pie === undefined ? perfilNegocio.pie : entrada.pie,
     numero: entrada.numero || negocio.proximoNumero(),
   });
@@ -1594,6 +1613,7 @@ app.post("/api/documentos/previa", (req, res) => {
     res.json({
       previa: termica.previa(doc, { perfil }),
       numero: doc.numero,
+      tieneLogo: Boolean(doc.logo),
       impresora: perfil.nombre,
       columnas: perfil.columnas,
       importes: doc.items.map((it) => documento.aTexto(documento.importeDe(it))),
