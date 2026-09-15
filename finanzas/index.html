@@ -674,6 +674,17 @@
 
         <!-- Tab: Ajustes -->
         <div id="financeTabAjustes" class="finance-tab-panel hidden space-y-4">
+          <section class="card fade-in bg-white border border-slate-100 py-3">
+            <div class="flex items-center justify-between gap-3">
+              <div class="min-w-0">
+                <p class="text-sm font-bold text-slate-800">Modo oscuro</p>
+                <p class="text-xs text-slate-400 mt-0.5">Para cuando trabajas de noche.</p>
+              </div>
+              <button id="toggleOscuro" class="shrink-0 rounded-full w-14 h-8 p-1 transition-all active:scale-95 bg-slate-200">
+                <span id="toggleOscuroBolita" class="block w-6 h-6 rounded-full bg-white shadow transition-all"></span>
+              </button>
+            </div>
+          </section>
           <!-- Dónde escucha el bot de esta cuenta -->
           <section id="chatConfigCard" class="card fade-in bg-white border border-slate-100 hidden">
         <p class="eyebrow text-brand-green"><i class="fa-solid fa-comment-dots"></i> DÓNDE ANOTAS TUS REPARTOS</p>
@@ -797,6 +808,50 @@
       </div>
     </div>
 
+    <!-- Hoja para editar un movimiento. Reemplaza las ventanitas del
+         navegador: eran dos seguidas (monto y despues descripcion) y no
+         dejaban tocar la fecha, la hora ni el tipo. -->
+    <div id="hojaMovimiento" class="fixed inset-0 z-[55] hidden items-end justify-center">
+      <div id="hojaFondo" class="absolute inset-0 bg-slate-900/50"></div>
+      <div class="relative w-full max-w-[420px] bg-white rounded-t-3xl px-5 pt-3 pb-7 max-h-[88vh] overflow-y-auto">
+        <div class="w-10 h-1 rounded-full bg-slate-200 mx-auto mb-4"></div>
+        <p id="hojaTitulo" class="text-sm font-bold text-slate-800 mb-3">Editar movimiento</p>
+
+        <div class="flex gap-2">
+          <button data-hoja-tipo="ganancia" class="hoja-tipo flex-1 rounded-xl py-2 text-sm font-semibold border transition-all active:scale-95">Ganancia</button>
+          <button data-hoja-tipo="gasto" class="hoja-tipo flex-1 rounded-xl py-2 text-sm font-semibold border transition-all active:scale-95">Gasto</button>
+        </div>
+
+        <label class="block text-[11px] font-semibold text-slate-400 mt-3">Monto
+          <input id="hojaMonto" type="number" step="0.01" class="w-full mt-0.5 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-green/40" />
+        </label>
+        <label class="block text-[11px] font-semibold text-slate-400 mt-2">Descripción
+          <input id="hojaDesc" type="text" class="w-full mt-0.5 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-green/40" />
+        </label>
+        <div class="grid grid-cols-2 gap-2 mt-2">
+          <label class="block text-[11px] font-semibold text-slate-400">Fecha
+            <input id="hojaFecha" type="date" class="w-full mt-0.5 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200" />
+          </label>
+          <label class="block text-[11px] font-semibold text-slate-400">Hora
+            <input id="hojaHora" type="time" class="w-full mt-0.5 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200" />
+          </label>
+        </div>
+        <div id="hojaClasif" class="mt-2"></div>
+
+        <button id="hojaGuardar" class="w-full mt-4 rounded-xl px-4 py-3 text-sm font-bold bg-brand-green text-white active:scale-95 transition-all">Guardar</button>
+        <div class="flex gap-2 mt-2">
+          <button id="hojaCancelar" class="flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold bg-slate-100 text-slate-600 active:scale-95 transition-all">Cancelar</button>
+          <button id="hojaEliminar" class="flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold bg-rose-50 text-rose-600 active:scale-95 transition-all">Eliminar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Aviso flotante: confirma lo que se hizo y, cuando se puede,
+         ofrece deshacerlo. Antes nada avisaba que algo se habia guardado. -->
+    <div id="avisoFlotante" class="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70] hidden items-center gap-3 rounded-2xl bg-slate-900 text-white px-4 py-3 shadow-lg max-w-[92vw]">
+      <span id="avisoTexto" class="text-xs"></span>
+      <button id="avisoAccion" class="hidden shrink-0 text-xs font-bold text-emerald-300 active:scale-95"></button>
+    </div>
     <!-- Desglose: se abre tocando cualquier cifra del Resumen. Muestra de
          donde sale ese numero, con filtro de periodo y buscador. -->
     <div id="desgloseOverlay" class="fixed inset-0 bg-brand-bg z-50 hidden flex-col">

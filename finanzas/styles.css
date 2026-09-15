@@ -321,3 +321,66 @@ body {
     transition-duration: 0.001ms !important;
   }
 }
+
+/* =========================================
+   Modo oscuro
+   =========================================
+   La app se pinta con utilidades de Tailwind escritas a mano en el HTML y
+   generadas desde el script, asi que agregar una variante "dark:" a cada
+   una seria tocar cientos de lugares. En vez de eso se remapean aca las
+   pocas clases de color que de verdad se usan. Es una aproximacion, pero
+   cubre la app entera con quince reglas y no puede romper nada de dia:
+   sin la clase .oscuro en el body, nada de esto aplica. */
+
+body.oscuro {
+  background-color: #0F172A;
+  color: #E2E8F0;
+}
+
+body.oscuro .bg-brand-bg { background-color: #0F172A !important; }
+body.oscuro .bg-white { background-color: #1E293B !important; }
+body.oscuro .bg-white\/90,
+body.oscuro .bg-white\/95 { background-color: rgba(30, 41, 59, 0.95) !important; }
+
+body.oscuro .bg-slate-50 { background-color: #1E293B !important; }
+body.oscuro .bg-slate-100 { background-color: #334155 !important; }
+
+body.oscuro .text-slate-900,
+body.oscuro .text-slate-800 { color: #F1F5F9 !important; }
+body.oscuro .text-slate-700 { color: #E2E8F0 !important; }
+body.oscuro .text-slate-600 { color: #CBD5E1 !important; }
+body.oscuro .text-slate-500 { color: #94A3B8 !important; }
+body.oscuro .text-slate-400 { color: #94A3B8 !important; }
+body.oscuro .text-slate-300 { color: #64748B !important; }
+
+body.oscuro .border-slate-100,
+body.oscuro .border-slate-200 { border-color: #334155 !important; }
+body.oscuro .border-slate-50 { border-color: #293548 !important; }
+
+/* Las tarjetas de color (verde, rosa, azul, violeta, ambar) se apagan para
+   que no brillen de noche, pero conservan su tinte para seguir
+   distinguiendose de un vistazo. */
+body.oscuro .bg-green-50,
+body.oscuro .bg-emerald-50 { background-color: #14352A !important; }
+body.oscuro .bg-rose-50 { background-color: #3B1D26 !important; }
+body.oscuro .bg-blue-50 { background-color: #17293F !important; }
+body.oscuro .bg-violet-50 { background-color: #281F3D !important; }
+body.oscuro .bg-amber-50 { background-color: #3A2E14 !important; }
+body.oscuro .border-green-100,
+body.oscuro .border-emerald-100 { border-color: #1E4D3A !important; }
+body.oscuro .border-rose-100,
+body.oscuro .border-rose-200 { border-color: #5B2733 !important; }
+body.oscuro .border-blue-100 { border-color: #234A6E !important; }
+body.oscuro .border-violet-100 { border-color: #3A2C5A !important; }
+body.oscuro .border-amber-100,
+body.oscuro .border-amber-200 { border-color: #5A4718 !important; }
+
+body.oscuro input,
+body.oscuro select,
+body.oscuro textarea {
+  background-color: #0F172A !important;
+  color: #E2E8F0 !important;
+  border-color: #334155 !important;
+}
+
+body.oscuro .card { box-shadow: 0 4px 20px -4px rgba(0, 0, 0, 0.5); }

@@ -46,6 +46,18 @@ function getAll() {
 // A qué local pertenece una descripción. Se acepta que coincida entera, que
 // alguna de sus palabras sea la abreviatura, o que empiece con ella (así
 // "bum" agarra también "bumanguesa"). Devuelve el local o null.
+// El local asignado a mano manda sobre el que se adivina por la
+// descripcion. Mismo criterio que la categoria de un gasto: lo que uno
+// dice explicitamente le gana a lo que el bot dedujo.
+function resolveLocal(movimiento) {
+  const manual = movimiento && movimiento.localId;
+  if (manual) {
+    const l = datos().locales.find((x) => x.id === manual);
+    if (l) return l;
+  }
+  return localDe(movimiento ? movimiento.descripcion : "");
+}
+
 function localDe(descripcion) {
   const desc = normalizeText(descripcion);
   if (!desc) return null;
@@ -119,7 +131,7 @@ function getRanking(movimientos, mes, hoyLabel, costoPorReparto = 0) {
   const porLocal = {};
 
   delMes.forEach((m) => {
-    const local = localDe(m.descripcion);
+    const local = resolveLocal(m);
     if (!local) return;
     porLocal[local.id] = porLocal[local.id] || { total: 0, pedidos: 0 };
     porLocal[local.id].total += m.monto;
@@ -130,7 +142,7 @@ function getRanking(movimientos, mes, hoyLabel, costoPorReparto = 0) {
   const ultimaFecha = {};
   movimientos.forEach((m) => {
     if (m.tipo !== "ganancia") return;
-    const local = localDe(m.descripcion);
+    const local = resolveLocal(m);
     if (!local) return;
     if (!ultimaFecha[local.id] || m.fecha > ultimaFecha[local.id]) ultimaFecha[local.id] = m.fecha;
   });
@@ -163,7 +175,7 @@ function getSinAsignar(movimientos, mes) {
   const sueltos = {};
 
   delMes.forEach((m) => {
-    if (localDe(m.descripcion)) return;
+    if (resolveLocal(m)) return;
     const clave = normalizeText(m.descripcion);
     if (!clave) return;
     sueltos[clave] = sueltos[clave] || { nombre: clave, total: 0, pedidos: 0 };
@@ -179,6 +191,7 @@ function getSinAsignar(movimientos, mes) {
 module.exports = {
   getAll,
   localDe,
+  resolveLocal,
   addLocal,
   editLocal,
   removeLocal,

@@ -408,7 +408,16 @@ function editMovimiento(indice, cambios) {
   const viejo = efectoDelta(mov.tipo, mov.monto, -1);
   ajustarTotalesPorFecha(mov.fecha, viejo.g, viejo.gs);
 
-  if (cambios.tipo !== undefined) mov.tipo = cambios.tipo;
+  // Dar vuelta un movimiento (una ganancia que en realidad era gasto)
+  // solo entre esos dos: un "caja" es un conteo y no se convierte.
+  if (cambios.tipo !== undefined && ["ganancia", "gasto"].includes(cambios.tipo) && mov.tipo !== "caja") {
+    if (mov.tipo !== cambios.tipo) {
+      // La clasificacion del tipo viejo deja de tener sentido.
+      delete mov.categoriaId;
+      delete mov.fuenteId;
+    }
+    mov.tipo = cambios.tipo;
+  }
   if (cambios.monto !== undefined) mov.monto = Number(cambios.monto) || 0;
   if (cambios.descripcion !== undefined) mov.descripcion = cambios.descripcion;
   if (cambios.fecha !== undefined) mov.fecha = cambios.fecha;
@@ -425,6 +434,11 @@ function editMovimiento(indice, cambios) {
   if (cambios.fuenteId !== undefined) {
     if (cambios.fuenteId) mov.fuenteId = cambios.fuenteId;
     else delete mov.fuenteId;
+  }
+  // Y de que local vino ese reparto, cuando la descripcion no alcanza.
+  if (cambios.localId !== undefined) {
+    if (cambios.localId) mov.localId = cambios.localId;
+    else delete mov.localId;
   }
 
   const nuevo = efectoDelta(mov.tipo, mov.monto, 1);

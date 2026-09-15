@@ -641,7 +641,9 @@ async function fetchReminderBadge() {
   try {
     const res = await fetch("/api/reminders");
     const data = await res.json();
-    actualizarBadges((data.pendientes || []).length);
+    pendientesPorPagar = (data.pendientes || []).length;
+    actualizarBadges(pendientesPorPagar);
+    if (typeof pintarBottomNav === "function") pintarBottomNav();
   } catch (err) {
     // silencioso: si falla, simplemente no toca el badge
   }
@@ -1358,29 +1360,42 @@ function renderMovimientos() {
       editBtn.innerHTML = '<i class="fa-solid fa-pen text-slate-400"></i>';
       editBtn.className = "w-7 h-7 flex items-center justify-center";
       editBtn.addEventListener("click", async () => {
-        const nuevoMontoStr = prompt("Nuevo monto:", m.monto);
-        if (nuevoMontoStr === null) return;
-        const nuevoMonto = parseFloat(nuevoMontoStr);
-        if (!Number.isFinite(nuevoMonto) || nuevoMonto <= 0) return;
-        const nuevaDescripcion = prompt("Nueva descripción:", m.descripcion || "");
-        if (nuevaDescripcion === null) return;
-        await fetch(`/api/finance/movements/${m.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ monto: nuevoMonto, descripcion: nuevaDescripcion }),
+        await abrirHojaMovimiento(m, async () => {
+          await fetchMovimientos();
+          fetchCashboxToday();
+          fetchGoalsAndProgress();
         });
-        await fetchMovimientos();
-        fetchCashboxToday();
       });
 
       const delBtn = document.createElement("button");
       delBtn.innerHTML = '<i class="fa-solid fa-trash text-rose-400"></i>';
       delBtn.className = "w-7 h-7 flex items-center justify-center";
       delBtn.addEventListener("click", async () => {
-        if (!confirm("¿Eliminar este movimiento?")) return;
+        const copia = { ...m };
         await fetch(`/api/finance/movements/${m.id}`, { method: "DELETE" });
         await fetchMovimientos();
         fetchCashboxToday();
+        // Sin preguntar, pero con vuelta atras: mas rapido y mas seguro
+        // que un "¿seguro?" que uno acepta sin leer.
+        mostrarAviso("Movimiento eliminado.", {
+          label: "Deshacer",
+          hacer: async () => {
+            await fetch("/api/finance/movements", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                tipo: copia.tipo,
+                monto: copia.monto,
+                descripcion: copia.descripcion,
+                fecha: copia.fecha,
+                hora: copia.hora,
+              }),
+            });
+            await fetchMovimientos();
+            fetchCashboxToday();
+            mostrarAviso("Lo devolví.");
+          },
+        });
       });
 
       acciones.appendChild(editBtn);
@@ -2224,6 +2239,19 @@ function renderChartCategorias(categorias) {
       responsive: true,
       maintainAspectRatio: false,
       plugins: { legend: { position: "bottom", labels: { boxWidth: 12, font: { size: 10 } } } },
+      // Ver un grafico y no poder entrar a lo que muestra deja la pregunta
+      // a medias: tocar una porcion abre el detalle de esa categoria.
+      onClick: (evt, elementos) => {
+        if (!elementos.length) return;
+        const cat = gastos[elementos[0].index];
+        if (!cat) return;
+        abrirDesglose({
+          tipo: "gasto",
+          titulo: cat.label,
+          periodo: "mes",
+          filtroExtra: (m) => (m.categoriaEfectiva || "otros") === cat.id,
+        });
+      },
     },
   });
 }
@@ -5085,6 +5113,17 @@ function renderChartLocales(ranking) {
           },
         },
       },
+      onClick: (evt, elementos) => {
+        if (!elementos.length) return;
+        const local = conPedidos[elementos[0].index];
+        if (!local) return;
+        abrirDesglose({
+          tipo: "ganancia",
+          titulo: local.nombre,
+          periodo: "mes",
+          filtroExtra: (m) => m.localEfectivo === local.id,
+        });
+      },
     },
   });
 }
@@ -5163,6 +5202,7 @@ const SECCIONES = [
 const bottomNav = document.getElementById("bottomNav");
 const subTabs = document.getElementById("subTabs");
 let seccionActual = "inicio";
+let pendientesPorPagar = 0;
 
 function seccionDe(panelId) {
   return SECCIONES.find((s) => s.paneles.some(([id]) => id === panelId));
@@ -5194,6 +5234,13 @@ function pintarBottomNav() {
     const t = document.createElement("span");
     t.className = "text-[10px] font-semibold leading-none";
     t.textContent = s.label;
+    // Un punto en Plan cuando hay pagos venciendo: para verlo sin entrar.
+    if (s.id === "plan" && pendientesPorPagar > 0) {
+      const punto = document.createElement("span");
+      punto.className = "absolute top-1.5 ml-7 w-2 h-2 rounded-full bg-brand-red";
+      b.classList.add("relative");
+      b.appendChild(punto);
+    }
     b.appendChild(i);
     b.appendChild(t);
     b.addEventListener("click", () => irAPanel(s.paneles[0][0]));
@@ -5395,6 +5442,7 @@ function filtrarMovimientos(rango) {
     if (m.tipo !== desgloseConfig.tipo) return false;
     if (m.fecha < rango.desde || m.fecha > rango.hasta) return false;
     if (q && !(m.descripcion || "").toLowerCase().includes(q) && !String(m.monto).includes(q)) return false;
+    if (desgloseConfig.filtroExtra && !desgloseConfig.filtroExtra(m)) return false;
     return true;
   });
 }
@@ -5439,18 +5487,23 @@ async function recargarDesglose() {
 }
 
 async function editarMovimientoDesdeDesglose(m) {
-  const montoStr = prompt("Nuevo monto:", m.monto);
-  if (montoStr === null) return;
-  const monto = parseFloat(montoStr);
-  if (!Number.isFinite(monto) || monto <= 0) return;
-  const descripcion = prompt("Nueva descripción:", m.descripcion || "");
-  if (descripcion === null) return;
-  await fetch("/api/finance/movements/" + encodeURIComponent(m.id), {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ monto, descripcion }),
-  });
-  await recargarDesglose();
+  await abrirHojaMovimiento(m, recargarDesglose);
+}
+
+const DIAS_LARGOS = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+const MESES_LARGOS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "set", "oct", "nov", "dic"];
+
+// "Hoy", "Ayer" o "lunes 8 set": leer una fecha cruda cuesta mas de lo
+// que parece cuando la lista es larga.
+function etiquetaFecha(fecha, hoy) {
+  if (!fecha) return "";
+  if (fecha === hoy) return "Hoy";
+  const p = fecha.split("-").map(Number);
+  const dt = new Date(Date.UTC(p[0], p[1] - 1, p[2]));
+  const h = hoy.split("-").map(Number);
+  const ayer = new Date(Date.UTC(h[0], h[1] - 1, h[2] - 1));
+  if (dt.getTime() === ayer.getTime()) return "Ayer";
+  return DIAS_LARGOS[dt.getUTCDay()] + " " + p[2] + " " + MESES_LARGOS[p[1] - 1];
 }
 
 function mensajeDesglose(texto) {
@@ -5656,11 +5709,21 @@ function pintarDesglose() {
   tl.className = "eyebrow text-slate-600 mb-2";
   tl.textContent = "UNO POR UNO (" + movs.length + ")";
   secLista.appendChild(tl);
+  let fechaEnCurso = null;
   movs
     .slice()
     .sort((a, b) => (b.fecha + (b.hora || "")).localeCompare(a.fecha + (a.hora || "")))
     .slice(0, 300)
     .forEach((m) => {
+      // Un separador cada vez que cambia el dia: 300 filas seguidas sin
+      // cortes no hay quien las lea.
+      if (m.fecha !== fechaEnCurso) {
+        fechaEnCurso = m.fecha;
+        const sep = document.createElement("p");
+        sep.className = "text-[10px] font-bold text-slate-400 tracking-wide mt-3 mb-1 first:mt-0";
+        sep.textContent = etiquetaFecha(m.fecha, desgloseDatos.hoy).toUpperCase();
+        secLista.appendChild(sep);
+      }
       const fila = document.createElement("div");
       fila.className = "flex items-baseline justify-between gap-2 py-1 border-b border-slate-50";
       const izq = document.createElement("div");
@@ -5693,9 +5756,27 @@ function pintarDesglose() {
       borrar.innerHTML = iconoBasura;
       borrar.addEventListener("click", async (ev) => {
         ev.stopPropagation();
-        if (!confirm("¿Eliminar este movimiento?")) return;
-        await fetch("/api/finance/movements/" + encodeURIComponent(m.id), { method: "DELETE" });
+        const copia = { ...m };
+        await fetch("/api/finance/movements/" + encodeURIComponent(copia.id), { method: "DELETE" });
         await recargarDesglose();
+        mostrarAviso("Movimiento eliminado.", {
+          label: "Deshacer",
+          hacer: async () => {
+            await fetch("/api/finance/movements", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                tipo: copia.tipo,
+                monto: copia.monto,
+                descripcion: copia.descripcion,
+                fecha: copia.fecha,
+                hora: copia.hora,
+              }),
+            });
+            await recargarDesglose();
+            mostrarAviso("Lo devolví.");
+          },
+        });
       });
       acciones.appendChild(editar);
       acciones.appendChild(borrar);
@@ -5960,4 +6041,290 @@ if (alcanzaMonto) {
   });
 }
 
+
+// ---------- Aviso flotante, con deshacer ----------
+// Antes nada confirmaba que algo se habia guardado, y un borrado no tenia
+// vuelta atras. El aviso dura unos segundos y, cuando se puede, ofrece
+// deshacer lo que se acaba de hacer.
+const avisoFlotante = document.getElementById("avisoFlotante");
+const avisoTexto = document.getElementById("avisoTexto");
+const avisoAccion = document.getElementById("avisoAccion");
+let avisoTimer = null;
+
+function mostrarAviso(texto, accion) {
+  if (!avisoFlotante) return;
+  clearTimeout(avisoTimer);
+  avisoTexto.textContent = texto;
+  avisoFlotante.classList.remove("hidden");
+  avisoFlotante.classList.add("flex");
+
+  if (accion && accion.label && typeof accion.hacer === "function") {
+    avisoAccion.textContent = accion.label;
+    avisoAccion.classList.remove("hidden");
+    avisoAccion.onclick = async () => {
+      clearTimeout(avisoTimer);
+      ocultarAviso();
+      await accion.hacer();
+    };
+  } else {
+    avisoAccion.classList.add("hidden");
+    avisoAccion.onclick = null;
+  }
+
+  avisoTimer = setTimeout(ocultarAviso, accion ? 7000 : 2500);
+}
+
+function ocultarAviso() {
+  if (!avisoFlotante) return;
+  avisoFlotante.classList.add("hidden");
+  avisoFlotante.classList.remove("flex");
+}
+
+// ---------- Hoja para editar un movimiento ----------
+const hojaMovimiento = document.getElementById("hojaMovimiento");
+const hojaTitulo = document.getElementById("hojaTitulo");
+const hojaMonto = document.getElementById("hojaMonto");
+const hojaDesc = document.getElementById("hojaDesc");
+const hojaFecha = document.getElementById("hojaFecha");
+const hojaHora = document.getElementById("hojaHora");
+const hojaClasif = document.getElementById("hojaClasif");
+
+let hojaMov = null;
+let hojaTipo = "gasto";
+let hojaAlGuardar = null;
+let localesParaSelector = [];
+
+function pintarHojaTipo() {
+  document.querySelectorAll(".hoja-tipo").forEach((b) => {
+    const activo = b.dataset.hojaTipo === hojaTipo;
+    const esGanancia = b.dataset.hojaTipo === "ganancia";
+    b.className =
+      "hoja-tipo flex-1 rounded-xl py-2 text-sm font-semibold border transition-all active:scale-95 " +
+      (activo
+        ? esGanancia
+          ? "bg-brand-green text-white border-brand-green"
+          : "bg-rose-500 text-white border-rose-500"
+        : "bg-white text-slate-500 border-slate-200");
+  });
+  pintarHojaClasif();
+}
+
+// El selector de clasificacion cambia segun el tipo: categoria para un
+// gasto, fuente para una ganancia.
+function pintarHojaClasif() {
+  if (!hojaClasif || !hojaMov) return;
+  hojaClasif.innerHTML = "";
+  if (hojaMov.tipo === "caja") return;
+
+  const etiqueta = document.createElement("p");
+  etiqueta.className = "text-[11px] font-semibold text-slate-400 mb-0.5";
+  etiqueta.textContent = hojaTipo === "gasto" ? "Categoría" : "De dónde vino";
+  const select = document.createElement("select");
+  select.id = "hojaClasifSelect";
+  select.className = "w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200";
+
+  const lista = hojaTipo === "gasto" ? categoriasParaSelector : fuentesCache;
+  const actual = hojaTipo === "gasto" ? hojaMov.categoriaEfectiva : hojaMov.fuenteEfectiva;
+  (lista || []).forEach((c) => {
+    const o = document.createElement("option");
+    o.value = c.id;
+    o.textContent = c.label;
+    if (c.id === actual) o.selected = true;
+    select.appendChild(o);
+  });
+  if (hojaTipo === "gasto" && !(lista || []).some((c) => c.id === "otros")) {
+    const o = document.createElement("option");
+    o.value = "otros";
+    o.textContent = "Otros gastos";
+    if (actual === "otros") o.selected = true;
+    select.appendChild(o);
+  }
+
+  hojaClasif.appendChild(etiqueta);
+  hojaClasif.appendChild(select);
+
+  // Para una ganancia, ademas, de que local vino. El local se adivina por
+  // la descripcion; esto permite corregirlo cuando la descripcion no basta.
+  if (hojaTipo === "ganancia" && localesParaSelector.length) {
+    const et2 = document.createElement("p");
+    et2.className = "text-[11px] font-semibold text-slate-400 mb-0.5 mt-2";
+    et2.textContent = "De qué local";
+    const sel2 = document.createElement("select");
+    sel2.id = "hojaLocalSelect";
+    sel2.className = "w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200";
+    const ninguno = document.createElement("option");
+    ninguno.value = "";
+    ninguno.textContent = "— Que lo adivine por el texto —";
+    sel2.appendChild(ninguno);
+    localesParaSelector.forEach((l) => {
+      const o = document.createElement("option");
+      o.value = l.id;
+      o.textContent = l.nombre;
+      if (l.id === hojaMov.localEfectivo) o.selected = true;
+      sel2.appendChild(o);
+    });
+    hojaClasif.appendChild(et2);
+    hojaClasif.appendChild(sel2);
+  }
+}
+
+function cerrarHoja() {
+  hojaMovimiento.classList.add("hidden");
+  hojaMovimiento.classList.remove("flex");
+  hojaMov = null;
+}
+
+// m: el movimiento tal cual viene de /api/finance/movements.
+// alGuardar: que repintar despues de tocar algo.
+async function abrirHojaMovimiento(m, alGuardar) {
+  hojaMov = m;
+  hojaAlGuardar = alGuardar;
+  hojaTipo = m.tipo === "ganancia" ? "ganancia" : "gasto";
+  hojaTitulo.textContent = m.tipo === "caja" ? "Conteo de caja" : "Editar movimiento";
+  hojaMonto.value = m.monto;
+  hojaDesc.value = m.descripcion || "";
+  hojaFecha.value = m.fecha || "";
+  hojaHora.value = (m.hora || "").slice(0, 5);
+
+  // Las listas para clasificar, por si nunca abrio esas pantallas.
+  if (!categoriasParaSelector.length) {
+    try {
+      const cat = await (await fetch("/api/budget/categories")).json();
+      categoriasParaSelector = cat.categorias || [];
+    } catch (err) {
+      console.error("No se pudieron cargar las categorías:", err);
+    }
+  }
+  if (!fuentesCache.length) await cargarFuentes();
+  if (!localesParaSelector.length) {
+    try {
+      const loc = await (await fetch("/api/finance/locales")).json();
+      localesParaSelector = (loc.ranking || []).map((l) => ({ id: l.id, nombre: l.nombre }));
+    } catch (err) {
+      console.error("No se pudieron cargar los locales:", err);
+    }
+  }
+
+  document.querySelectorAll(".hoja-tipo").forEach((b) => {
+    b.disabled = m.tipo === "caja";
+    b.style.opacity = m.tipo === "caja" ? "0.4" : "";
+  });
+
+  pintarHojaTipo();
+  hojaMovimiento.classList.remove("hidden");
+  hojaMovimiento.classList.add("flex");
+}
+
+async function guardarHoja() {
+  if (!hojaMov) return;
+  const monto = parseFloat(hojaMonto.value);
+  if (!Number.isFinite(monto) || monto <= 0) {
+    mostrarAviso("El monto tiene que ser mayor que cero.");
+    return;
+  }
+  const cuerpo = {
+    monto,
+    descripcion: hojaDesc.value,
+    fecha: hojaFecha.value || hojaMov.fecha,
+    hora: hojaHora.value || hojaMov.hora,
+  };
+  if (hojaMov.tipo !== "caja") cuerpo.tipo = hojaTipo;
+
+  const select = document.getElementById("hojaClasifSelect");
+  if (select && select.value) {
+    if (hojaTipo === "gasto") cuerpo.categoriaId = select.value;
+    else cuerpo.fuenteId = select.value;
+  }
+  const selLocal = document.getElementById("hojaLocalSelect");
+  // Vacio = que vuelva a adivinarlo por el texto.
+  if (selLocal) cuerpo.localId = selLocal.value || null;
+
+  await fetch("/api/finance/movements/" + encodeURIComponent(hojaMov.id), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(cuerpo),
+  });
+  cerrarHoja();
+  mostrarAviso("Guardado.");
+  if (hojaAlGuardar) await hojaAlGuardar();
+}
+
+// Borrar con vuelta atras: se guarda lo borrado y el aviso ofrece
+// recrearlo por unos segundos.
+async function eliminarDesdeHoja() {
+  if (!hojaMov) return;
+  const copia = { ...hojaMov };
+  await fetch("/api/finance/movements/" + encodeURIComponent(copia.id), { method: "DELETE" });
+  cerrarHoja();
+  if (hojaAlGuardar) await hojaAlGuardar();
+
+  mostrarAviso("Movimiento eliminado.", {
+    label: "Deshacer",
+    hacer: async () => {
+      await fetch("/api/finance/movements", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tipo: copia.tipo,
+          monto: copia.monto,
+          descripcion: copia.descripcion,
+          fecha: copia.fecha,
+          hora: copia.hora,
+        }),
+      });
+      if (hojaAlGuardar) await hojaAlGuardar();
+      mostrarAviso("Lo devolví.");
+    },
+  });
+}
+
+if (hojaMovimiento) {
+  document.querySelectorAll(".hoja-tipo").forEach((b) => {
+    b.addEventListener("click", () => {
+      if (b.disabled) return;
+      hojaTipo = b.dataset.hojaTipo;
+      pintarHojaTipo();
+    });
+  });
+  document.getElementById("hojaGuardar").addEventListener("click", guardarHoja);
+  document.getElementById("hojaCancelar").addEventListener("click", cerrarHoja);
+  document.getElementById("hojaEliminar").addEventListener("click", eliminarDesdeHoja);
+  document.getElementById("hojaFondo").addEventListener("click", cerrarHoja);
+}
+
+
+// ---------- Modo oscuro ----------
+// La preferencia es de este celular, no de la cuenta: por eso va en el
+// navegador y no en el servidor.
+const toggleOscuro = document.getElementById("toggleOscuro");
+const toggleOscuroBolita = document.getElementById("toggleOscuroBolita");
+
+function pintarToggleOscuro(activo) {
+  if (!toggleOscuro) return;
+  toggleOscuro.className =
+    "shrink-0 rounded-full w-14 h-8 p-1 transition-all active:scale-95 " +
+    (activo ? "bg-brand-green" : "bg-slate-200");
+  toggleOscuroBolita.className =
+    "block w-6 h-6 rounded-full bg-white shadow transition-all " + (activo ? "translate-x-6" : "");
+}
+
+function aplicarModoOscuro(activo) {
+  document.body.classList.toggle("oscuro", activo);
+  pintarToggleOscuro(activo);
+  try {
+    localStorage.setItem("modoOscuro", activo ? "1" : "0");
+  } catch (err) {
+    // En una ventana privada esto puede fallar; el modo igual queda
+    // aplicado hasta que cierre la app.
+  }
+}
+
+if (toggleOscuro) {
+  let guardado = false;
+  try {
+    guardado = localStorage.getItem("modoOscuro") === "1";
+  } catch (err) {}
+  aplicarModoOscuro(guardado);
+  toggleOscuro.addEventListener("click", () => aplicarModoOscuro(!document.body.classList.contains("oscuro")));
+}
 irAPanel("financeTabResumen");
