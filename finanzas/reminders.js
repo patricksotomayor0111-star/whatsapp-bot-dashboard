@@ -280,6 +280,15 @@ function buscarGastoDelPago(id, movimientos, montoPagado) {
   // Y si ya marco pagado un ciclo, todo lo de antes ya quedo saldado.
   if (r.lastPaidCycle && r.lastPaidCycle >= desde) desde = addDays(r.lastPaidCycle, 1);
 
+  // Corte por el DIA EN QUE MARCO el ultimo pago, no por el vencimiento
+  // de ese ciclo. Si pago la junta del lunes recien el miercoles, ese
+  // gasto del miercoles caia dentro de la semana siguiente y tapaba el
+  // pago nuevo: el boton decia "ya estaba registrado" y no anotaba nada.
+  const ultimoPago = datos()
+    .pagosMarcados.filter((p) => p.id === id && p.fecha)
+    .reduce((a, p) => (!a || p.fecha > a.fecha ? p : a), null);
+  if (ultimoPago && ultimoPago.fecha >= desde) desde = addDays(ultimoPago.fecha, 1);
+
   // Contra lo que dice que pago, no contra el monto configurado: algunos
   // recibos cambian mes a mes.
   const referencia = Number(montoPagado) > 0 ? Number(montoPagado) : r.monto;

@@ -1358,29 +1358,42 @@ function renderMovimientos() {
       editBtn.innerHTML = '<i class="fa-solid fa-pen text-slate-400"></i>';
       editBtn.className = "w-7 h-7 flex items-center justify-center";
       editBtn.addEventListener("click", async () => {
-        const nuevoMontoStr = prompt("Nuevo monto:", m.monto);
-        if (nuevoMontoStr === null) return;
-        const nuevoMonto = parseFloat(nuevoMontoStr);
-        if (!Number.isFinite(nuevoMonto) || nuevoMonto <= 0) return;
-        const nuevaDescripcion = prompt("Nueva descripción:", m.descripcion || "");
-        if (nuevaDescripcion === null) return;
-        await fetch(`/api/finance/movements/${m.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ monto: nuevoMonto, descripcion: nuevaDescripcion }),
+        await abrirHojaMovimiento(m, async () => {
+          await fetchMovimientos();
+          fetchCashboxToday();
+          fetchGoalsAndProgress();
         });
-        await fetchMovimientos();
-        fetchCashboxToday();
       });
 
       const delBtn = document.createElement("button");
       delBtn.innerHTML = '<i class="fa-solid fa-trash text-rose-400"></i>';
       delBtn.className = "w-7 h-7 flex items-center justify-center";
       delBtn.addEventListener("click", async () => {
-        if (!confirm("¿Eliminar este movimiento?")) return;
+        const copia = { ...m };
         await fetch(`/api/finance/movements/${m.id}`, { method: "DELETE" });
         await fetchMovimientos();
         fetchCashboxToday();
+        // Sin preguntar, pero con vuelta atras: mas rapido y mas seguro
+        // que un "¿seguro?" que uno acepta sin leer.
+        mostrarAviso("Movimiento eliminado.", {
+          label: "Deshacer",
+          hacer: async () => {
+            await fetch("/api/finance/movements", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                tipo: copia.tipo,
+                monto: copia.monto,
+                descripcion: copia.descripcion,
+                fecha: copia.fecha,
+                hora: copia.hora,
+              }),
+            });
+            await fetchMovimientos();
+            fetchCashboxToday();
+            mostrarAviso("Lo devolví.");
+          },
+        });
       });
 
       acciones.appendChild(editBtn);
@@ -5439,18 +5452,7 @@ async function recargarDesglose() {
 }
 
 async function editarMovimientoDesdeDesglose(m) {
-  const montoStr = prompt("Nuevo monto:", m.monto);
-  if (montoStr === null) return;
-  const monto = parseFloat(montoStr);
-  if (!Number.isFinite(monto) || monto <= 0) return;
-  const descripcion = prompt("Nueva descripción:", m.descripcion || "");
-  if (descripcion === null) return;
-  await fetch("/api/finance/movements/" + encodeURIComponent(m.id), {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ monto, descripcion }),
-  });
-  await recargarDesglose();
+  await abrirHojaMovimiento(m, recargarDesglose);
 }
 
 function mensajeDesglose(texto) {
@@ -5693,9 +5695,27 @@ function pintarDesglose() {
       borrar.innerHTML = iconoBasura;
       borrar.addEventListener("click", async (ev) => {
         ev.stopPropagation();
-        if (!confirm("¿Eliminar este movimiento?")) return;
-        await fetch("/api/finance/movements/" + encodeURIComponent(m.id), { method: "DELETE" });
+        const copia = { ...m };
+        await fetch("/api/finance/movements/" + encodeURIComponent(copia.id), { method: "DELETE" });
         await recargarDesglose();
+        mostrarAviso("Movimiento eliminado.", {
+          label: "Deshacer",
+          hacer: async () => {
+            await fetch("/api/finance/movements", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                tipo: copia.tipo,
+                monto: copia.monto,
+                descripcion: copia.descripcion,
+                fecha: copia.fecha,
+                hora: copia.hora,
+              }),
+            });
+            await recargarDesglose();
+            mostrarAviso("Lo devolví.");
+          },
+        });
       });
       acciones.appendChild(editar);
       acciones.appendChild(borrar);
@@ -5958,6 +5978,221 @@ if (alcanzaMonto) {
   alcanzaMonto.addEventListener("keydown", (e) => {
     if (e.key === "Enter") responderAlcanza();
   });
+}
+
+
+// ---------- Aviso flotante, con deshacer ----------
+// Antes nada confirmaba que algo se habia guardado, y un borrado no tenia
+// vuelta atras. El aviso dura unos segundos y, cuando se puede, ofrece
+// deshacer lo que se acaba de hacer.
+const avisoFlotante = document.getElementById("avisoFlotante");
+const avisoTexto = document.getElementById("avisoTexto");
+const avisoAccion = document.getElementById("avisoAccion");
+let avisoTimer = null;
+
+function mostrarAviso(texto, accion) {
+  if (!avisoFlotante) return;
+  clearTimeout(avisoTimer);
+  avisoTexto.textContent = texto;
+  avisoFlotante.classList.remove("hidden");
+  avisoFlotante.classList.add("flex");
+
+  if (accion && accion.label && typeof accion.hacer === "function") {
+    avisoAccion.textContent = accion.label;
+    avisoAccion.classList.remove("hidden");
+    avisoAccion.onclick = async () => {
+      clearTimeout(avisoTimer);
+      ocultarAviso();
+      await accion.hacer();
+    };
+  } else {
+    avisoAccion.classList.add("hidden");
+    avisoAccion.onclick = null;
+  }
+
+  avisoTimer = setTimeout(ocultarAviso, accion ? 7000 : 2500);
+}
+
+function ocultarAviso() {
+  if (!avisoFlotante) return;
+  avisoFlotante.classList.add("hidden");
+  avisoFlotante.classList.remove("flex");
+}
+
+// ---------- Hoja para editar un movimiento ----------
+const hojaMovimiento = document.getElementById("hojaMovimiento");
+const hojaTitulo = document.getElementById("hojaTitulo");
+const hojaMonto = document.getElementById("hojaMonto");
+const hojaDesc = document.getElementById("hojaDesc");
+const hojaFecha = document.getElementById("hojaFecha");
+const hojaHora = document.getElementById("hojaHora");
+const hojaClasif = document.getElementById("hojaClasif");
+
+let hojaMov = null;
+let hojaTipo = "gasto";
+let hojaAlGuardar = null;
+
+function pintarHojaTipo() {
+  document.querySelectorAll(".hoja-tipo").forEach((b) => {
+    const activo = b.dataset.hojaTipo === hojaTipo;
+    const esGanancia = b.dataset.hojaTipo === "ganancia";
+    b.className =
+      "hoja-tipo flex-1 rounded-xl py-2 text-sm font-semibold border transition-all active:scale-95 " +
+      (activo
+        ? esGanancia
+          ? "bg-brand-green text-white border-brand-green"
+          : "bg-rose-500 text-white border-rose-500"
+        : "bg-white text-slate-500 border-slate-200");
+  });
+  pintarHojaClasif();
+}
+
+// El selector de clasificacion cambia segun el tipo: categoria para un
+// gasto, fuente para una ganancia.
+function pintarHojaClasif() {
+  if (!hojaClasif || !hojaMov) return;
+  hojaClasif.innerHTML = "";
+  if (hojaMov.tipo === "caja") return;
+
+  const etiqueta = document.createElement("p");
+  etiqueta.className = "text-[11px] font-semibold text-slate-400 mb-0.5";
+  etiqueta.textContent = hojaTipo === "gasto" ? "Categoría" : "De dónde vino";
+  const select = document.createElement("select");
+  select.id = "hojaClasifSelect";
+  select.className = "w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200";
+
+  const lista = hojaTipo === "gasto" ? categoriasParaSelector : fuentesCache;
+  const actual = hojaTipo === "gasto" ? hojaMov.categoriaEfectiva : hojaMov.fuenteEfectiva;
+  (lista || []).forEach((c) => {
+    const o = document.createElement("option");
+    o.value = c.id;
+    o.textContent = c.label;
+    if (c.id === actual) o.selected = true;
+    select.appendChild(o);
+  });
+  if (hojaTipo === "gasto" && !(lista || []).some((c) => c.id === "otros")) {
+    const o = document.createElement("option");
+    o.value = "otros";
+    o.textContent = "Otros gastos";
+    if (actual === "otros") o.selected = true;
+    select.appendChild(o);
+  }
+
+  hojaClasif.appendChild(etiqueta);
+  hojaClasif.appendChild(select);
+}
+
+function cerrarHoja() {
+  hojaMovimiento.classList.add("hidden");
+  hojaMovimiento.classList.remove("flex");
+  hojaMov = null;
+}
+
+// m: el movimiento tal cual viene de /api/finance/movements.
+// alGuardar: que repintar despues de tocar algo.
+async function abrirHojaMovimiento(m, alGuardar) {
+  hojaMov = m;
+  hojaAlGuardar = alGuardar;
+  hojaTipo = m.tipo === "ganancia" ? "ganancia" : "gasto";
+  hojaTitulo.textContent = m.tipo === "caja" ? "Conteo de caja" : "Editar movimiento";
+  hojaMonto.value = m.monto;
+  hojaDesc.value = m.descripcion || "";
+  hojaFecha.value = m.fecha || "";
+  hojaHora.value = (m.hora || "").slice(0, 5);
+
+  // Las listas para clasificar, por si nunca abrio esas pantallas.
+  if (!categoriasParaSelector.length) {
+    try {
+      const cat = await (await fetch("/api/budget/categories")).json();
+      categoriasParaSelector = cat.categorias || [];
+    } catch (err) {
+      console.error("No se pudieron cargar las categorías:", err);
+    }
+  }
+  if (!fuentesCache.length) await cargarFuentes();
+
+  document.querySelectorAll(".hoja-tipo").forEach((b) => {
+    b.disabled = m.tipo === "caja";
+    b.style.opacity = m.tipo === "caja" ? "0.4" : "";
+  });
+
+  pintarHojaTipo();
+  hojaMovimiento.classList.remove("hidden");
+  hojaMovimiento.classList.add("flex");
+}
+
+async function guardarHoja() {
+  if (!hojaMov) return;
+  const monto = parseFloat(hojaMonto.value);
+  if (!Number.isFinite(monto) || monto <= 0) {
+    mostrarAviso("El monto tiene que ser mayor que cero.");
+    return;
+  }
+  const cuerpo = {
+    monto,
+    descripcion: hojaDesc.value,
+    fecha: hojaFecha.value || hojaMov.fecha,
+    hora: hojaHora.value || hojaMov.hora,
+  };
+  if (hojaMov.tipo !== "caja") cuerpo.tipo = hojaTipo;
+
+  const select = document.getElementById("hojaClasifSelect");
+  if (select && select.value) {
+    if (hojaTipo === "gasto") cuerpo.categoriaId = select.value;
+    else cuerpo.fuenteId = select.value;
+  }
+
+  await fetch("/api/finance/movements/" + encodeURIComponent(hojaMov.id), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(cuerpo),
+  });
+  cerrarHoja();
+  mostrarAviso("Guardado.");
+  if (hojaAlGuardar) await hojaAlGuardar();
+}
+
+// Borrar con vuelta atras: se guarda lo borrado y el aviso ofrece
+// recrearlo por unos segundos.
+async function eliminarDesdeHoja() {
+  if (!hojaMov) return;
+  const copia = { ...hojaMov };
+  await fetch("/api/finance/movements/" + encodeURIComponent(copia.id), { method: "DELETE" });
+  cerrarHoja();
+  if (hojaAlGuardar) await hojaAlGuardar();
+
+  mostrarAviso("Movimiento eliminado.", {
+    label: "Deshacer",
+    hacer: async () => {
+      await fetch("/api/finance/movements", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tipo: copia.tipo,
+          monto: copia.monto,
+          descripcion: copia.descripcion,
+          fecha: copia.fecha,
+          hora: copia.hora,
+        }),
+      });
+      if (hojaAlGuardar) await hojaAlGuardar();
+      mostrarAviso("Lo devolví.");
+    },
+  });
+}
+
+if (hojaMovimiento) {
+  document.querySelectorAll(".hoja-tipo").forEach((b) => {
+    b.addEventListener("click", () => {
+      if (b.disabled) return;
+      hojaTipo = b.dataset.hojaTipo;
+      pintarHojaTipo();
+    });
+  });
+  document.getElementById("hojaGuardar").addEventListener("click", guardarHoja);
+  document.getElementById("hojaCancelar").addEventListener("click", cerrarHoja);
+  document.getElementById("hojaEliminar").addEventListener("click", eliminarDesdeHoja);
+  document.getElementById("hojaFondo").addEventListener("click", cerrarHoja);
 }
 
 irAPanel("financeTabResumen");
