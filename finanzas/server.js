@@ -461,15 +461,26 @@ app.get("/api/finance/movements", (req, res) => {
   res.json({ movimientos });
 });
 
+function crearMovimiento(entrada) {
+  const { tipo, monto, descripcion, fecha, hora, categoriaId, fuenteId, localId } = entrada || {};
+  const montoNum = Number(monto);
+  if (!["ganancia", "gasto"].includes(tipo) || !Number.isFinite(montoNum) || montoNum <= 0) return null;
+  const id = cashbox.addMovimientoManual(tipo, montoNum, descripcion, fecha, hora);
+  // La clasificación puesta a mano viaja con el movimiento: sin esto,
+  // deshacer un borrado lo devolvía clasificado por palabras clave.
+  if (categoriaId || fuenteId || localId) {
+    cashbox.editMovimientoPorId(id, { categoriaId, fuenteId, localId });
+  }
+  return id;
+}
+
 app.post("/api/finance/movements", (req, res) => {
   try {
-    const { tipo, monto, descripcion, fecha, hora } = req.body || {};
-    const montoNum = Number(monto);
-    if (!["ganancia", "gasto"].includes(tipo) || !Number.isFinite(montoNum) || montoNum <= 0) {
+    const id = crearMovimiento(req.body);
+    if (!id) {
       return res.status(400).json({ error: "Se requiere 'tipo' (ganancia/gasto) y 'monto' válido." });
     }
-    cashbox.addMovimientoManual(tipo, montoNum, descripcion, fecha, hora);
-    res.json({ ok: true });
+    res.json({ ok: true, id });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -513,6 +524,63 @@ app.delete("/api/finance/movements/:ref", (req, res) => {
   // El faltante que lo haya generado se descuenta junto con él.
   if (movimientoId) shortfalls.removePorMovimiento(movimientoId);
   res.json({ ok: true });
+});
+
+// ---------- Varios movimientos de una sola vez ----------
+// Corregir 20 gastos mal clasificados era abrir 20 veces la misma
+// pantalla. Acá se marcan varios y se los mueve de categoría, se les
+// cambia la fuente o se los borra en un solo pedido.
+const TOPE_LOTE = 500;
+
+app.post("/api/finance/movements/lote", (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+  const accion = req.body?.accion;
+
+  // Restaurar no manda ids: manda los movimientos enteros que se
+  // borraron, para poder deshacer un borrado en lote.
+  if (accion === "restaurar") {
+    const movimientos = Array.isArray(req.body?.movimientos) ? req.body.movimientos : [];
+    if (movimientos.length === 0 || movimientos.length > TOPE_LOTE) {
+      return res.status(400).json({ error: "Nada que devolver." });
+    }
+    let devueltos = 0;
+    movimientos.forEach((m) => {
+      if (crearMovimiento(m)) devueltos += 1;
+    });
+    return res.json({ ok: true, tocados: devueltos });
+  }
+
+  if (ids.length === 0) return res.status(400).json({ error: "No marcaste ningún movimiento." });
+  if (ids.length > TOPE_LOTE) return res.status(400).json({ error: "Son demasiados de una sola vez." });
+
+  if (accion === "borrar") {
+    // Se devuelve una copia de lo borrado para poder deshacerlo.
+    const borrados = [];
+    ids.forEach((ref) => {
+      const objetivo = movimientoPorRef(ref);
+      if (!objetivo) return;
+      const copia = { ...objetivo };
+      if (!cashbox.removeMovimientoPorId(objetivo.id)) return;
+      shortfalls.removePorMovimiento(objetivo.id);
+      borrados.push(copia);
+    });
+    return res.json({ ok: true, tocados: borrados.length, borrados });
+  }
+
+  if (accion === "editar") {
+    const cambios = req.body?.cambios || {};
+    let tocados = 0;
+    ids.forEach((ref) => {
+      const objetivo = movimientoPorRef(ref);
+      if (!objetivo) return;
+      if (!cashbox.editMovimientoPorId(objetivo.id, cambios)) return;
+      shortfalls.editPorMovimiento(objetivo.id, cambios);
+      tocados += 1;
+    });
+    return res.json({ ok: true, tocados });
+  }
+
+  res.status(400).json({ error: "Acción desconocida." });
 });
 
 // Plata de otras personas en custodia (aparte de la caja). Cada cuenta

@@ -1293,6 +1293,208 @@ function tipoLabel(tipo) {
   return tipo;
 }
 
+// ---------- Deslizar una fila ----------
+// En el celular, tocar un lapicito de 7 milimetros con el dedo es
+// dificil. Deslizando la fila a la izquierda se borra y a la derecha se
+// abre para editar; los botones siguen ahi para quien prefiera tocarlos.
+//
+// Solo se toma el gesto cuando es mas horizontal que vertical, si no
+// secuestraria el scroll de la pagina.
+const DESLIZ_MINIMO = 70;
+
+function habilitarDeslizar(fila, { alBorrar, alEditar }) {
+  let x0 = 0;
+  let y0 = 0;
+  let horizontal = null;
+
+  fila.addEventListener(
+    "touchstart",
+    (e) => {
+      if (e.touches.length !== 1) return;
+      x0 = e.touches[0].clientX;
+      y0 = e.touches[0].clientY;
+      horizontal = null;
+      fila.style.transition = "";
+    },
+    { passive: true }
+  );
+
+  fila.addEventListener(
+    "touchmove",
+    (e) => {
+      if (e.touches.length !== 1) return;
+      const dx = e.touches[0].clientX - x0;
+      const dy = e.touches[0].clientY - y0;
+      if (horizontal === null) {
+        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+        horizontal = Math.abs(dx) > Math.abs(dy);
+      }
+      if (!horizontal) return;
+      fila.style.transform = "translateX(" + dx + "px)";
+      fila.style.opacity = String(Math.max(0.35, 1 - Math.abs(dx) / 260));
+    },
+    { passive: true }
+  );
+
+  fila.addEventListener("touchend", (e) => {
+    const suelto = (e.changedTouches && e.changedTouches[0]) || null;
+    const dx = suelto ? suelto.clientX - x0 : 0;
+    fila.style.transition = "transform .18s ease, opacity .18s ease";
+    fila.style.transform = "";
+    fila.style.opacity = "";
+    if (!horizontal) return;
+    if (dx <= -DESLIZ_MINIMO && typeof alBorrar === "function") alBorrar();
+    else if (dx >= DESLIZ_MINIMO && typeof alEditar === "function") alEditar();
+  });
+}
+
+async function refrescarPorMovimiento() {
+  await fetchMovimientos();
+  await fetchCashboxToday();
+  await fetchDailyHistory();
+  fetchGoalsAndProgress();
+}
+
+// ---------- Varios movimientos de una sola vez ----------
+// Corregir 20 gastos mal clasificados era abrir 20 veces la misma
+// pantalla. Con "Seleccionar" aparecen las casillas: se marcan los que
+// haga falta y se los mueve de categoria/fuente o se los borra de una.
+const movSeleccionBtn = document.getElementById("movSeleccionBtn");
+const movSeleccionBarra = document.getElementById("movSeleccionBarra");
+const movSeleccionCuenta = document.getElementById("movSeleccionCuenta");
+const movSeleccionTodos = document.getElementById("movSeleccionTodos");
+const movSeleccionMover = document.getElementById("movSeleccionMover");
+const movSeleccionBorrar = document.getElementById("movSeleccionBorrar");
+
+let modoSeleccion = false;
+let seleccionados = new Set();
+// Lo ultimo que se vio en pantalla, para "Todos" y para saber si lo
+// marcado son gastos o ganancias.
+let movimientosVisibles = [];
+
+function pintarBarraSeleccion() {
+  if (!movSeleccionBarra) return;
+  movSeleccionBarra.classList.toggle("hidden", !modoSeleccion);
+  movSeleccionBarra.classList.toggle("flex", modoSeleccion);
+  movSeleccionBtn.innerHTML = modoSeleccion
+    ? '<i class="fa-solid fa-xmark"></i> Listo'
+    : '<i class="fa-solid fa-check-double"></i> Seleccionar';
+  const n = seleccionados.size;
+  movSeleccionCuenta.textContent = n === 1 ? "1 marcado" : n + " marcados";
+  movSeleccionMover.disabled = n === 0;
+  movSeleccionBorrar.disabled = n === 0;
+  movSeleccionMover.style.opacity = n === 0 ? "0.4" : "";
+  movSeleccionBorrar.style.opacity = n === 0 ? "0.4" : "";
+  const todosMarcados = movimientosVisibles.length > 0 && n === movimientosVisibles.length;
+  movSeleccionTodos.textContent = todosMarcados ? "Ninguno" : "Todos";
+}
+
+function salirDeSeleccion() {
+  modoSeleccion = false;
+  seleccionados.clear();
+  renderMovimientos();
+}
+
+// A donde se mueve lo marcado depende de que se marco: los gastos van a
+// una categoria y las ganancias a una fuente. Mezclar las dos cosas no
+// tiene un destino unico, asi que se avisa.
+async function moverSeleccionados() {
+  const marcados = movimientosVisibles.filter((m) => seleccionados.has(m.id));
+  if (marcados.length === 0) return;
+
+  const tipos = new Set(marcados.map((m) => m.tipo));
+  if (tipos.size > 1) {
+    mostrarAviso("Marcaste gastos y ganancias juntos: muévelos por separado.");
+    return;
+  }
+  const tipo = marcados[0].tipo;
+  if (tipo === "caja") {
+    mostrarAviso("Un conteo de caja no se mueve de categoría.");
+    return;
+  }
+
+  if (tipo === "ganancia" && !fuentesCache.length) await cargarFuentes();
+  const lista = tipo === "gasto" ? categoriasParaSelector : fuentesCache;
+  if (!lista.length) {
+    mostrarAviso("Todavía no tienes a dónde moverlos.");
+    return;
+  }
+
+  abrirHojaSimple({
+    titulo: "Mover " + marcados.length + (marcados.length === 1 ? " movimiento" : " movimientos"),
+    campos: [
+      {
+        id: "destino",
+        etiqueta: tipo === "gasto" ? "Categoría" : "De dónde vino",
+        tipo: "opciones",
+        valor: lista[0].id,
+        opciones: lista.map((c) => ({ valor: c.id, label: c.label })),
+      },
+    ],
+    alGuardar: async (v) => {
+      const cambios = tipo === "gasto" ? { categoriaId: v.destino } : { fuenteId: v.destino };
+      const res = await fetch("/api/finance/movements/lote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: marcados.map((m) => m.id), accion: "editar", cambios }),
+      });
+      const data = await res.json();
+      seleccionados.clear();
+      modoSeleccion = false;
+      await refrescarPorMovimiento();
+      mostrarAviso("Moví " + (data.tocados || 0) + ".");
+    },
+  });
+}
+
+// Borrar en lote, con vuelta atras: el servidor devuelve copia de lo que
+// borro y el aviso ofrece devolverlo por unos segundos.
+async function borrarSeleccionados() {
+  const ids = movimientosVisibles.filter((m) => seleccionados.has(m.id)).map((m) => m.id);
+  if (ids.length === 0) return;
+  if (!confirm("¿Eliminar " + ids.length + (ids.length === 1 ? " movimiento?" : " movimientos?"))) return;
+
+  const res = await fetch("/api/finance/movements/lote", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids, accion: "borrar" }),
+  });
+  const data = await res.json();
+  const borrados = data.borrados || [];
+
+  seleccionados.clear();
+  modoSeleccion = false;
+  await refrescarPorMovimiento();
+
+  mostrarAviso("Eliminé " + borrados.length + ".", {
+    label: "Deshacer",
+    hacer: async () => {
+      await fetch("/api/finance/movements/lote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accion: "restaurar", movimientos: borrados }),
+      });
+      await refrescarPorMovimiento();
+      mostrarAviso("Los devolví.");
+    },
+  });
+}
+
+if (movSeleccionBtn) {
+  movSeleccionBtn.addEventListener("click", () => {
+    modoSeleccion = !modoSeleccion;
+    if (!modoSeleccion) seleccionados.clear();
+    renderMovimientos();
+  });
+  movSeleccionTodos.addEventListener("click", () => {
+    const todosMarcados = movimientosVisibles.length > 0 && seleccionados.size === movimientosVisibles.length;
+    seleccionados = todosMarcados ? new Set() : new Set(movimientosVisibles.map((m) => m.id));
+    renderMovimientos();
+  });
+  movSeleccionMover.addEventListener("click", moverSeleccionados);
+  movSeleccionBorrar.addEventListener("click", borrarSeleccionados);
+}
+
 function renderMovimientos() {
   const desde = movFiltroDesde.value;
   const hasta = movFiltroHasta.value;
@@ -1314,6 +1516,16 @@ function renderMovimientos() {
     return true;
   });
 
+  // Lo que quedo en pantalla es lo que "Todos" marca, y de ahi sale si
+  // lo marcado son gastos o ganancias.
+  movimientosVisibles = filtrados;
+  // Si un movimiento dejo de verse (cambio el filtro, lo borro el bot),
+  // no puede quedar marcado a escondidas.
+  seleccionados.forEach((id) => {
+    if (!filtrados.some((m) => m.id === id)) seleccionados.delete(id);
+  });
+  pintarBarraSeleccion();
+
   movimientosList.innerHTML = "";
   if (filtrados.length === 0) {
     movimientosEmpty.classList.remove("hidden");
@@ -1330,6 +1542,39 @@ function renderMovimientos() {
 
       const top = document.createElement("div");
       top.className = "flex items-center justify-between gap-2";
+
+      // En modo seleccion la fila entera es la casilla: tocar cualquier
+      // parte marca y desmarca.
+      if (modoSeleccion) {
+        const casilla = document.createElement("input");
+        casilla.type = "checkbox";
+        casilla.className = "w-4 h-4 shrink-0 accent-emerald-500";
+        casilla.checked = seleccionados.has(m.id);
+
+        const pintarMarcado = (marcado) => {
+          row.className =
+            "rounded-lg px-3 py-2 text-xs border " +
+            (marcado ? "bg-emerald-50 border-emerald-300" : "bg-white border-slate-100");
+        };
+        pintarMarcado(casilla.checked);
+
+        const alternar = () => {
+          if (casilla.checked) seleccionados.add(m.id);
+          else seleccionados.delete(m.id);
+          pintarMarcado(casilla.checked);
+          pintarBarraSeleccion();
+        };
+        casilla.addEventListener("click", (e) => e.stopPropagation());
+        casilla.addEventListener("change", alternar);
+        top.appendChild(casilla);
+
+        // Toda la fila marca y desmarca: apuntarle a la casilla con el
+        // dedo es innecesariamente fino.
+        row.addEventListener("click", () => {
+          casilla.checked = !casilla.checked;
+          alternar();
+        });
+      }
 
       const info = document.createElement("div");
       info.className = "min-w-0";
@@ -1349,32 +1594,24 @@ function renderMovimientos() {
         const verBoleta = document.createElement("button");
         verBoleta.className = "text-xs text-blue-600 font-semibold mt-1";
         verBoleta.innerHTML = '<i class="fa-solid fa-receipt"></i> Ver boleta';
-        verBoleta.addEventListener("click", () => abrirRecibo(m.id));
+        verBoleta.addEventListener("click", (e) => {
+          e.stopPropagation();
+          abrirRecibo(m.id);
+        });
         info.appendChild(verBoleta);
       }
 
       const acciones = document.createElement("div");
       acciones.className = "flex items-center gap-1 shrink-0";
 
-      const editBtn = document.createElement("button");
-      editBtn.innerHTML = '<i class="fa-solid fa-pen text-slate-400"></i>';
-      editBtn.className = "w-7 h-7 flex items-center justify-center";
-      editBtn.addEventListener("click", async () => {
-        await abrirHojaMovimiento(m, async () => {
-          await fetchMovimientos();
-          fetchCashboxToday();
-          fetchGoalsAndProgress();
-        });
-      });
+      const editarEste = async () => {
+        await abrirHojaMovimiento(m, refrescarPorMovimiento);
+      };
 
-      const delBtn = document.createElement("button");
-      delBtn.innerHTML = '<i class="fa-solid fa-trash text-rose-400"></i>';
-      delBtn.className = "w-7 h-7 flex items-center justify-center";
-      delBtn.addEventListener("click", async () => {
+      const borrarEste = async () => {
         const copia = { ...m };
         await fetch(`/api/finance/movements/${m.id}`, { method: "DELETE" });
-        await fetchMovimientos();
-        fetchCashboxToday();
+        await refrescarPorMovimiento();
         // Sin preguntar, pero con vuelta atras: mas rapido y mas seguro
         // que un "¿seguro?" que uno acepta sin leer.
         mostrarAviso("Movimiento eliminado.", {
@@ -1389,13 +1626,31 @@ function renderMovimientos() {
                 descripcion: copia.descripcion,
                 fecha: copia.fecha,
                 hora: copia.hora,
+                categoriaId: copia.categoriaId,
+                fuenteId: copia.fuenteId,
+                localId: copia.localId,
               }),
             });
-            await fetchMovimientos();
-            fetchCashboxToday();
+            await refrescarPorMovimiento();
             mostrarAviso("Lo devolví.");
           },
         });
+      };
+
+      const editBtn = document.createElement("button");
+      editBtn.innerHTML = '<i class="fa-solid fa-pen text-slate-400"></i>';
+      editBtn.className = "w-7 h-7 flex items-center justify-center";
+      editBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        editarEste();
+      });
+
+      const delBtn = document.createElement("button");
+      delBtn.innerHTML = '<i class="fa-solid fa-trash text-rose-400"></i>';
+      delBtn.className = "w-7 h-7 flex items-center justify-center";
+      delBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        borrarEste();
       });
 
       acciones.appendChild(editBtn);
@@ -1404,7 +1659,13 @@ function renderMovimientos() {
       top.appendChild(acciones);
       row.appendChild(top);
 
-      if (m.tipo === "ganancia" && fuentesCache.length) {
+      // Deslizar: a la izquierda borra, a la derecha edita. En modo
+      // seleccion no, que ahi el gesto es marcar.
+      if (!modoSeleccion) {
+        habilitarDeslizar(row, { alBorrar: borrarEste, alEditar: editarEste });
+      }
+
+      if (m.tipo === "ganancia" && fuentesCache.length && !modoSeleccion) {
         const selectFuente = crearSelectorFuente(
           m.fuenteEfectiva || fuentesCache[0].id,
           m.id,
@@ -1415,7 +1676,7 @@ function renderMovimientos() {
         row.appendChild(selectFuente);
       }
 
-      if (m.tipo === "gasto") {
+      if (m.tipo === "gasto" && !modoSeleccion) {
         const selectCategoria = crearSelectorCategoria(
           m.categoriaEfectiva || "otros",
           m.id,
@@ -5883,6 +6144,9 @@ function pintarDesglose() {
                 descripcion: copia.descripcion,
                 fecha: copia.fecha,
                 hora: copia.hora,
+                categoriaId: copia.categoriaId,
+                fuenteId: copia.fuenteId,
+                localId: copia.localId,
               }),
             });
             await recargarDesglose();
@@ -6510,6 +6774,9 @@ async function eliminarDesdeHoja() {
           descripcion: copia.descripcion,
           fecha: copia.fecha,
           hora: copia.hora,
+          categoriaId: copia.categoriaId,
+          fuenteId: copia.fuenteId,
+          localId: copia.localId,
         }),
       });
       if (hojaAlGuardar) await hojaAlGuardar();

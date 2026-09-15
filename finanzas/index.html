@@ -218,7 +218,21 @@
             </div>
           </section>
           <section>
-            <p class="eyebrow text-brand-green"><i class="fa-solid fa-list"></i> HISTORIAL</p>
+            <div class="flex items-center justify-between gap-2">
+              <p class="eyebrow text-brand-green"><i class="fa-solid fa-list"></i> HISTORIAL</p>
+              <!-- Marcar varios y moverlos o borrarlos de una: corregir 20
+                   gastos mal clasificados era abrir 20 veces la misma
+                   pantalla. -->
+              <button id="movSeleccionBtn" class="text-[11px] font-bold text-brand-green active:scale-95 transition-all">
+                <i class="fa-solid fa-check-double"></i> Seleccionar
+              </button>
+            </div>
+            <div id="movSeleccionBarra" class="hidden items-center gap-2 mt-2 rounded-xl bg-emerald-50 border border-emerald-200 px-3 py-2">
+              <button id="movSeleccionTodos" class="text-[11px] font-bold text-emerald-700 shrink-0">Todos</button>
+              <span id="movSeleccionCuenta" class="text-[11px] text-emerald-700 flex-1">0 marcados</span>
+              <button id="movSeleccionMover" class="text-[11px] font-bold text-emerald-700 shrink-0"><i class="fa-solid fa-right-left"></i> Mover</button>
+              <button id="movSeleccionBorrar" class="text-[11px] font-bold text-rose-600 shrink-0"><i class="fa-solid fa-trash"></i> Borrar</button>
+            </div>
             <div id="movimientosList" class="space-y-1.5 mt-2"></div>
             <p id="movimientosEmpty" class="hidden text-center text-xs text-slate-400 py-6">No hay movimientos con esos filtros.</p>
           </section>
