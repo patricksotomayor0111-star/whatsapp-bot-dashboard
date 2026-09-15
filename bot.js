@@ -21,6 +21,7 @@ const scheduledBroadcasts = require("./scheduledBroadcasts");
 const pendingTimeMatches = require("./pendingTimeMatches");
 const aiClassifier = require("./aiClassifier");
 const aiBlocked = require("./aiBlocked");
+const datosReenviados = require("./datosReenviados");
 const { dataPath } = require("./dataDir");
 const { sectorSeedByName, specialSeedByName, numberExceptionSeed } = require("./groupSeed");
 const {
@@ -1271,6 +1272,33 @@ async function startBot() {
         esNotaDeVozCorta(msg, mediaTriggers.getAudioMaxSegundos());
       if (!text && !esImagenTrigger && !esContactoTrigger && !esAudioTrigger) continue;
 
+      // Datos del cliente reenviados + número (ver datosReenviados.js). En
+      // los grupos prendidos en el panel, un local a veces no manda palabra
+      // clave: reenvía la dirección y después manda el número del cliente.
+      // El número confirma el pedido y el "Voy" cita la dirección.
+      //
+      // Va ANTES del corte de reenviados: justo esos son los que hay que
+      // guardar. Y no le abre la puerta a nada más — un reenviado sigue sin
+      // contar para las palabras clave.
+      const escritoMs = fechaDelMensajeMs(msg) ?? Date.now();
+      const datosClienteActivo = !bloqueadoGlobal && mediaTriggers.isEnabled("datosCliente", grupoActual?.name);
+      if (datosClienteActivo) {
+        if (datosReenviados.esNumeroDeCliente(rawText)) {
+          const datos = datosReenviados.tomarDatos(chatId, senderNumber, escritoMs);
+          if (datos) {
+            const marcado = await despacharDatosCliente(sock, { chatId, grupoActual, senderNumber, datos });
+            if (marcado) break;
+            continue;
+          }
+        } else if (esMensajeReenviado(msg) && rawText) {
+          datosReenviados.guardarDatos(chatId, senderNumber, {
+            ms: escritoMs,
+            rawText,
+            quotedStub: construirQuotedStub(msg, chatId, senderJid, rawText),
+          });
+        }
+      }
+
       // Los mensajes reenviados no cuentan nunca (ni para keywords, ni
       // especiales, ni excepciones): suelen ser direcciones o pedidos
       // copiados de otro chat, no un pedido directo.
@@ -1284,6 +1312,14 @@ async function startBot() {
       });
 
       if (!match) continue;
+
+      // Se anota la palabra clave para la regla de datos reenviados: si en
+      // este mismo minuto llegan datos + número, ese pedido ya se marcó con
+      // esta palabra y no hay que responder de nuevo. Una foto, un contacto
+      // o una nota de voz no son "palabra clave".
+      if (datosClienteActivo && !MATCHES_DE_ARCHIVO.has(match.keyword)) {
+        datosReenviados.registrarClave(chatId, senderNumber, escritoMs);
+      }
 
       // Si el mensaje menciona una hora o una cantidad de minutos fuera de
       // la ventana del sector, no responde todavía. Si la espera automática
@@ -1381,59 +1417,116 @@ async function startBot() {
         horaIA = veredicto.hora;
       }
 
-      const ventana = evaluarVentanaTiempo(text, sectorId, getPeruNow(), grupoActual?.name, horaIA);
-      if (!ventana.enVentana) {
-        // El pedido se guarda SIEMPRE, aunque la espera automática esté
-        // apagada. Antes solo se guardaba con el interruptor prendido, así
-        // que apagado el pedido se perdía sin dejar rastro. Ahora el
-        // interruptor decide solo si el bot lo marca solo o si queda en la
-        // lista esperando que se decida a mano (el local puede cancelar).
-        if (ventana.esperaMs !== null) {
-          pendingTimeMatches.add({
-            chatId,
-            groupName: grupoActual?.name || chatId,
-            senderNumber,
-            rawText,
-            keyword: match.keyword,
-            matchIndex: match.index,
-            matchLength: match.length,
-            quotedStub: construirQuotedStub(msg, chatId, senderJid, rawText),
-            targetFireMs: Date.now() + ventana.esperaMs,
-            // A qué hora es el pedido en sí. Se guarda aparte de
-            // targetFireMs (que es cuándo lo marca el bot) para poder
-            // mostrar las dos cosas: "sale 18:00 · marco 17:45".
-            horaPedidoMs: ventana.targetMs || null,
-          });
-          // Se reprograma al toque: si este pedido es el más cercano, hay
-          // que apuntarle a él y no esperar al próximo barrido.
-          programarProximoPendiente();
-        }
-        continue;
-      }
-
-      // Recién acá se corta por bot apagado: MARCAR sí necesita el bot
-      // prendido. Lo de arriba (guardar un pedido para más tarde) no, y
-      // por eso el corte bajó hasta este punto.
-      if (!botState.active) continue;
-
-      const sinRemarcar = isGroupSinRemarcarEfectivo(chatId, sectorId);
-
-      const marcado = await marcarPedido(sock, {
+      const marcado = await despacharPedido(sock, {
         chatId,
-        groupName: grupoActual?.name || chatId,
+        grupoNombre: grupoActual?.name,
+        sectorId,
         senderNumber,
         rawText,
+        text,
         keyword: match.keyword,
         matchIndex: match.index,
         matchLength: match.length,
-        sinRemarcar,
+        horaIA,
         quotedMsg: msg,
+        quotedStub: construirQuotedStub(msg, chatId, senderJid, rawText),
       });
       if (marcado) break;
     }
   });
 
   return sock;
+}
+
+// Lo que "match" devuelve para los pedidos que no son texto.
+const MATCHES_DE_ARCHIVO = new Set(["(foto)", "(contacto)", "(nota de voz)"]);
+
+// La última parte del camino de un pedido ya decidido: la ventana de tiempo
+// (y la lista de espera), el corte por bot apagado y el "Voy". La usan el
+// flujo de palabras clave y el de datos reenviados — está en un solo lugar
+// para que los dos no se separen con el tiempo. Devuelve true si se marcó.
+async function despacharPedido(
+  sock,
+  { chatId, grupoNombre, sectorId, senderNumber, rawText, text, keyword, matchIndex, matchLength, horaIA, quotedMsg, quotedStub }
+) {
+  const groupName = grupoNombre || chatId;
+
+  const ventana = evaluarVentanaTiempo(text, sectorId, getPeruNow(), grupoNombre, horaIA);
+  if (!ventana.enVentana) {
+    // El pedido se guarda SIEMPRE, aunque la espera automática esté
+    // apagada. Antes solo se guardaba con el interruptor prendido, así
+    // que apagado el pedido se perdía sin dejar rastro. Ahora el
+    // interruptor decide solo si el bot lo marca solo o si queda en la
+    // lista esperando que se decida a mano (el local puede cancelar).
+    if (ventana.esperaMs !== null) {
+      pendingTimeMatches.add({
+        chatId,
+        groupName,
+        senderNumber,
+        rawText,
+        keyword,
+        matchIndex,
+        matchLength,
+        quotedStub,
+        targetFireMs: Date.now() + ventana.esperaMs,
+        // A qué hora es el pedido en sí. Se guarda aparte de
+        // targetFireMs (que es cuándo lo marca el bot) para poder
+        // mostrar las dos cosas: "sale 18:00 · marco 17:45".
+        horaPedidoMs: ventana.targetMs || null,
+      });
+      // Se reprograma al toque: si este pedido es el más cercano, hay
+      // que apuntarle a él y no esperar al próximo barrido.
+      programarProximoPendiente();
+    }
+    return false;
+  }
+
+  // Recién acá se corta por bot apagado: MARCAR sí necesita el bot
+  // prendido. Lo de arriba (guardar un pedido para más tarde) no, y
+  // por eso el corte bajó hasta este punto.
+  if (!botState.active) return false;
+
+  const sinRemarcar = isGroupSinRemarcarEfectivo(chatId, sectorId);
+
+  return marcarPedido(sock, {
+    chatId,
+    groupName,
+    senderNumber,
+    rawText,
+    keyword,
+    matchIndex,
+    matchLength,
+    sinRemarcar,
+    quotedMsg,
+  });
+}
+
+// Datos del cliente reenviados + número (ver datosReenviados.js): el número
+// ya confirmó el pedido. Pasa por los mismos filtros de grupo que un pedido
+// con palabra clave, pero NO por la IA: es una regla que Patrick prendió para
+// ese grupo, igual que la foto o la nota de voz. El "Voy" cita la dirección
+// reenviada, no el número.
+async function despacharDatosCliente(sock, { chatId, grupoActual, senderNumber, datos }) {
+  const sectorId = getGroupSector(chatId);
+  const focusedGroups = getFocusedGroups();
+  if (focusedGroups.length > 0 && !focusedGroups.includes(chatId)) return false;
+  if (!isGroupSectorActiveEfectivo(chatId, sectorId)) return false;
+  if (!isGroupActive(chatId)) return false;
+
+  return despacharPedido(sock, {
+    chatId,
+    grupoNombre: grupoActual?.name,
+    sectorId,
+    senderNumber,
+    rawText: datos.rawText,
+    text: normalizeText(datos.rawText),
+    keyword: "datos del cliente",
+    matchIndex: 0,
+    matchLength: 0,
+    horaIA: null,
+    quotedMsg: datos.quotedStub,
+    quotedStub: datos.quotedStub,
+  });
 }
 
 // Manda el "Voy" (citando el mensaje original salvo que el grupo sea "sin
@@ -1895,5 +1988,7 @@ module.exports = {
   evaluarVentanaTiempo,
   esSoloLaClave,
   esFraseInequivoca,
+  despacharPedido,
+  despacharDatosCliente,
   analizarDeteccion,
 };

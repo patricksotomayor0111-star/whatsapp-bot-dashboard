@@ -1732,25 +1732,27 @@ saveQuoteMessageBtn.addEventListener("click", async () => {
   mostrarEstadoCotizacion(res.ok ? "Mensaje guardado ✓" : "No se pudo guardar", !res.ok);
 });
 
-// ---------- Pedidos sin texto: foto / contacto / nota de voz ----------
-// Las tres listas funcionan igual, así que se manejan con el mismo código:
-// cada bloque del panel lleva data-media-tipo="imagen|contacto|audio".
+// ---------- Pedidos sin texto: foto / contacto / nota de voz / datos ----------
+// Las cuatro listas funcionan igual, así que se manejan con el mismo código:
+// cada bloque del panel lleva data-media-tipo="imagen|contacto|audio|datosCliente".
 const MEDIA_LISTAS = {
   imagen: document.getElementById("imagenTriggerList"),
   contacto: document.getElementById("contactoTriggerList"),
   audio: document.getElementById("audioTriggerList"),
+  datosCliente: document.getElementById("datosClienteTriggerList"),
 };
 const MEDIA_COLORES = {
   imagen: "bg-orange-50 text-orange-700",
   contacto: "bg-indigo-50 text-indigo-700",
   audio: "bg-green-50 text-green-700",
+  datosCliente: "bg-teal-50 text-teal-700",
 };
 const audioSecondsInput = document.getElementById("audioSecondsInput");
 const saveAudioSecondsBtn = document.getElementById("saveAudioSecondsBtn");
 const audioSecondsStatus = document.getElementById("audioSecondsStatus");
 const mediaTriggerStatus = document.getElementById("mediaTriggerStatus");
 
-let mediaTriggerData = { imagen: [], contacto: [], audio: [], audioMaxSegundos: 15 };
+let mediaTriggerData = { imagen: [], contacto: [], audio: [], datosCliente: [], audioMaxSegundos: 15 };
 
 function mostrarEstadoMedia(el, texto, esError) {
   el.textContent = texto;

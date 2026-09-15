@@ -351,6 +351,25 @@
           </div>
         </section>
 
+        <!-- Datos del cliente reenviados + número -->
+        <section>
+          <p class="eyebrow text-teal-600"><i class="fa-solid fa-share"></i> DATOS DEL CLIENTE REENVIADOS</p>
+          <p class="text-xs text-slate-400 mt-1 mb-2">
+            Para locales que a veces no mandan palabra clave: <b>reenvían</b> la dirección del cliente y
+            enseguida mandan <b>el número</b>. Cuando llega el número, el bot responde citando la dirección.
+            Tiene que llegar en menos de <b>1 minuto</b>, y si en ese minuto ya mandaron palabra clave, no hace nada.
+          </p>
+          <div id="datosClienteTriggerList" class="space-y-1.5 mb-2"></div>
+          <div class="flex gap-2">
+            <select data-media-tipo="datosCliente" class="media-group-select flex-1 min-w-0 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-400/40">
+              <option value="">— Agregar un grupo —</option>
+            </select>
+            <button data-media-tipo="datosCliente" class="media-add-btn w-10 h-10 shrink-0 rounded-xl bg-teal-600 text-white flex items-center justify-center active:scale-90 transition-all">
+              <i class="fa-solid fa-plus text-sm"></i>
+            </button>
+          </div>
+        </section>
+
         <p id="mediaTriggerStatus" class="text-xs"></p>
       </div>
     </div>
