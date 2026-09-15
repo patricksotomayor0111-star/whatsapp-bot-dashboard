@@ -121,6 +121,61 @@ function columnasDeItems(items) {
   return { calculo, importe };
 }
 
+// El ítem en columnas, como lo arman las cajas registradoras de acá:
+//
+//   CANT. UND DESCRIPCIÓN       P.UNIT TOTAL
+//   1.00  NIU 12 POLLO ENROLLADO 20.00 20.00
+//             C/CHAUFA
+//
+// La descripción que no entra sigue en la línea de abajo, sangrada hasta
+// donde empieza su columna: así se ve que es continuación y no otro ítem.
+function anchosDeColumnas(ancho, conUnidad) {
+  const cant = 5;
+  const und = conUnidad ? 4 : 0;
+  const precio = 7;
+  const total = 7;
+  return { cant, und, precio, total, desc: Math.max(8, ancho - cant - und - precio - total) };
+}
+
+function lineasDeItemColumnas(item, ancho, conUnidad) {
+  const c = anchosDeColumnas(ancho, conUnidad);
+  // En este formato la cantidad va con dos decimales ("1.00"), que es como
+  // la imprimen las cajas de acá: la columna queda a plomo aunque haya
+  // pesos ("1.50 KGM") mezclados con unidades.
+  const cantidad = (Number(item.cantidad) || 0).toFixed(2);
+  const partes = envolver(item.descripcion || "(sin descripción)", c.desc);
+  const salida = [];
+
+  partes.forEach((parte, i) => {
+    if (i === 0) {
+      salida.push({
+        texto: cantidad.padEnd(c.cant)
+          + (conUnidad ? (item.unidad || "NIU").padEnd(c.und) : "")
+          + parte.padEnd(c.desc)
+          + doc.aTexto(item.precioUnitario).padStart(c.precio)
+          + doc.aTexto(doc.importeDe(item)).padStart(c.total),
+      });
+    } else {
+      // Sangrada hasta donde arranca la descripción.
+      salida.push({ texto: " ".repeat(c.cant + c.und) + parte });
+    }
+  });
+
+  if (item.descuento > 0) {
+    salida.push({ texto: columnas(" ".repeat(c.cant + c.und) + "Descuento", "-" + doc.aTexto(item.descuento), ancho) });
+  }
+  return salida;
+}
+
+function cabeceraDeColumnas(ancho, conUnidad) {
+  const c = anchosDeColumnas(ancho, conUnidad);
+  return "CANT.".slice(0, c.cant).padEnd(c.cant)
+    + (conUnidad ? "UND".padEnd(c.und) : "")
+    + "DESCRIPCIÓN".slice(0, c.desc).padEnd(c.desc)
+    + "P.UNIT".padStart(c.precio)
+    + "TOTAL".padStart(c.total);
+}
+
 function lineasDeItem(item, ancho, cols) {
   const importe = doc.aTexto(doc.importeDe(item));
   const calculo = `${doc.cantidadATexto(item.cantidad)} x ${doc.aTexto(item.precioUnitario)}`;
@@ -245,8 +300,22 @@ function dibujarBloque(b, d, ctx) {
 
     case "items":
       d.items.forEach((item) => {
-        lineasDeItem(item, ancho, ctx.cols).forEach((linea) => L.push({ tipo: "texto", align: "left", ...linea }));
+        const lineas = b.columnas
+          ? lineasDeItemColumnas(item, ancho, b.unidad !== false)
+          : lineasDeItem(item, ancho, ctx.cols);
+        lineas.forEach((linea) => L.push({ tipo: "texto", align: "left", ...linea }));
       });
+      return;
+
+    case "cabeceraItems":
+      L.push({ tipo: "texto", texto: cabeceraDeColumnas(ancho, b.unidad !== false), align: "left", negrita: Boolean(b.negrita) });
+      return;
+
+    case "letras":
+      // El total en palabras. Sale del total calculado, nunca de un campo
+      // escrito: si se pudiera escribir a mano, dejaría de servir para lo
+      // único que sirve, que es delatar un número alterado.
+      texto((b.prefijo === undefined ? "SON: " : b.prefijo) + doc.montoEnLetras(d.totales.total), estilo);
       return;
 
     case "totales": {
@@ -258,11 +327,17 @@ function dibujarBloque(b, d, ctx) {
       }
       if (d.mostrarIgv && t.tasa > 0) {
         L.push({ tipo: "texto", texto: columnas("SUBTOTAL:", "S/ " + doc.aTexto(t.subtotal), ancho) });
+        // "Operaciones gravadas" es el mismo monto que el subtotal cuando
+        // todo lleva IGV, que es el caso normal. Se muestra aparte solo si
+        // la plantilla lo pide.
+        if (b.opGravadas) {
+          L.push({ tipo: "texto", texto: columnas("OP. GRAVADAS:", "S/ " + doc.aTexto(t.subtotal), ancho) });
+        }
         L.push({ tipo: "texto", texto: columnas(`IGV (${Math.round(t.tasa * 100)}%):`, "S/ " + doc.aTexto(t.igv), ancho) });
       }
       L.push({
         tipo: "texto",
-        texto: columnas("TOTAL:", "S/ " + doc.aTexto(t.total), util),
+        texto: columnas(b.etiquetaTotal || "TOTAL:", "S/ " + doc.aTexto(t.total), util),
         negrita: true,
         tamano: estilo.tamano,
       });
