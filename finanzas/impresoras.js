@@ -149,4 +149,11 @@ function listar() {
   }));
 }
 
-module.exports = { MODELOS, POR_DEFECTO, perfilDe, conAnchoPersonalizado, columnasParaPuntos, listar };
+// El bloque mantiene API fuera del ámbito global: en el navegador los
+// tres módulos comparten scope y dos "const API" chocarían.
+{
+  const API = { MODELOS, POR_DEFECTO, perfilDe, conAnchoPersonalizado, columnasParaPuntos, listar };
+  
+  if (typeof module !== "undefined" && module.exports) module.exports = API;
+    else self.Impresoras = API;
+}

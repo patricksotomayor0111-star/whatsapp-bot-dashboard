@@ -16,6 +16,20 @@ function ok(nombre, real, esperado) {
   else console.log(`  ok  ${nombre}`);
 }
 
+// Uint8Array.includes() busca UN valor, no una subsecuencia como hacía
+// Buffer.includes(). Como los bytes ahora son Uint8Array (para que la
+// impresión se pueda armar en el navegador), hace falta buscar a mano.
+function contiene(bytes, patron) {
+  for (let i = 0; i + patron.length <= bytes.length; i++) {
+    let igual = true;
+    for (let j = 0; j < patron.length; j++) {
+      if (bytes[i + j] !== patron[j]) { igual = false; break; }
+    }
+    if (igual) return true;
+  }
+  return false;
+}
+
 console.log("\n-- lectura de precios --");
 ok("entero", d.aCentavos(3), 300);
 ok("decimal punto", d.aCentavos("3.00"), 300);
@@ -112,8 +126,14 @@ ok("documento sano no se queja", d.revisar({ emisor: { nombre: "Mi Bodega", ruc:
 console.log("\n-- codificación CP850 --");
 ok("ñ a un byte", Array.from(t.codificar("ñ")), [0xa4]);
 ok("á a un byte", Array.from(t.codificar("á")), [0xa0]);
-ok("ASCII intacto", t.codificar("TOTAL").toString("latin1"), "TOTAL");
+ok("ASCII intacto", String.fromCharCode(...t.codificar("TOTAL")), "TOTAL");
 ok("un carácter = un byte", t.codificar("Panadería ñ").length, "Panadería ñ".length);
+
+console.log("\n-- los bytes sirven en el navegador --");
+ok("codificar da Uint8Array", t.codificar("x").constructor.name, "Uint8Array");
+ok("aEscPos da Uint8Array", t.aEscPos({ items: [{ descripcion: "x", cantidad: 1, precioUnitario: "1" }] }).constructor.name, "Uint8Array");
+ok("unir concatena bien", Array.from(t.unir([Uint8Array.from([1, 2]), Uint8Array.from([3])])), [1, 2, 3]);
+ok("unir de vacío", t.unir([]).length, 0);
 
 console.log("\n-- ESC/POS --");
 const bytes = t.aEscPos({ emisor: { nombre: "Mi Bodega" }, items: [{ descripcion: "Pan", cantidad: 1, precioUnitario: "2.50" }] }, { ancho: "58" });
@@ -122,12 +142,12 @@ ok("selecciona CP850", Array.from(bytes.slice(2, 5)), [0x1b, 0x74, 2]);
 
 console.log("\n-- la cuchilla la decide el perfil de la impresora --");
 const laTuya = t.aEscPos({ emisor: { nombre: "X" }, items: [{ descripcion: "Pan", cantidad: 1, precioUnitario: "1" }] }, { perfil: "pos-8001dd" });
-ok("la POS-8001DD nunca manda GS V", laTuya.includes(Buffer.from([0x1d, 0x56])), false);
+ok("la POS-8001DD nunca manda GS V", contiene(laTuya, [0x1d, 0x56]), false);
 ok("termina avanzando 5 líneas (ESC d 5)", Array.from(laTuya.slice(-3)), [0x1b, 0x64, 5]);
 
 const mostrador = t.aEscPos({ emisor: { nombre: "X" }, items: [{ descripcion: "Pan", cantidad: 1, precioUnitario: "1" }] }, { perfil: "generica-80" });
 ok("la de mostrador sí corta", Array.from(mostrador.slice(-4)), [0x1d, 0x56, 66, 0]);
-ok("se puede forzar el corte", t.aEscPos({ items: [{ descripcion: "x", cantidad: 1, precioUnitario: "1" }] }, { perfil: "pos-8001dd", cortar: true }).includes(Buffer.from([0x1d, 0x56])), true);
+ok("se puede forzar el corte", contiene(t.aEscPos({ items: [{ descripcion: "x", cantidad: 1, precioUnitario: "1" }] }, { perfil: "pos-8001dd", cortar: true }), [0x1d, 0x56]), true);
 
 console.log("\n-- perfil de la POS-8001DD --");
 const imp = require("./impresoras");

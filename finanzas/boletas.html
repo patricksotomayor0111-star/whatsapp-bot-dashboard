@@ -121,6 +121,15 @@
     border-radius: 0 8px 8px 0; font-size: 13px; margin-bottom: 10px; }
   .error { background: #ef444418; border-left: 3px solid var(--mal); padding: 10px 12px;
     border-radius: 0 8px 8px 0; font-size: 13px; margin-bottom: 10px; }
+  .interruptor { display: flex; align-items: center; gap: 10px; margin: 14px 0 0;
+    padding-top: 12px; border-top: 1px solid var(--borde); font-size: 14px; color: var(--texto); }
+  .interruptor input { width: 20px; height: 20px; accent-color: var(--acento); flex: none; margin: 0; }
+  .interruptor small { display: block; color: var(--suave); font-size: 12px; }
+  .botones { display: flex; gap: 10px; margin-bottom: 8px; }
+  .botones button { flex: 1; }
+  select { display: block; width: 100%; margin-top: 4px; padding: 11px;
+    border: 1px solid var(--borde); border-radius: 10px; background: var(--fondo);
+    color: var(--texto); font: inherit; }
   .bloque-logo { border: 1px solid var(--borde); border-radius: 12px; padding: 12px; margin-bottom: 14px; }
   .cabecera-logo { display: flex; align-items: center; margin-bottom: 10px; font-size: 13px; color: var(--suave); }
   .cabecera-logo button { margin-left: auto; }
@@ -231,6 +240,10 @@
       <div class="sugerencias" id="sugerencias"></div>
     </div>
     <div class="totales" id="totales"></div>
+    <label class="interruptor">
+      <input type="checkbox" id="esDemo">
+      <span>Documento de demostración <small>(imprime la marca DEMO / NO VÁLIDO)</small></span>
+    </label>
   </section>
 
   <!-- PASO 4 -->
@@ -238,6 +251,27 @@
     <h2>4 · Cómo va a salir</h2>
     <p class="regla" id="reglaPapel"></p>
     <pre class="previa" id="previa"></pre>
+  </section>
+
+  <!-- IMPRESORA -->
+  <section class="tarjeta">
+    <h2 style="cursor:pointer" id="tituloImpresora">🖨️ Impresora <span id="estadoImpresora">· sin conectar</span></h2>
+    <div id="cuerpoImpresora" class="oculto">
+      <div id="avisoBluetooth"></div>
+      <label>Modelo
+        <select id="modeloImpresora"></select>
+      </label>
+      <div class="botones">
+        <button class="principal" id="btnConectar">Buscar y conectar</button>
+        <button class="secundaria" id="btnDesconectar" style="margin-top:0">Desconectar</button>
+      </div>
+      <button class="secundaria" id="btnPrueba">Imprimir hoja de prueba</button>
+      <p class="explica" style="margin-top:10px">
+        La hoja de prueba contesta lo que no se puede saber sin ver salir el
+        papel: si el ancho es el correcto, si los acentos salen bien y dónde
+        queda la última línea respecto de la barra de corte.
+      </p>
+    </div>
   </section>
 
   <!-- NEGOCIO -->
@@ -317,6 +351,10 @@
   <button class="principal" id="btnImprimir">Imprimir</button>
 </div>
 
+<script src="/documentos/documento.js"></script>
+<script src="/documentos/impresoras.js"></script>
+<script src="/documentos/termica.js"></script>
+<script src="/documentos/bluetooth.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const estado = { modo: "pedido", items: [], deteccion: null, perfil: "pos-8001dd" };
@@ -582,6 +620,7 @@ function recalcular() {
     });
     const doc = {
       tipo: "nota",
+      demo: $("esDemo").checked,
       items: conProducto.map(({ it }) => ({
         descripcion: it.descripcion, cantidad: Number(it.cantidad) || 1, precioUnitario: it.precioUnitario || "0",
       })),
@@ -642,6 +681,151 @@ function pintarTotales(d) {
 $("btnImprimir").onclick = () => {
   alert("La conexión con la POS-8001DD es el próximo paso.\n\nLa vista previa de abajo ya es exacta: sale de la misma lista de líneas que recibe la impresora.");
 };
+
+// ---------- Impresora ----------
+//
+// Los bytes se arman ACÁ, en el navegador, con los mismos documento.js y
+// termica.js que usa el servidor. No es un capricho: si la impresión
+// dependiera del servidor, quedarse sin señal en el mostrador significaría
+// no poder imprimir aunque la impresora esté a treinta centímetros.
+
+// Copia local de lo que hace falta para armar el documento sin preguntar.
+const local = { negocio: null, logo: null, numero: null };
+
+$("tituloImpresora").onclick = () => $("cuerpoImpresora").classList.toggle("oculto");
+
+function pintarEstadoImpresora(estado, detalle) {
+  const el = $("estadoImpresora");
+  if (estado === "conectada") {
+    el.textContent = "· " + detalle;
+    el.style.color = "var(--ok)";
+  } else {
+    el.textContent = "· sin conectar";
+    el.style.color = "";
+  }
+}
+Impresora.alCambiar(pintarEstadoImpresora);
+
+function llenarModelos() {
+  const sel = $("modeloImpresora");
+  sel.innerHTML = "";
+  Impresoras.listar().forEach((m) => {
+    const o = document.createElement("option");
+    o.value = m.clave;
+    o.textContent = `${m.nombre} · ${m.columnas} col` + (m.cortador ? " · con cuchilla" : "");
+    sel.append(o);
+  });
+  sel.value = estado.perfil;
+  sel.onchange = () => { estado.perfil = sel.value; recalcular(); };
+
+  if (!Impresora.disponible()) {
+    $("avisoBluetooth").innerHTML = '<div class="aviso">Este navegador no tiene Bluetooth. ' +
+      'Funciona en Chrome (Android o computadora); en iPhone no está disponible.</div>';
+    $("btnConectar").disabled = true;
+  }
+}
+
+function avisoImpresora(texto, clase) {
+  const caja = $("avisoBluetooth");
+  caja.innerHTML = '<div class="' + (clase || "aviso") + '"></div>';
+  caja.firstElementChild.textContent = texto;
+}
+
+$("btnConectar").onclick = async () => {
+  try {
+    $("btnConectar").disabled = true;
+    const nombre = await Impresora.conectar(Impresoras.perfilDe(estado.perfil));
+    avisoImpresora("Conectada a " + nombre + ".", "ok");
+  } catch (err) {
+    avisoImpresora(Impresora.mensajeDeError(err), "error");
+  } finally {
+    $("btnConectar").disabled = false;
+  }
+};
+
+$("btnDesconectar").onclick = () => {
+  Impresora.desconectar();
+  avisoImpresora("Desconectada.", "aviso");
+};
+
+$("btnPrueba").onclick = async () => {
+  if (!Impresora.conectada()) return avisoImpresora("Conectá la impresora primero.", "error");
+  try {
+    const perfil = Impresoras.perfilDe(estado.perfil);
+    await Impresora.enviar(Termica.prueba({ perfil: estado.perfil }), perfil);
+    avisoImpresora("Hoja de prueba enviada. Mirá el papel.", "ok");
+  } catch (err) {
+    avisoImpresora(Impresora.mensajeDeError(err), "error");
+  }
+};
+
+// Arma el documento completo del lado del navegador, con los datos que ya
+// se trajeron. Es la misma forma que espera el servidor, así que la previa
+// y lo que se imprime no pueden discrepar.
+function documentoActual() {
+  return {
+    tipo: "nota",
+    numero: local.numero || "",
+    emisor: local.negocio || {},
+    pie: local.negocio ? local.negocio.pie : "",
+    logo: local.logo,
+    demo: $("esDemo").checked,
+    items: estado.items.filter((i) => i.descripcion.trim()).map((i) => ({
+      descripcion: i.descripcion,
+      cantidad: Number(i.cantidad) || 1,
+      precioUnitario: i.precioUnitario || "0",
+    })),
+  };
+}
+
+$("btnImprimir").onclick = async () => {
+  const doc = documentoActual();
+  if (doc.items.length === 0) return alert("Agregá al menos un producto.");
+  if (!Impresora.conectada()) {
+    $("cuerpoImpresora").classList.remove("oculto");
+    return avisoImpresora("Conectá la impresora primero.", "error");
+  }
+
+  const boton = $("btnImprimir");
+  const textoOriginal = boton.textContent;
+  boton.disabled = true;
+  try {
+    const perfil = Impresoras.perfilDe(estado.perfil);
+    const bytes = Termica.aEscPos(doc, { perfil: estado.perfil });
+    await Impresora.enviar(bytes, perfil, (pct) => { boton.textContent = pct + "%"; });
+    boton.textContent = "✓ Impreso";
+    await gastarNumero();
+    setTimeout(() => { boton.textContent = textoOriginal; }, 2000);
+  } catch (err) {
+    boton.textContent = textoOriginal;
+    alert(Impresora.mensajeDeError(err));
+  } finally {
+    boton.disabled = false;
+  }
+};
+
+// El correlativo lo lleva el servidor, pero imprimir no puede depender de
+// que haya señal. Si no se lo puede avisar, se avanza igual acá: repetir
+// un número es peor que saltarse uno, porque deja dos documentos distintos
+// con la misma identificación.
+async function gastarNumero() {
+  try {
+    const r = await fetch("/api/documentos/numero", { method: "POST" });
+    const d = await r.json();
+    local.numero = d.proximoNumero;
+  } catch (err) {
+    local.numero = siguienteLocal(local.numero);
+  }
+  recalcular();
+}
+
+function siguienteLocal(numero) {
+  const m = String(numero || "").match(/^(.*?)(\d+)$/);
+  if (!m) return numero;
+  return m[1] + String(Number(m[2]) + 1).padStart(m[2].length, "0");
+}
+
+$("esDemo").onchange = recalcular;
 
 // ---------- Logo ----------
 //
@@ -775,6 +959,7 @@ function aBase64(u8) {
 
 $("btnGuardarLogo").onclick = async () => {
   if (!logoListo) return;
+  local.logo = logoListo;
   const r = await fetch("/api/documentos/logo", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ancho: logoListo.ancho, alto: logoListo.alto, bits: aBase64(logoListo.bits) }),
@@ -792,6 +977,7 @@ $("btnQuitarLogo").onclick = async () => {
   await fetch("/api/documentos/logo", { method: "DELETE" });
   imagenLogo = null;
   logoListo = null;
+  local.logo = null;
   $("lienzoLogo").classList.add("oculto");
   $("controlesLogo").classList.add("oculto");
   $("previaLogo").querySelector(".sin-logo").classList.remove("oculto");
@@ -804,7 +990,8 @@ async function cargarLogo() {
     const d = await r.json();
     if (!d || !d.bits) return;
     const bits = Uint8Array.from(atob(d.bits), (ch) => ch.charCodeAt(0));
-    dibujarLogo({ ancho: d.ancho, alto: d.alto, bits });
+    local.logo = { ancho: d.ancho, alto: d.alto, bits };
+    dibujarLogo(local.logo);
   } catch (err) { /* sin conexión */ }
 }
 
@@ -835,8 +1022,12 @@ function pintarNegocio(d) {
 
 async function cargarNegocio() {
   try {
-    pintarNegocio(await (await fetch("/api/documentos/negocio")).json());
-  } catch (err) { /* sin conexión */ }
+    const d = await (await fetch("/api/documentos/negocio")).json();
+    pintarNegocio(d);
+    // Se guarda para poder imprimir sin señal después.
+    local.negocio = { nombre: d.nombre, ruc: d.ruc, direccion: d.direccion, telefono: d.telefono, pie: d.pie };
+    local.numero = d.proximoNumero;
+  } catch (err) { /* sin conexión: se imprime con lo que ya estaba */ }
 }
 
 $("btnGuardarNegocio").onclick = async () => {
@@ -913,6 +1104,7 @@ $("btnGuardarProductos").onclick = async () => {
 
 // Al arrancar se mira cuántos hay, para que el título ya avise si está
 // vacío antes de que alguien se pregunte por qué no autocompleta.
+llenarModelos();
 cargarCatalogo();
 cargarNegocio();
 cargarLogo();

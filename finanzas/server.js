@@ -1502,6 +1502,15 @@ app.post("/api/push/unsubscribe", (req, res) => {
 // ---------- Documentos para imprimir ----------
 // La pantalla donde se toma la foto, se revisa lo detectado y se arma el
 // documento. Va detrás de la sesión como todo lo demás.
+// Los módulos que el navegador necesita para armar la impresión por su
+// cuenta. Son los MISMOS archivos que usa el servidor: una sola copia del
+// cálculo del dinero y del render, imposible que se desincronicen.
+["documento.js", "termica.js", "impresoras.js", "bluetooth.js"].forEach((archivo) => {
+  app.get("/documentos/" + archivo, (req, res) => {
+    res.type("application/javascript").sendFile(path.join(__dirname, archivo));
+  });
+});
+
 app.get(["/documentos", "/documentos.html"], (req, res) => {
   res.sendFile(path.join(__dirname, "boletas.html"));
 });
@@ -1544,6 +1553,13 @@ app.get("/api/documentos/negocio", (req, res) => {
 app.post("/api/documentos/negocio", (req, res) => {
   const guardado = negocio.set(req.body || {});
   res.json({ ...guardado, proximoNumero: negocio.proximoNumero(), avisos: negocio.revisar() });
+});
+
+// Gastar un correlativo. Lo llama el navegador DESPUÉS de imprimir, porque
+// ahora los bytes los arma él: el servidor ya no ve pasar el documento.
+app.post("/api/documentos/numero", (req, res) => {
+  const usado = negocio.consumirNumero();
+  res.json({ usado, proximoNumero: negocio.proximoNumero() });
 });
 
 // El logo, ya tramado a 1 bit por el navegador.
@@ -1642,7 +1658,9 @@ app.post("/api/documentos/escpos", (req, res) => {
       copias: req.body?.copias,
     });
     res.set("X-Documento-Numero", numero);
-    res.type("application/octet-stream").send(bytes);
+    // aEscPos ahora devuelve Uint8Array (para que sirva igual en el
+    // navegador); Express necesita un Buffer para mandarlo por HTTP.
+    res.type("application/octet-stream").send(Buffer.from(bytes));
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

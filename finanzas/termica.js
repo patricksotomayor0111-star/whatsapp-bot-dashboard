@@ -1,5 +1,24 @@
-const doc = require("./documento");
-const impresoras = require("./impresoras");
+// Este archivo corre en el servidor Y en el navegador. Las dos formas de
+// traer las dependencias porque el navegador no tiene require().
+const doc = typeof require === "function" ? require("./documento") : self.Documento;
+const impresoras = typeof require === "function" ? require("./impresoras") : self.Impresoras;
+
+// Bytes con Uint8Array y no con Buffer: Buffer solo existe en Node, y la
+// impresión tiene que poder armarse en el celular sin pasar por el
+// servidor. Sin esto, quedarse sin señal en el mostrador significaría no
+// poder imprimir aunque la impresora esté a treinta centímetros.
+function B(arr) {
+  return Uint8Array.from(arr);
+}
+
+function unir(partes) {
+  let largo = 0;
+  partes.forEach((p) => { largo += p.length; });
+  const salida = new Uint8Array(largo);
+  let i = 0;
+  partes.forEach((p) => { salida.set(p, i); i += p.length; });
+  return salida;
+}
 
 // Render para impresora térmica.
 //
@@ -148,6 +167,18 @@ function componer(documento, opciones = {}) {
   const texto = (t, extra = {}) => envolver(t, extra.tamano === 2 ? Math.floor(ancho / 2) : ancho)
     .forEach((linea) => L.push({ tipo: "texto", texto: linea, align: "left", ...extra }));
 
+  // La marca de demostración va arriba Y abajo. Arriba porque es lo
+  // primero que se lee; abajo porque en un ticket largo lo de arriba ya se
+  // perdió de vista cuando llegás al total. Las dos las pone el render a
+  // partir de la bandera, no un campo de texto.
+  if (d.demo) {
+    L.push({ tipo: "separador", texto: separador(ancho, "*") });
+    texto("DOCUMENTO DE DEMOSTRACIÓN", { align: "center", negrita: true });
+    texto("NO VÁLIDO COMO COMPROBANTE FISCAL", { align: "center" });
+    L.push({ tipo: "separador", texto: separador(ancho, "*") });
+    L.push({ tipo: "espacio" });
+  }
+
   if (d.logo) L.push({ tipo: "imagen", imagen: d.logo, align: "center" });
 
   if (d.emisor.nombre) texto(d.emisor.nombre, { align: "center", negrita: true });
@@ -211,6 +242,13 @@ function componer(documento, opciones = {}) {
     texto(d.pie, { align: "center" });
   }
 
+  if (d.demo) {
+    L.push({ tipo: "espacio" });
+    L.push({ tipo: "separador", texto: separador(ancho, "*") });
+    texto("DEMO — NO VÁLIDO COMO COMPROBANTE FISCAL", { align: "center", negrita: true });
+    L.push({ tipo: "separador", texto: separador(ancho, "*") });
+  }
+
   return { ancho, lineas: L };
 }
 
@@ -270,7 +308,7 @@ function codificar(texto) {
       bytes.push(sinTilde.length === 1 && sinTilde.codePointAt(0) < 0x80 ? sinTilde.codePointAt(0) : 0x3f);
     }
   }
-  return Buffer.from(bytes);
+  return B(bytes);
 }
 
 const ESC = 0x1b;
@@ -280,13 +318,13 @@ const ALINEACION = { left: 0, center: 1, right: 2 };
 function comandoQr(contenido, tamano) {
   const datos = codificar(contenido);
   const largo = datos.length + 3;
-  return Buffer.concat([
-    Buffer.from([GS, 0x28, 0x6b, 4, 0, 49, 65, 50, 0]),                       // modelo 2
-    Buffer.from([GS, 0x28, 0x6b, 3, 0, 49, 67, Math.min(16, Math.max(1, tamano || 6))]),
-    Buffer.from([GS, 0x28, 0x6b, 3, 0, 49, 69, 49]),                          // corrección M
-    Buffer.from([GS, 0x28, 0x6b, largo & 0xff, (largo >> 8) & 0xff, 49, 80, 48]),
+  return unir([
+    B([GS, 0x28, 0x6b, 4, 0, 49, 65, 50, 0]),                       // modelo 2
+    B([GS, 0x28, 0x6b, 3, 0, 49, 67, Math.min(16, Math.max(1, tamano || 6))]),
+    B([GS, 0x28, 0x6b, 3, 0, 49, 69, 49]),                          // corrección M
+    B([GS, 0x28, 0x6b, largo & 0xff, (largo >> 8) & 0xff, 49, 80, 48]),
     datos,
-    Buffer.from([GS, 0x28, 0x6b, 3, 0, 49, 81, 48]),                          // imprimir
+    B([GS, 0x28, 0x6b, 3, 0, 49, 81, 48]),                          // imprimir
   ]);
 }
 
@@ -294,11 +332,11 @@ function comandoCodigoBarras(contenido) {
   // CODE128 juego B: acepta letras, números y símbolos, que es lo que hace
   // falta para un número de documento tipo "NV001-000123".
   const datos = codificar("{B" + contenido);
-  return Buffer.concat([
-    Buffer.from([GS, 0x68, 64]),          // altura 64 puntos
-    Buffer.from([GS, 0x77, 2]),           // ancho de módulo
-    Buffer.from([GS, 0x48, 2]),           // imprimir el texto debajo
-    Buffer.from([GS, 0x6b, 73, datos.length]),
+  return unir([
+    B([GS, 0x68, 64]),          // altura 64 puntos
+    B([GS, 0x77, 2]),           // ancho de módulo
+    B([GS, 0x48, 2]),           // imprimir el texto debajo
+    B([GS, 0x6b, 73, datos.length]),
     datos,
   ]);
 }
@@ -309,9 +347,11 @@ function comandoCodigoBarras(contenido) {
 // "bits" son las filas, cada una empaquetada de a 8 píxeles por byte.
 function comandoImagen(imagen) {
   const bytesPorFila = Math.ceil(imagen.ancho / 8);
-  const datos = Buffer.from(imagen.bits);
-  return Buffer.concat([
-    Buffer.from([GS, 0x76, 0x30, 0,
+  // Los bits llegan como Buffer desde el disco o como Uint8Array desde el
+  // navegador. Uint8Array.from() acepta los dos sin copiar de más.
+  const datos = imagen.bits instanceof Uint8Array ? imagen.bits : Uint8Array.from(imagen.bits);
+  return unir([
+    B([GS, 0x76, 0x30, 0,
       bytesPorFila & 0xff, (bytesPorFila >> 8) & 0xff,
       imagen.alto & 0xff, (imagen.alto >> 8) & 0xff]),
     datos,
@@ -328,8 +368,8 @@ function aEscPos(documento, opciones = {}) {
   const copias = Math.min(10, Math.max(1, Number(opciones.copias) || 1));
   const partes = [];
 
-  partes.push(Buffer.from([ESC, 0x40]));       // reiniciar
-  partes.push(Buffer.from([ESC, 0x74, 2]));    // página de códigos CP850
+  partes.push(B([ESC, 0x40]));       // reiniciar
+  partes.push(B([ESC, 0x74, 2]));    // página de códigos CP850
 
   for (let copia = 0; copia < copias; copia += 1) {
     let alineacionActual = 0;
@@ -339,22 +379,22 @@ function aEscPos(documento, opciones = {}) {
     lineas.forEach((l) => {
       const align = ALINEACION[l.align] === undefined ? 0 : ALINEACION[l.align];
       if (align !== alineacionActual) {
-        partes.push(Buffer.from([ESC, 0x61, align]));
+        partes.push(B([ESC, 0x61, align]));
         alineacionActual = align;
       }
 
       if (l.tipo === "espacio") {
-        partes.push(Buffer.from([0x0a]));
+        partes.push(B([0x0a]));
         return;
       }
       if (l.tipo === "qr") {
         partes.push(comandoQr(l.contenido, l.tamano));
-        partes.push(Buffer.from([0x0a]));
+        partes.push(B([0x0a]));
         return;
       }
       if (l.tipo === "codigoBarras") {
         partes.push(comandoCodigoBarras(l.contenido));
-        partes.push(Buffer.from([0x0a]));
+        partes.push(B([0x0a]));
         return;
       }
       if (l.tipo === "imagen") {
@@ -364,36 +404,36 @@ function aEscPos(documento, opciones = {}) {
 
       const negrita = Boolean(l.negrita);
       if (negrita !== negritaActual) {
-        partes.push(Buffer.from([ESC, 0x45, negrita ? 1 : 0]));
+        partes.push(B([ESC, 0x45, negrita ? 1 : 0]));
         negritaActual = negrita;
       }
       const tamano = l.tamano === 2 ? 2 : 1;
       if (tamano !== tamanoActual) {
         // GS ! empaqueta ancho y alto en un byte: 4 bits cada uno.
         const n = ((tamano - 1) << 4) | (tamano - 1);
-        partes.push(Buffer.from([GS, 0x21, n]));
+        partes.push(B([GS, 0x21, n]));
         tamanoActual = tamano;
       }
 
       partes.push(codificar(l.texto || ""));
-      partes.push(Buffer.from([0x0a]));
+      partes.push(B([0x0a]));
     });
 
     // Se dejan limpios los modos antes de cortar: si queda la negrita
     // activada, el documento siguiente sale entero en negrita.
-    if (negritaActual) partes.push(Buffer.from([ESC, 0x45, 0]));
-    if (tamanoActual !== 1) partes.push(Buffer.from([GS, 0x21, 0]));
-    if (alineacionActual !== 0) partes.push(Buffer.from([ESC, 0x61, 0]));
+    if (negritaActual) partes.push(B([ESC, 0x45, 0]));
+    if (tamanoActual !== 1) partes.push(B([GS, 0x21, 0]));
+    if (alineacionActual !== 0) partes.push(B([ESC, 0x61, 0]));
 
     // El avance final lo manda el perfil. En una portátil sin cuchilla es
     // lo ÚNICO que separa la última línea de la barra dentada: sin esto se
     // rasga por encima del total, porque la barra está unos milímetros más
     // adelante que el cabezal.
-    partes.push(Buffer.from([ESC, 0x64, perfilImpresora.avanceFinal || 4]));
-    if (cortar) partes.push(Buffer.from([GS, 0x56, 66, 0]));
+    partes.push(B([ESC, 0x64, perfilImpresora.avanceFinal || 4]));
+    if (cortar) partes.push(B([GS, 0x56, 66, 0]));
   }
 
-  return Buffer.concat(partes);
+  return unir(partes);
 }
 
 // Hoja de diagnóstico. No es un documento de adorno: cada línea contesta
@@ -454,7 +494,7 @@ function lineasDiagnostico(p) {
 function prueba(opciones = {}) {
   const p = perfilDeOpciones(opciones);
   const cortar = opciones.cortar === undefined ? Boolean(p.cortador) : Boolean(opciones.cortar);
-  const partes = [Buffer.from([ESC, 0x40]), Buffer.from([ESC, 0x74, 2])];
+  const partes = [B([ESC, 0x40]), B([ESC, 0x74, 2])];
 
   let alineacionActual = 0;
   let negritaActual = false;
@@ -462,30 +502,30 @@ function prueba(opciones = {}) {
   lineasDiagnostico(p).forEach((l) => {
     const align = ALINEACION[l.align] === undefined ? 0 : ALINEACION[l.align];
     if (align !== alineacionActual) {
-      partes.push(Buffer.from([ESC, 0x61, align]));
+      partes.push(B([ESC, 0x61, align]));
       alineacionActual = align;
     }
-    if (l.tipo === "espacio") return partes.push(Buffer.from([0x0a]));
-    if (l.tipo === "qr") return partes.push(comandoQr(l.contenido, l.tamano), Buffer.from([0x0a]));
-    if (l.tipo === "codigoBarras") return partes.push(comandoCodigoBarras(l.contenido), Buffer.from([0x0a]));
+    if (l.tipo === "espacio") return partes.push(B([0x0a]));
+    if (l.tipo === "qr") return partes.push(comandoQr(l.contenido, l.tamano), B([0x0a]));
+    if (l.tipo === "codigoBarras") return partes.push(comandoCodigoBarras(l.contenido), B([0x0a]));
 
     const negrita = Boolean(l.negrita);
     if (negrita !== negritaActual) {
-      partes.push(Buffer.from([ESC, 0x45, negrita ? 1 : 0]));
+      partes.push(B([ESC, 0x45, negrita ? 1 : 0]));
       negritaActual = negrita;
     }
     String(l.texto).split("\n").forEach((linea) => {
-      partes.push(codificar(linea), Buffer.from([0x0a]));
+      partes.push(codificar(linea), B([0x0a]));
     });
     return undefined;
   });
 
-  if (negritaActual) partes.push(Buffer.from([ESC, 0x45, 0]));
-  if (alineacionActual !== 0) partes.push(Buffer.from([ESC, 0x61, 0]));
-  partes.push(Buffer.from([ESC, 0x64, p.avanceFinal || 4]));
-  if (cortar) partes.push(Buffer.from([GS, 0x56, 66, 0]));
+  if (negritaActual) partes.push(B([ESC, 0x45, 0]));
+  if (alineacionActual !== 0) partes.push(B([ESC, 0x61, 0]));
+  partes.push(B([ESC, 0x64, p.avanceFinal || 4]));
+  if (cortar) partes.push(B([GS, 0x56, 66, 0]));
 
-  return Buffer.concat(partes);
+  return unir(partes);
 }
 
 // La misma hoja en texto, para verla en pantalla antes de gastar papel.
@@ -507,7 +547,14 @@ function previaDiagnostico(opciones = {}) {
     .join("\n");
 }
 
-module.exports = {
-  perfil, perfilDeOpciones, envolver, columnas, columnasDeItems,
-  componer, previa, aEscPos, codificar, prueba, previaDiagnostico,
-};
+// El bloque mantiene API fuera del ámbito global: en el navegador los
+// tres módulos comparten scope y dos "const API" chocarían.
+{
+  const API = {
+    perfil, perfilDeOpciones, envolver, columnas, columnasDeItems,
+    componer, previa, aEscPos, codificar, prueba, previaDiagnostico, unir,
+  };
+  
+  if (typeof module !== "undefined" && module.exports) module.exports = API;
+    else self.Termica = API;
+}

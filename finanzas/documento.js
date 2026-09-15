@@ -207,6 +207,10 @@ function normalizar(doc = {}) {
     codigoBarras: doc.codigoBarras ? { contenido: String(doc.codigoBarras.contenido || "") } : null,
     logo: doc.logo || null,
     pie: String(doc.pie === undefined ? "¡Gracias por su compra!" : doc.pie),
+    // Documento de demostración. Es una bandera y no un texto editable a
+    // propósito: la marca la dibuja el render, así que no hay campo que
+    // vaciar para que desaparezca del papel.
+    demo: Boolean(doc.demo),
     totales: calcularTotales(items, opciones),
   };
 }
@@ -287,18 +291,25 @@ function revisar(doc) {
   return avisos;
 }
 
-module.exports = {
-  TIPOS,
-  IGV_PERU,
-  aCentavos,
-  aTexto,
-  cantidadATexto,
-  importeDe,
-  calcularTotales,
-  normalizar,
-  agregarItem,
-  quitarItem,
-  cambiarItem,
-  vuelto,
-  revisar,
-};
+// El bloque mantiene API fuera del ámbito global: en el navegador los
+// tres módulos comparten scope y dos "const API" chocarían.
+{
+  const API = {
+    TIPOS,
+    IGV_PERU,
+    aCentavos,
+    aTexto,
+    cantidadATexto,
+    importeDe,
+    calcularTotales,
+    normalizar,
+    agregarItem,
+    quitarItem,
+    cambiarItem,
+    vuelto,
+    revisar,
+  };
+  
+  if (typeof module !== "undefined" && module.exports) module.exports = API;
+    else self.Documento = API;
+}
