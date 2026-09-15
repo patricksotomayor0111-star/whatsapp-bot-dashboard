@@ -44,14 +44,15 @@
     color: var(--suave); margin: 0 0 12px; font-weight: 600; }
   .explica { color: var(--suave); font-size: 13px; margin: 0 0 14px; }
 
+  .dos-fotos { display: flex; gap: 10px; }
   .zona-foto {
-    border: 2px dashed var(--borde); border-radius: 14px; padding: 30px 16px;
+    flex: 1; border: 2px dashed var(--borde); border-radius: 14px; padding: 24px 12px;
     text-align: center; cursor: pointer; background: var(--fondo);
+    color: var(--texto); font: inherit;
   }
   .zona-foto:active { border-color: var(--acento); }
-  .zona-foto .icono { font-size: 40px; display: block; margin-bottom: 8px; }
-  .zona-foto strong { display: block; margin-bottom: 4px; }
-  .zona-foto span { color: var(--suave); font-size: 13px; }
+  .zona-foto .icono { font-size: 34px; display: block; margin-bottom: 6px; }
+  .zona-foto strong { display: block; font-size: 14px; }
   #vistaFoto { width: 100%; border-radius: 10px; margin-bottom: 12px; display: none; }
 
   button.principal {
@@ -224,12 +225,23 @@
       pedido que llegó por WhatsApp. Salen los productos y armamos tu nota de venta.
     </p>
     <img id="vistaFoto" alt="">
-    <div class="zona-foto" id="zonaFoto">
-      <span class="icono">📷</span>
-      <strong>Tomar foto</strong>
-      <span>o tocá para elegir una imagen</span>
+    <div class="dos-fotos">
+      <button class="zona-foto" id="zonaCamara">
+        <span class="icono">📷</span>
+        <strong>Tomar foto</strong>
+      </button>
+      <button class="zona-foto" id="zonaGaleria">
+        <span class="icono">📁</span>
+        <strong>De la galería</strong>
+      </button>
     </div>
+    <!-- Dos campos y no uno: "capture" le dice al navegador que abra la
+         cámara DIRECTO, sin pasar por la galería. Con un solo campo hay que
+         elegir cuál de las dos cosas se puede hacer, y hacen falta las dos:
+         la cámara para el pedido que tenés en la mano, la galería para el
+         que te llegó por WhatsApp y ya está en el celular. -->
     <input type="file" id="archivo" accept="image/*" capture="environment" hidden>
+    <input type="file" id="archivoGaleria" accept="image/*" hidden>
     <button class="principal oculto" id="btnLeer" style="margin-top:12px">Leer la foto</button>
     <button class="secundaria" id="btnManual">Cargar a mano, sin foto</button>
   </section>
@@ -422,16 +434,28 @@ $("modoGasto").onclick = () => ponerModo("gasto");
 // ---------- Foto ----------
 let imagenLista = null;
 
-$("zonaFoto").onclick = () => $("archivo").click();
-$("archivo").onchange = async (e) => {
+$("zonaCamara").onclick = () => $("archivo").click();
+$("zonaGaleria").onclick = () => $("archivoGaleria").click();
+
+async function tomarImagen(e) {
   const file = e.target.files[0];
   if (!file) return;
-  imagenLista = await achicar(file);
+  try {
+    imagenLista = await achicar(file);
+  } catch (err) {
+    return mostrarError("No se pudo abrir esa imagen. Probá con otra.");
+  }
   $("vistaFoto").src = imagenLista.dataUrl;
   $("vistaFoto").style.display = "block";
-  $("zonaFoto").classList.add("oculto");
+  document.querySelector(".dos-fotos").classList.add("oculto");
   $("btnLeer").classList.remove("oculto");
-};
+  // Se limpia el valor para que elegir DOS VECES la misma foto vuelva a
+  // disparar el change: si no, la segunda vez no pasa nada y parece colgado.
+  e.target.value = "";
+}
+
+$("archivo").onchange = tomarImagen;
+$("archivoGaleria").onchange = tomarImagen;
 
 // Achicar ANTES de subir. Una foto de celular son 4000px y 6MB: subirla
 // entera tarda con datos móviles y no se lee mejor. 1600px de lado largo
