@@ -15,6 +15,7 @@ const productos = require("./productos");
 const foto = require("./foto");
 const negocio = require("./negocio");
 const logoNegocio = require("./logo");
+const plantillas = require("./plantillas");
 const reminders = require("./reminders");
 const debts = require("./debts");
 const shortfalls = require("./shortfalls");
@@ -1555,6 +1556,36 @@ app.post("/api/documentos/negocio", (req, res) => {
   res.json({ ...guardado, proximoNumero: negocio.proximoNumero(), avisos: negocio.revisar() });
 });
 
+// Plantillas: el orden y el estilo de los bloques.
+app.get("/api/documentos/plantillas", (req, res) => {
+  res.json({
+    lista: plantillas.todas().map((p) => ({ id: p.id, nombre: p.nombre, deFabrica: Boolean(p.deFabrica) })),
+    activa: plantillas.activa(),
+    tipos: plantillas.TIPOS,
+    campos: plantillas.CAMPOS,
+  });
+});
+
+app.post("/api/documentos/plantillas", (req, res) => {
+  try {
+    res.json(plantillas.guardar(req.body?.nombre, req.body?.bloques, req.body?.id));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/documentos/plantillas/usar", (req, res) => {
+  try {
+    res.json(plantillas.usar(req.body?.id));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete("/api/documentos/plantillas/:id", (req, res) => {
+  res.json({ ok: plantillas.eliminar(req.params.id), activa: plantillas.activa() });
+});
+
 // Gastar un correlativo. Lo llama el navegador DESPUÉS de imprimir, porque
 // ahora los bytes los arma él: el servidor ya no ve pasar el documento.
 app.post("/api/documentos/numero", (req, res) => {
@@ -1627,7 +1658,10 @@ app.post("/api/documentos/previa", (req, res) => {
     const perfil = impresoras.perfilDe(req.body?.perfil || negocio.get().impresora);
     const doc = armarDocumento(req.body?.documento || {});
     res.json({
-      previa: termica.previa(doc, { perfil }),
+      previa: termica.previa(doc, {
+        perfil,
+        plantilla: req.body?.plantilla || plantillas.activa().bloques,
+      }),
       numero: doc.numero,
       tieneLogo: Boolean(doc.logo),
       impresora: perfil.nombre,

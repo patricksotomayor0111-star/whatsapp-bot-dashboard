@@ -159,95 +159,193 @@ function lineasDeItem(item, ancho, cols) {
 // Convierte el documento en la lista de líneas que se van a imprimir.
 // Cada línea lleva su alineación y su énfasis, y esa MISMA lista alimenta
 // tanto la vista previa como los bytes de la impresora.
-function componer(documento, opciones = {}) {
-  const d = doc.normalizar(documento);
-  const ancho = perfilDeOpciones(opciones).columnas;
-  const L = [];
+// ---------- Plantillas ----------
+//
+// El orden de los bloques era código; ahora son datos. Es lo que permite
+// editarlo sin tocar el programa, y es lo único que hay para editar: el
+// papel térmico no tiene coordenadas ni tipografías, solo una secuencia de
+// líneas con su alineación. "Mover un elemento" es cambiarlo de lugar en
+// esta lista, nada más.
+const PREDETERMINADA = [
+  { tipo: "logo" },
+  { tipo: "campo", campo: "emisor.nombre", align: "center", negrita: true },
+  { tipo: "campo", campo: "emisor.ruc", prefijo: "RUC: ", align: "center" },
+  { tipo: "campo", campo: "emisor.direccion", align: "center" },
+  { tipo: "campo", campo: "emisor.telefono", prefijo: "Tel: ", align: "center" },
+  { tipo: "espacio" },
+  { tipo: "campo", campo: "tipo", align: "center", negrita: true },
+  { tipo: "campo", campo: "numero", align: "center" },
+  { tipo: "separador", caracter: "-" },
+  { tipo: "par", etiqueta: "Fecha:", campo: "fecha" },
+  { tipo: "campo", campo: "cliente", prefijo: "Cliente: " },
+  { tipo: "separador", caracter: "-" },
+  { tipo: "items" },
+  { tipo: "separador", caracter: "-" },
+  { tipo: "totales" },
+  { tipo: "pago" },
+  { tipo: "codigoBarras" },
+  { tipo: "qr" },
+  { tipo: "pie" },
+];
 
-  const texto = (t, extra = {}) => envolver(t, extra.tamano === 2 ? Math.floor(ancho / 2) : ancho)
-    .forEach((linea) => L.push({ tipo: "texto", texto: linea, align: "left", ...extra }));
+// Saca el valor de un campo del documento. Acepta "emisor.nombre" para
+// llegar a lo anidado sin tener que enumerar cada caso.
+function valorDe(d, campo) {
+  if (campo === "tipo") return doc.TIPOS[d.tipo] || "";
+  if (campo === "fecha") return fechaLegible(d.fecha);
+  let v = d;
+  for (const parte of String(campo || "").split(".")) {
+    if (v === null || v === undefined) return "";
+    v = v[parte];
+  }
+  return v === null || v === undefined ? "" : String(v);
+}
 
-  // La marca de demostración va arriba Y abajo. Arriba porque es lo
-  // primero que se lee; abajo porque en un ticket largo lo de arriba ya se
-  // perdió de vista cuando llegás al total. Las dos las pone el render a
-  // partir de la bandera, no un campo de texto.
-  if (d.demo) {
+// Dibuja un bloque. Un bloque sin dato NO deja rastro: si no cargaste
+// teléfono, no queda una línea en blanco donde iría. Por eso la plantilla
+// puede tener todos los campos y adaptarse a cada negocio sola.
+function dibujarBloque(b, d, ctx) {
+  const { L, ancho, texto } = ctx;
+  const estilo = { align: b.align || "left", negrita: Boolean(b.negrita), tamano: b.tamano === 2 ? 2 : 1 };
+  // A tamaño doble cada carácter ocupa el doble, así que en la fila entran
+  // la mitad. Calcular las columnas sobre el ancho completo hace que la
+  // línea se desborde y la impresora la parta donde le toque, descuadrando
+  // todo lo que viene después.
+  const util = estilo.tamano === 2 ? Math.floor(ancho / 2) : ancho;
+
+  switch (b.tipo) {
+    case "logo":
+      if (d.logo) L.push({ tipo: "imagen", imagen: d.logo, align: b.align || "center" });
+      return;
+
+    case "texto":
+      if (b.texto) texto(b.texto, estilo);
+      return;
+
+    case "campo": {
+      const v = valorDe(d, b.campo);
+      if (v) texto((b.prefijo || "") + v + (b.sufijo || ""), estilo);
+      return;
+    }
+
+    case "par": {
+      // Etiqueta a la izquierda, valor pegado a la derecha.
+      const v = valorDe(d, b.campo);
+      if (v) L.push({ tipo: "texto", texto: columnas(b.etiqueta || "", v, util), ...estilo, align: "left" });
+      return;
+    }
+
+    case "separador":
+      L.push({ tipo: "separador", texto: separador(ancho, b.caracter || "-") });
+      return;
+
+    case "espacio":
+      for (let n = 0; n < Math.max(1, Number(b.lineas) || 1); n++) L.push({ tipo: "espacio" });
+      return;
+
+    case "items":
+      d.items.forEach((item) => {
+        lineasDeItem(item, ancho, ctx.cols).forEach((linea) => L.push({ tipo: "texto", align: "left", ...linea }));
+      });
+      return;
+
+    case "totales": {
+      const t = d.totales;
+      // El subtotal y el IGV van siempre a tamaño normal: el doble se
+      // reserva para el TOTAL, que es el número que el cliente busca.
+      if (t.descuentoGlobal > 0) {
+        L.push({ tipo: "texto", texto: columnas("Descuento:", "-S/ " + doc.aTexto(t.descuentoGlobal), ancho) });
+      }
+      if (d.mostrarIgv && t.tasa > 0) {
+        L.push({ tipo: "texto", texto: columnas("SUBTOTAL:", "S/ " + doc.aTexto(t.subtotal), ancho) });
+        L.push({ tipo: "texto", texto: columnas(`IGV (${Math.round(t.tasa * 100)}%):`, "S/ " + doc.aTexto(t.igv), ancho) });
+      }
+      L.push({
+        tipo: "texto",
+        texto: columnas("TOTAL:", "S/ " + doc.aTexto(t.total), util),
+        negrita: true,
+        tamano: estilo.tamano,
+      });
+      return;
+    }
+
+    case "pago": {
+      if (!d.pago) return;
+      L.push({ tipo: "espacio" });
+      if (d.pago.medio) L.push({ tipo: "texto", texto: columnas("Pago:", d.pago.medio, ancho) });
+      if (d.pago.recibido) {
+        L.push({ tipo: "texto", texto: columnas("Recibido:", "S/ " + doc.aTexto(d.pago.recibido), ancho) });
+        const v = doc.vuelto(d);
+        if (v !== null && v >= 0) L.push({ tipo: "texto", texto: columnas("Vuelto:", "S/ " + doc.aTexto(v), ancho) });
+      }
+      return;
+    }
+
+    case "qr":
+      if (d.qr && d.qr.contenido) {
+        L.push({ tipo: "espacio" });
+        L.push({ tipo: "qr", contenido: d.qr.contenido, tamano: b.tamano || d.qr.tamano, align: b.align || "center" });
+      }
+      return;
+
+    case "codigoBarras":
+      if (d.codigoBarras && d.codigoBarras.contenido) {
+        L.push({ tipo: "espacio" });
+        L.push({ tipo: "codigoBarras", contenido: d.codigoBarras.contenido, align: b.align || "center" });
+      }
+      return;
+
+    case "pie":
+      if (d.pie) {
+        L.push({ tipo: "espacio" });
+        texto(d.pie, { align: b.align || "center", negrita: estilo.negrita, tamano: estilo.tamano });
+      }
+      return;
+
+    default:
+      // Un bloque de un tipo desconocido se ignora en vez de romper. Una
+      // plantilla vieja con algo que ya no existe tiene que seguir
+      // imprimiendo el resto.
+      return;
+  }
+}
+
+// La marca de demostración NO sale de la plantilla: la pone el render a
+// partir de la bandera del documento. Si fuera un bloque más, se podría
+// borrar desde el editor y dejaría de cumplir su función.
+function marcaDemo(d, ctx, donde) {
+  if (!d.demo) return;
+  const { L, ancho, texto } = ctx;
+  if (donde === "arriba") {
     L.push({ tipo: "separador", texto: separador(ancho, "*") });
     texto("DOCUMENTO DE DEMOSTRACIÓN", { align: "center", negrita: true });
     texto("NO VÁLIDO COMO COMPROBANTE FISCAL", { align: "center" });
     L.push({ tipo: "separador", texto: separador(ancho, "*") });
     L.push({ tipo: "espacio" });
-  }
-
-  if (d.logo) L.push({ tipo: "imagen", imagen: d.logo, align: "center" });
-
-  if (d.emisor.nombre) texto(d.emisor.nombre, { align: "center", negrita: true });
-  if (d.emisor.ruc) texto(`RUC: ${d.emisor.ruc}`, { align: "center" });
-  if (d.emisor.direccion) texto(d.emisor.direccion, { align: "center" });
-  if (d.emisor.telefono) texto(`Tel: ${d.emisor.telefono}`, { align: "center" });
-
-  L.push({ tipo: "espacio" });
-  texto(doc.TIPOS[d.tipo], { align: "center", negrita: true });
-  if (d.numero) texto(d.numero, { align: "center" });
-  L.push({ tipo: "separador", texto: separador(ancho) });
-
-  const fecha = fechaLegible(d.fecha);
-  if (fecha) L.push({ tipo: "texto", texto: columnas("Fecha:", fecha, ancho) });
-  if (d.cliente) texto(`Cliente: ${d.cliente}`);
-
-  L.push({ tipo: "separador", texto: separador(ancho) });
-  const cols = columnasDeItems(d.items);
-  d.items.forEach((item) => {
-    lineasDeItem(item, ancho, cols).forEach((linea) => L.push({ tipo: "texto", align: "left", ...linea }));
-  });
-  L.push({ tipo: "separador", texto: separador(ancho) });
-
-  const t = d.totales;
-  if (t.descuentoGlobal > 0) {
-    L.push({ tipo: "texto", texto: columnas("Descuento:", "-S/ " + doc.aTexto(t.descuentoGlobal), ancho) });
-  }
-  if (d.mostrarIgv && t.tasa > 0) {
-    L.push({ tipo: "texto", texto: columnas("SUBTOTAL:", "S/ " + doc.aTexto(t.subtotal), ancho) });
-    const etiqueta = `IGV (${Math.round(t.tasa * 100)}%):`;
-    L.push({ tipo: "texto", texto: columnas(etiqueta, "S/ " + doc.aTexto(t.igv), ancho) });
-  }
-  L.push({
-    tipo: "texto",
-    texto: columnas("TOTAL:", "S/ " + doc.aTexto(t.total), ancho),
-    negrita: true,
-  });
-
-  if (d.pago) {
-    L.push({ tipo: "espacio" });
-    if (d.pago.medio) L.push({ tipo: "texto", texto: columnas("Pago:", d.pago.medio, ancho) });
-    if (d.pago.recibido) {
-      L.push({ tipo: "texto", texto: columnas("Recibido:", "S/ " + doc.aTexto(d.pago.recibido), ancho) });
-      const v = doc.vuelto(d);
-      if (v !== null && v >= 0) {
-        L.push({ tipo: "texto", texto: columnas("Vuelto:", "S/ " + doc.aTexto(v), ancho) });
-      }
-    }
-  }
-
-  if (d.codigoBarras && d.codigoBarras.contenido) {
-    L.push({ tipo: "espacio" });
-    L.push({ tipo: "codigoBarras", contenido: d.codigoBarras.contenido, align: "center" });
-  }
-  if (d.qr && d.qr.contenido) {
-    L.push({ tipo: "espacio" });
-    L.push({ tipo: "qr", contenido: d.qr.contenido, tamano: d.qr.tamano, align: "center" });
-  }
-  if (d.pie) {
-    L.push({ tipo: "espacio" });
-    texto(d.pie, { align: "center" });
-  }
-
-  if (d.demo) {
+  } else {
     L.push({ tipo: "espacio" });
     L.push({ tipo: "separador", texto: separador(ancho, "*") });
     texto("DEMO — NO VÁLIDO COMO COMPROBANTE FISCAL", { align: "center", negrita: true });
     L.push({ tipo: "separador", texto: separador(ancho, "*") });
   }
+}
+
+function componer(documento, opciones = {}) {
+  const d = doc.normalizar(documento);
+  const ancho = perfilDeOpciones(opciones).columnas;
+  const plantilla = Array.isArray(opciones.plantilla) && opciones.plantilla.length
+    ? opciones.plantilla
+    : PREDETERMINADA;
+
+  const L = [];
+  const texto = (t, extra = {}) => envolver(String(t), extra.tamano === 2 ? Math.floor(ancho / 2) : ancho)
+    .forEach((linea) => L.push({ tipo: "texto", texto: linea, align: "left", ...extra }));
+
+  const ctx = { L, ancho, texto, cols: columnasDeItems(d.items) };
+
+  marcaDemo(d, ctx, "arriba");
+  plantilla.forEach((b) => dibujarBloque(b, d, ctx));
+  marcaDemo(d, ctx, "abajo");
 
   return { ancho, lineas: L };
 }
@@ -553,6 +651,7 @@ function previaDiagnostico(opciones = {}) {
   const API = {
     perfil, perfilDeOpciones, envolver, columnas, columnasDeItems,
     componer, previa, aEscPos, codificar, prueba, previaDiagnostico, unir,
+    PREDETERMINADA, valorDe,
   };
   
   if (typeof module !== "undefined" && module.exports) module.exports = API;

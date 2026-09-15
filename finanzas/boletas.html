@@ -109,11 +109,15 @@
   .totales div { display: flex; justify-content: space-between; padding: 4px 0; font-size: 14px; }
   .totales .grande { font-size: 19px; font-weight: 700; padding-top: 8px; }
 
-  pre.previa {
+  .previa {
     background: #fff; color: #000; font: 12px/1.42 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     padding: 16px 14px; border-radius: 8px; overflow-x: auto; margin: 0;
     min-height: 60px;
     white-space: pre; box-shadow: inset 0 0 0 1px #0001;
+  }
+  /* A tamaño doble la impresora imprime cada carácter al doble de ancho y
+     de alto. Mostrarlo igual es lo único que hace honesta a la previa. */
+  .previa .doble { font-size: 2em; line-height: 1.2; }
   }
   .regla { font-size: 11px; color: var(--suave); margin: 0 0 8px; }
 
@@ -121,6 +125,26 @@
     border-radius: 0 8px 8px 0; font-size: 13px; margin-bottom: 10px; }
   .error { background: #ef444418; border-left: 3px solid var(--mal); padding: 10px 12px;
     border-radius: 0 8px 8px 0; font-size: 13px; margin-bottom: 10px; }
+  .bloques { list-style: none; padding: 0; margin: 0 0 12px; }
+  .bloques li { border: 1px solid var(--borde); border-radius: 10px; margin-bottom: 6px; overflow: hidden; }
+  .bloques .fila { display: flex; align-items: center; gap: 8px; padding: 10px 12px; cursor: pointer; }
+  .bloques li.abierta .fila { background: var(--acento-suave); }
+  .bloques .qué { flex: 1; font-size: 14px; }
+  .bloques .qué small { display: block; color: var(--suave); font-size: 11px; margin-top: 1px; }
+  .bloques .mover { border: 0; background: none; color: var(--suave); cursor: pointer; font-size: 15px; padding: 3px 5px; }
+  .bloques .mover:disabled { opacity: .25; cursor: default; }
+  .props { padding: 12px; border-top: 1px solid var(--borde); background: var(--fondo); }
+  .props label { margin-bottom: 8px; }
+  .props .tres { display: flex; gap: 8px; }
+  .props .tres label { flex: 1; }
+  .props .acciones { display: flex; gap: 8px; margin-top: 4px; }
+  .props .acciones button { flex: 1; padding: 9px; border: 1px solid var(--borde); border-radius: 8px;
+    background: var(--papel); color: var(--texto); font: inherit; font-size: 13px; cursor: pointer; }
+  .props .acciones .borrar { color: var(--mal); }
+  .marcas { display: flex; gap: 8px; }
+  .marcas button { flex: 1; padding: 9px; border: 1px solid var(--borde); border-radius: 8px;
+    background: var(--papel); color: var(--suave); font: inherit; font-size: 13px; cursor: pointer; }
+  .marcas button[aria-pressed="true"] { background: var(--acento); color: #fff; border-color: var(--acento); }
   .interruptor { display: flex; align-items: center; gap: 10px; margin: 14px 0 0;
     padding-top: 12px; border-top: 1px solid var(--borde); font-size: 14px; color: var(--texto); }
   .interruptor input { width: 20px; height: 20px; accent-color: var(--acento); flex: none; margin: 0; }
@@ -250,7 +274,28 @@
   <section id="paso4" class="tarjeta oculto">
     <h2>4 · Cómo va a salir</h2>
     <p class="regla" id="reglaPapel"></p>
-    <pre class="previa" id="previa"></pre>
+    <div class="previa" id="previa"></div>
+  </section>
+
+  <!-- PLANTILLA -->
+  <section class="tarjeta">
+    <h2 style="cursor:pointer" id="tituloPlantilla">📐 Plantilla <span id="nombrePlantilla"></span></h2>
+    <div id="cuerpoPlantilla" class="oculto">
+      <p class="explica">
+        El orden de los bloques y cómo se ve cada uno. El papel térmico no
+        tiene coordenadas —es una grilla de ancho fijo— así que mover un
+        elemento es cambiarlo de lugar en esta lista.
+      </p>
+      <label>Usar
+        <select id="selectorPlantilla"></select>
+      </label>
+      <ul class="bloques" id="bloques"></ul>
+      <div class="botones">
+        <button class="secundaria" id="btnAgregarBloque" style="margin-top:0">+ Agregar bloque</button>
+        <button class="secundaria" id="btnGuardarPlantilla" style="margin-top:0">Guardar como…</button>
+      </div>
+      <div id="resultadoPlantilla"></div>
+    </div>
   </section>
 
   <!-- IMPRESORA -->
@@ -607,79 +652,348 @@ document.addEventListener("click", (e) => {
 
 // ---------- Totales y previa ----------
 let pendiente;
+
+// La previa se arma ACÁ, con los mismos módulos que generan los bytes de
+// la impresora. Tres motivos: no hace falta ir al servidor por cada tecla,
+// funciona sin señal, y —el que más importa— puede mostrar el tamaño doble
+// tal como sale, cosa que un texto plano no puede.
 function recalcular() {
   clearTimeout(pendiente);
-  pendiente = setTimeout(async () => {
+  pendiente = setTimeout(() => {
     // Las filas sin descripción todavía no son un producto: no van al
     // documento. Pero SÍ ocupan un lugar en la tabla, así que hay que
-    // recordar a qué fila corresponde cada importe que devuelve el
-    // servidor — si no, los importes salen corridos una fila.
+    // recordar a qué fila corresponde cada importe — si no, los importes
+    // salen corridos una fila.
     const conProducto = [];
     estado.items.forEach((it, fila) => {
       if (it.descripcion.trim()) conProducto.push({ it, fila });
     });
-    const doc = {
-      tipo: "nota",
-      demo: $("esDemo").checked,
-      items: conProducto.map(({ it }) => ({
-        descripcion: it.descripcion, cantidad: Number(it.cantidad) || 1, precioUnitario: it.precioUnitario || "0",
-      })),
-    };
-    try {
-      const r = await fetch("/api/documentos/previa", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ documento: doc, perfil: estado.perfil }),
-      });
-      const datos = await r.json();
-      if (!r.ok) return;
-      pintarTotales(datos);
-      $("previa").textContent = datos.previa;
-      $("reglaPapel").textContent = datos.impresora + " · " + datos.columnas + " columnas";
-      ajustarPrevia(datos.columnas);
-      // El importe de cada línea lo calcula el servidor, con la misma
-      // aritmética en centavos que se imprime. Así lo que se ve en pantalla
-      // no puede diferir de lo que sale en el papel.
-      const filas = [...$("items").children];
-      filas.forEach((tr) => { tr.querySelector(".imp").textContent = ""; });
-      conProducto.forEach(({ fila }, i) => {
-        const tr = filas[fila];
-        if (tr) tr.querySelector(".imp").textContent = datos.importes[i] ?? "";
-      });
-    } catch (err) { /* sin conexión: se sigue editando igual */ }
-  }, 180);
+
+    const doc = Documento.normalizar(documentoActual());
+    const { lineas } = Termica.componer(doc, { perfil: estado.perfil, plantilla: local.plantilla });
+    const perfil = Impresoras.perfilDe(estado.perfil);
+
+    dibujarPrevia(lineas, perfil.columnas);
+    $("reglaPapel").textContent = perfil.nombre + " · " + perfil.columnas + " columnas";
+    pintarTotales(doc, conProducto.length);
+
+    const filas = [...$("items").children];
+    filas.forEach((tr) => { tr.querySelector(".imp").textContent = ""; });
+    conProducto.forEach(({ fila }, i) => {
+      const tr = filas[fila];
+      if (tr && doc.items[i]) tr.querySelector(".imp").textContent = Documento.aTexto(Documento.importeDe(doc.items[i]));
+    });
+  }, 120);
+}
+
+// Dibuja las líneas que van a la impresora. Una línea a tamaño doble se
+// muestra al doble: es la única forma de que la previa no mienta sobre
+// cuánto ocupa.
+function dibujarPrevia(lineas, columnas) {
+  const caja = $("previa");
+  caja.innerHTML = "";
+  const centrar = (t, ancho) => {
+    const sobra = ancho - t.length;
+    return sobra > 0 ? " ".repeat(Math.floor(sobra / 2)) + t : t;
+  };
+
+  lineas.forEach((l) => {
+    const div = document.createElement("div");
+    const doble = l.tamano === 2;
+    const ancho = doble ? Math.floor(columnas / 2) : columnas;
+    if (doble) div.className = "doble";
+    if (l.negrita) div.style.fontWeight = "700";
+
+    if (l.tipo === "espacio") div.textContent = "\u00a0";
+    else if (l.tipo === "qr") div.textContent = centrar("[ QR ]", ancho);
+    else if (l.tipo === "codigoBarras") div.textContent = centrar("[ CÓDIGO DE BARRAS ]", ancho);
+    else if (l.tipo === "imagen") div.textContent = centrar("[ LOGO ]", ancho);
+    else {
+      const t = l.texto || "";
+      div.textContent = l.align === "center" ? centrar(t, ancho)
+        : l.align === "right" ? t.padStart(ancho) : t;
+    }
+    caja.append(div);
+  });
+  ajustarPrevia(columnas);
 }
 
 // El papel de 80 mm son 48 columnas, que a tamaño normal no entran en la
-// pantalla de un celular. En vez de dejar que se corten (que es justo lo
-// que impide ver si algo se desborda), se achica la letra hasta que la
-// línea completa entre. Es la única forma de que la previa sirva para lo
-// que existe: ver de antemano cómo va a salir.
+// pantalla de un celular. En vez de dejar que se corten —que es justo lo
+// que impide ver si algo se desborda— se achica la letra hasta que la
+// línea completa entre.
 function ajustarPrevia(columnas) {
-  const pre = $("previa");
-  const ancho = pre.clientWidth - 28;
+  const caja = $("previa");
+  const ancho = caja.clientWidth - 28;
   if (ancho <= 0) return;
   // En monoespaciada cada carácter mide ~0.6 del tamaño de letra.
-  const tam = Math.max(7, Math.min(13, ancho / (columnas * 0.6)));
-  pre.style.fontSize = tam.toFixed(2) + "px";
+  const tam = Math.max(6, Math.min(13, ancho / (columnas * 0.6)));
+  caja.style.fontSize = tam.toFixed(2) + "px";
 }
 window.addEventListener("resize", () => {
   const cols = Number(($("reglaPapel").textContent.match(/(\d+) columnas/) || [])[1]);
   if (cols) ajustarPrevia(cols);
 });
 
-function pintarTotales(d) {
+function pintarTotales(doc, cuantos) {
+  const t = doc.totales;
+  const igv = Math.round(t.tasa * 100);
   $("totales").innerHTML =
-    '<div><span>Subtotal</span><span>S/ ' + d.subtotal + '</span></div>' +
-    '<div><span>IGV (18%)</span><span>S/ ' + d.igv + '</span></div>' +
-    '<div class="grande"><span>TOTAL</span><span>S/ ' + d.total + '</span></div>';
-  const n = d.importes.length;
-  $("pieDetalle").textContent = n + (n === 1 ? " producto" : " productos");
-  $("pieTotal").textContent = "S/ " + d.total;
+    '<div><span>Subtotal</span><span>S/ ' + Documento.aTexto(t.subtotal) + '</span></div>' +
+    '<div><span>IGV (' + igv + '%)</span><span>S/ ' + Documento.aTexto(t.igv) + '</span></div>' +
+    '<div class="grande"><span>TOTAL</span><span>S/ ' + Documento.aTexto(t.total) + '</span></div>';
+  $("pieDetalle").textContent = cuantos + (cuantos === 1 ? " producto" : " productos");
+  $("pieTotal").textContent = "S/ " + Documento.aTexto(t.total);
 }
 
 $("btnImprimir").onclick = () => {
   alert("La conexión con la POS-8001DD es el próximo paso.\n\nLa vista previa de abajo ya es exacta: sale de la misma lista de líneas que recibe la impresora.");
+};
+
+// ---------- Editor de plantilla ----------
+//
+// Un bloque no tiene posición: tiene un LUGAR EN LA LISTA. Por eso no hay
+// que arrastrar nada — subir un bloque es moverlo un puesto, y en un
+// celular eso con botones funciona mucho mejor que con el dedo.
+
+const plant = { lista: [], bloques: [], tipos: {}, campos: [], activaId: "completa", abierta: -1 };
+
+$("tituloPlantilla").onclick = () => $("cuerpoPlantilla").classList.toggle("oculto");
+
+async function cargarPlantillas() {
+  try {
+    const d = await (await fetch("/api/documentos/plantillas")).json();
+    plant.lista = d.lista;
+    plant.tipos = d.tipos;
+    plant.campos = d.campos;
+    plant.activaId = d.activa.id;
+    plant.bloques = JSON.parse(JSON.stringify(d.activa.bloques));
+    local.plantilla = plant.bloques;
+    pintarSelector();
+    pintarBloques();
+  } catch (err) { /* sin conexión: se usa la que ya estaba */ }
+}
+
+function pintarSelector() {
+  const sel = $("selectorPlantilla");
+  sel.innerHTML = "";
+  plant.lista.forEach((p) => {
+    const o = document.createElement("option");
+    o.value = p.id;
+    o.textContent = p.nombre + (p.deFabrica ? "" : " (mía)");
+    sel.append(o);
+  });
+  sel.value = plant.activaId;
+  sel.onchange = async () => {
+    const d = await (await fetch("/api/documentos/plantillas/usar", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: sel.value }),
+    })).json();
+    plant.activaId = d.id;
+    plant.bloques = JSON.parse(JSON.stringify(d.bloques));
+    local.plantilla = plant.bloques;
+    plant.abierta = -1;
+    pintarBloques();
+    recalcular();
+  };
+  $("nombrePlantilla").textContent = "· " + (plant.lista.find((p) => p.id === plant.activaId) || {}).nombre;
+}
+
+// Cómo se describe un bloque en la lista, para reconocerlo sin abrirlo.
+function resumen(b) {
+  const nombreCampo = (c) => (plant.campos.find((x) => x.campo === c) || {}).nombre || c;
+  if (b.tipo === "texto") return '"' + (b.texto || "(vacío)") + '"';
+  if (b.tipo === "campo") return nombreCampo(b.campo) + (b.prefijo ? ` · "${b.prefijo}"` : "");
+  if (b.tipo === "par") return (b.etiqueta || "") + " + " + nombreCampo(b.campo);
+  if (b.tipo === "separador") return "repite " + (b.caracter || "-");
+  if (b.tipo === "espacio") return (b.lineas || 1) + (b.lineas > 1 ? " líneas" : " línea");
+  return "";
+}
+
+function estilosDe(b) {
+  const partes = [];
+  if (b.align === "center") partes.push("centro");
+  else if (b.align === "right") partes.push("derecha");
+  if (b.negrita) partes.push("negrita");
+  if (b.tamano === 2) partes.push("doble");
+  return partes.join(" · ");
+}
+
+function pintarBloques() {
+  const ul = $("bloques");
+  ul.innerHTML = "";
+  plant.bloques.forEach((b, i) => {
+    const li = document.createElement("li");
+    if (i === plant.abierta) li.className = "abierta";
+
+    const fila = document.createElement("div");
+    fila.className = "fila";
+    fila.innerHTML = '<span class="qué"><strong></strong><small></small></span>' +
+      '<button class="mover arriba" title="Subir">▲</button>' +
+      '<button class="mover abajo" title="Bajar">▼</button>';
+    fila.querySelector("strong").textContent = (plant.tipos[b.tipo] || {}).nombre || b.tipo;
+    const detalle = [resumen(b), estilosDe(b)].filter(Boolean).join("  ·  ");
+    fila.querySelector("small").textContent = detalle;
+    fila.querySelector(".qué").onclick = () => {
+      plant.abierta = plant.abierta === i ? -1 : i;
+      pintarBloques();
+    };
+
+    const arriba = fila.querySelector(".arriba");
+    const abajo = fila.querySelector(".abajo");
+    arriba.disabled = i === 0;
+    abajo.disabled = i === plant.bloques.length - 1;
+    arriba.onclick = (e) => { e.stopPropagation(); intercambiar(i, i - 1); };
+    abajo.onclick = (e) => { e.stopPropagation(); intercambiar(i, i + 1); };
+
+    li.append(fila);
+    if (i === plant.abierta) li.append(propiedades(b, i));
+    ul.append(li);
+  });
+}
+
+function intercambiar(a, b) {
+  const t = plant.bloques[a];
+  plant.bloques[a] = plant.bloques[b];
+  plant.bloques[b] = t;
+  // Si el bloque abierto se movió, la selección lo sigue.
+  if (plant.abierta === a) plant.abierta = b;
+  else if (plant.abierta === b) plant.abierta = a;
+  pintarBloques();
+  recalcular();
+}
+
+function cambiar(i, prop, valor) {
+  if (valor === "" || valor === false || valor === undefined) delete plant.bloques[i][prop];
+  else plant.bloques[i][prop] = valor;
+  pintarBloques();
+  recalcular();
+}
+
+function propiedades(b, i) {
+  const caja = document.createElement("div");
+  caja.className = "props";
+  const agregar = (html) => { const d = document.createElement("div"); d.innerHTML = html; caja.append(d.firstElementChild); return caja.lastElementChild; };
+
+  if (b.tipo === "texto") {
+    const l = agregar('<label>Texto<input></label>');
+    const inp = l.querySelector("input");
+    inp.value = b.texto || "";
+    inp.oninput = (e) => cambiar(i, "texto", e.target.value);
+  }
+
+  if (b.tipo === "campo" || b.tipo === "par") {
+    const l = agregar('<label>Campo<select></select></label>');
+    const sel = l.querySelector("select");
+    plant.campos.forEach((c) => {
+      const o = document.createElement("option");
+      o.value = c.campo; o.textContent = c.nombre;
+      sel.append(o);
+    });
+    sel.value = b.campo;
+    sel.onchange = (e) => cambiar(i, "campo", e.target.value);
+  }
+
+  if (b.tipo === "campo") {
+    const l = agregar('<label>Texto delante <small>(ej. "RUC: ")</small><input></label>');
+    const inp = l.querySelector("input");
+    inp.value = b.prefijo || "";
+    inp.oninput = (e) => cambiar(i, "prefijo", e.target.value);
+  }
+
+  if (b.tipo === "par") {
+    const l = agregar('<label>Etiqueta<input></label>');
+    const inp = l.querySelector("input");
+    inp.value = b.etiqueta || "";
+    inp.oninput = (e) => cambiar(i, "etiqueta", e.target.value);
+  }
+
+  if (b.tipo === "separador") {
+    const l = agregar('<label>Carácter que se repite<input maxlength="1"></label>');
+    const inp = l.querySelector("input");
+    inp.value = b.caracter || "-";
+    inp.oninput = (e) => cambiar(i, "caracter", e.target.value.slice(0, 1) || "-");
+  }
+
+  if (b.tipo === "espacio") {
+    const l = agregar('<label>Líneas en blanco<input type="number" min="1" max="6"></label>');
+    const inp = l.querySelector("input");
+    inp.value = b.lineas || 1;
+    inp.oninput = (e) => cambiar(i, "lineas", Math.min(6, Math.max(1, Number(e.target.value) || 1)));
+  }
+
+  // Alineación, negrita y tamaño no aplican a los bloques que arman su
+  // propio layout: los totales van en dos columnas y el QR es una imagen.
+  if (!["separador", "espacio", "items", "pago", "qr", "codigoBarras", "logo"].includes(b.tipo)) {
+    const l = agregar('<label>Alineación<div class="marcas">' +
+      '<button data-a="left">Izquierda</button><button data-a="center">Centro</button><button data-a="right">Derecha</button>' +
+      '</div></label>');
+    l.querySelectorAll("button").forEach((btn) => {
+      const a = btn.dataset.a;
+      btn.setAttribute("aria-pressed", String((b.align || "left") === a));
+      btn.onclick = () => cambiar(i, "align", a === "left" ? "" : a);
+    });
+
+    const e = agregar('<div class="tres">' +
+      '<label><span>Negrita</span><div class="marcas"><button id="bN' + i + '">Negrita</button></div></label>' +
+      '<label><span>Tamaño</span><div class="marcas"><button id="bT' + i + '">Doble</button></div></label>' +
+      '</div>');
+    const bn = e.querySelector("#bN" + i);
+    bn.setAttribute("aria-pressed", String(Boolean(b.negrita)));
+    bn.onclick = () => cambiar(i, "negrita", !b.negrita);
+    const bt = e.querySelector("#bT" + i);
+    bt.setAttribute("aria-pressed", String(b.tamano === 2));
+    bt.onclick = () => cambiar(i, "tamano", b.tamano === 2 ? "" : 2);
+  }
+
+  const acciones = agregar('<div class="acciones"><button class="dup">Duplicar</button><button class="borrar">Eliminar</button></div>');
+  acciones.querySelector(".dup").onclick = () => {
+    plant.bloques.splice(i + 1, 0, JSON.parse(JSON.stringify(b)));
+    plant.abierta = i + 1;
+    pintarBloques();
+    recalcular();
+  };
+  acciones.querySelector(".borrar").onclick = () => {
+    plant.bloques.splice(i, 1);
+    plant.abierta = -1;
+    pintarBloques();
+    recalcular();
+  };
+  return caja;
+}
+
+$("btnAgregarBloque").onclick = () => {
+  const tipos = Object.entries(plant.tipos);
+  const opciones = tipos.map(([k, v], n) => `${n + 1}. ${v.nombre}`).join("\n");
+  const elegido = prompt("¿Qué bloque agregar?\n\n" + opciones, "1");
+  const n = Number(elegido) - 1;
+  if (!(n >= 0 && n < tipos.length)) return;
+  const tipo = tipos[n][0];
+  const nuevo = { tipo };
+  if (tipo === "texto") nuevo.texto = "Texto nuevo";
+  if (tipo === "campo" || tipo === "par") nuevo.campo = "emisor.nombre";
+  if (tipo === "separador") nuevo.caracter = "-";
+  plant.bloques.push(nuevo);
+  plant.abierta = plant.bloques.length - 1;
+  pintarBloques();
+  recalcular();
+};
+
+$("btnGuardarPlantilla").onclick = async () => {
+  const actual = plant.lista.find((p) => p.id === plant.activaId) || {};
+  const nombre = prompt("Nombre de la plantilla:", actual.deFabrica ? "" : actual.nombre || "");
+  if (nombre === null) return;
+  const r = await fetch("/api/documentos/plantillas", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    // Sobre una de fábrica se guarda una COPIA: las que vienen con la app
+    // son el lugar al que volver cuando una propia quedó mal.
+    body: JSON.stringify({ nombre, bloques: plant.bloques, id: actual.deFabrica ? null : plant.activaId }),
+  });
+  const d = await r.json();
+  const caja = $("resultadoPlantilla");
+  caja.innerHTML = '<div class="' + (r.ok ? "ok" : "error") + '"></div>';
+  caja.firstElementChild.textContent = r.ok ? `Guardada como "${d.nombre}".` : (d.error || "No se pudo guardar.");
+  if (r.ok) await cargarPlantillas();
 };
 
 // ---------- Impresora ----------
@@ -690,7 +1004,7 @@ $("btnImprimir").onclick = () => {
 // no poder imprimir aunque la impresora esté a treinta centímetros.
 
 // Copia local de lo que hace falta para armar el documento sin preguntar.
-const local = { negocio: null, logo: null, numero: null };
+const local = { negocio: null, logo: null, numero: null, plantilla: null };
 
 $("tituloImpresora").onclick = () => $("cuerpoImpresora").classList.toggle("oculto");
 
@@ -791,7 +1105,7 @@ $("btnImprimir").onclick = async () => {
   boton.disabled = true;
   try {
     const perfil = Impresoras.perfilDe(estado.perfil);
-    const bytes = Termica.aEscPos(doc, { perfil: estado.perfil });
+    const bytes = Termica.aEscPos(doc, { perfil: estado.perfil, plantilla: local.plantilla });
     await Impresora.enviar(bytes, perfil, (pct) => { boton.textContent = pct + "%"; });
     boton.textContent = "✓ Impreso";
     await gastarNumero();
@@ -1105,6 +1419,7 @@ $("btnGuardarProductos").onclick = async () => {
 // Al arrancar se mira cuántos hay, para que el título ya avise si está
 // vacío antes de que alguien se pregunte por qué no autocompleta.
 llenarModelos();
+cargarPlantillas();
 cargarCatalogo();
 cargarNegocio();
 cargarLogo();
