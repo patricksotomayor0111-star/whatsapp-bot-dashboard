@@ -641,7 +641,9 @@ async function fetchReminderBadge() {
   try {
     const res = await fetch("/api/reminders");
     const data = await res.json();
-    actualizarBadges((data.pendientes || []).length);
+    pendientesPorPagar = (data.pendientes || []).length;
+    actualizarBadges(pendientesPorPagar);
+    if (typeof pintarBottomNav === "function") pintarBottomNav();
   } catch (err) {
     // silencioso: si falla, simplemente no toca el badge
   }
@@ -5176,6 +5178,7 @@ const SECCIONES = [
 const bottomNav = document.getElementById("bottomNav");
 const subTabs = document.getElementById("subTabs");
 let seccionActual = "inicio";
+let pendientesPorPagar = 0;
 
 function seccionDe(panelId) {
   return SECCIONES.find((s) => s.paneles.some(([id]) => id === panelId));
@@ -5207,6 +5210,13 @@ function pintarBottomNav() {
     const t = document.createElement("span");
     t.className = "text-[10px] font-semibold leading-none";
     t.textContent = s.label;
+    // Un punto en Plan cuando hay pagos venciendo: para verlo sin entrar.
+    if (s.id === "plan" && pendientesPorPagar > 0) {
+      const punto = document.createElement("span");
+      punto.className = "absolute top-1.5 ml-7 w-2 h-2 rounded-full bg-brand-red";
+      b.classList.add("relative");
+      b.appendChild(punto);
+    }
     b.appendChild(i);
     b.appendChild(t);
     b.addEventListener("click", () => irAPanel(s.paneles[0][0]));
@@ -5455,6 +5465,22 @@ async function editarMovimientoDesdeDesglose(m) {
   await abrirHojaMovimiento(m, recargarDesglose);
 }
 
+const DIAS_LARGOS = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+const MESES_LARGOS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "set", "oct", "nov", "dic"];
+
+// "Hoy", "Ayer" o "lunes 8 set": leer una fecha cruda cuesta mas de lo
+// que parece cuando la lista es larga.
+function etiquetaFecha(fecha, hoy) {
+  if (!fecha) return "";
+  if (fecha === hoy) return "Hoy";
+  const p = fecha.split("-").map(Number);
+  const dt = new Date(Date.UTC(p[0], p[1] - 1, p[2]));
+  const h = hoy.split("-").map(Number);
+  const ayer = new Date(Date.UTC(h[0], h[1] - 1, h[2] - 1));
+  if (dt.getTime() === ayer.getTime()) return "Ayer";
+  return DIAS_LARGOS[dt.getUTCDay()] + " " + p[2] + " " + MESES_LARGOS[p[1] - 1];
+}
+
 function mensajeDesglose(texto) {
   desgloseCuerpo.innerHTML = "";
   const p = document.createElement("p");
@@ -5658,11 +5684,21 @@ function pintarDesglose() {
   tl.className = "eyebrow text-slate-600 mb-2";
   tl.textContent = "UNO POR UNO (" + movs.length + ")";
   secLista.appendChild(tl);
+  let fechaEnCurso = null;
   movs
     .slice()
     .sort((a, b) => (b.fecha + (b.hora || "")).localeCompare(a.fecha + (a.hora || "")))
     .slice(0, 300)
     .forEach((m) => {
+      // Un separador cada vez que cambia el dia: 300 filas seguidas sin
+      // cortes no hay quien las lea.
+      if (m.fecha !== fechaEnCurso) {
+        fechaEnCurso = m.fecha;
+        const sep = document.createElement("p");
+        sep.className = "text-[10px] font-bold text-slate-400 tracking-wide mt-3 mb-1 first:mt-0";
+        sep.textContent = etiquetaFecha(m.fecha, desgloseDatos.hoy).toUpperCase();
+        secLista.appendChild(sep);
+      }
       const fila = document.createElement("div");
       fila.className = "flex items-baseline justify-between gap-2 py-1 border-b border-slate-50";
       const izq = document.createElement("div");
