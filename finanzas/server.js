@@ -447,6 +447,8 @@ app.get("/api/finance/movements", (req, res) => {
     categoriaEfectiva: m.tipo === "gasto" ? budgetCategories.resolveCategoriaId(m) : undefined,
     // Lo mismo del lado de las ganancias: de donde vino esa plata.
     fuenteEfectiva: m.tipo === "ganancia" ? fuentesIngreso.resolveFuenteId(m) : undefined,
+    // Y de que local vino, para poder cambiarlo desde el panel.
+    localEfectivo: m.tipo === "ganancia" ? (locales.resolveLocal(m) || {}).id : undefined,
   }));
   res.json({ movimientos });
 });

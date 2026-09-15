@@ -435,6 +435,11 @@ function editMovimiento(indice, cambios) {
     if (cambios.fuenteId) mov.fuenteId = cambios.fuenteId;
     else delete mov.fuenteId;
   }
+  // Y de que local vino ese reparto, cuando la descripcion no alcanza.
+  if (cambios.localId !== undefined) {
+    if (cambios.localId) mov.localId = cambios.localId;
+    else delete mov.localId;
+  }
 
   const nuevo = efectoDelta(mov.tipo, mov.monto, 1);
   ajustarTotalesPorFecha(mov.fecha, nuevo.g, nuevo.gs);

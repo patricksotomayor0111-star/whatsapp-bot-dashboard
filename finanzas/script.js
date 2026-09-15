@@ -2239,6 +2239,19 @@ function renderChartCategorias(categorias) {
       responsive: true,
       maintainAspectRatio: false,
       plugins: { legend: { position: "bottom", labels: { boxWidth: 12, font: { size: 10 } } } },
+      // Ver un grafico y no poder entrar a lo que muestra deja la pregunta
+      // a medias: tocar una porcion abre el detalle de esa categoria.
+      onClick: (evt, elementos) => {
+        if (!elementos.length) return;
+        const cat = gastos[elementos[0].index];
+        if (!cat) return;
+        abrirDesglose({
+          tipo: "gasto",
+          titulo: cat.label,
+          periodo: "mes",
+          filtroExtra: (m) => (m.categoriaEfectiva || "otros") === cat.id,
+        });
+      },
     },
   });
 }
@@ -5100,6 +5113,17 @@ function renderChartLocales(ranking) {
           },
         },
       },
+      onClick: (evt, elementos) => {
+        if (!elementos.length) return;
+        const local = conPedidos[elementos[0].index];
+        if (!local) return;
+        abrirDesglose({
+          tipo: "ganancia",
+          titulo: local.nombre,
+          periodo: "mes",
+          filtroExtra: (m) => m.localEfectivo === local.id,
+        });
+      },
     },
   });
 }
@@ -5418,6 +5442,7 @@ function filtrarMovimientos(rango) {
     if (m.tipo !== desgloseConfig.tipo) return false;
     if (m.fecha < rango.desde || m.fecha > rango.hasta) return false;
     if (q && !(m.descripcion || "").toLowerCase().includes(q) && !String(m.monto).includes(q)) return false;
+    if (desgloseConfig.filtroExtra && !desgloseConfig.filtroExtra(m)) return false;
     return true;
   });
 }
@@ -6067,6 +6092,7 @@ const hojaClasif = document.getElementById("hojaClasif");
 let hojaMov = null;
 let hojaTipo = "gasto";
 let hojaAlGuardar = null;
+let localesParaSelector = [];
 
 function pintarHojaTipo() {
   document.querySelectorAll(".hoja-tipo").forEach((b) => {
@@ -6116,6 +6142,30 @@ function pintarHojaClasif() {
 
   hojaClasif.appendChild(etiqueta);
   hojaClasif.appendChild(select);
+
+  // Para una ganancia, ademas, de que local vino. El local se adivina por
+  // la descripcion; esto permite corregirlo cuando la descripcion no basta.
+  if (hojaTipo === "ganancia" && localesParaSelector.length) {
+    const et2 = document.createElement("p");
+    et2.className = "text-[11px] font-semibold text-slate-400 mb-0.5 mt-2";
+    et2.textContent = "De qué local";
+    const sel2 = document.createElement("select");
+    sel2.id = "hojaLocalSelect";
+    sel2.className = "w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200";
+    const ninguno = document.createElement("option");
+    ninguno.value = "";
+    ninguno.textContent = "— Que lo adivine por el texto —";
+    sel2.appendChild(ninguno);
+    localesParaSelector.forEach((l) => {
+      const o = document.createElement("option");
+      o.value = l.id;
+      o.textContent = l.nombre;
+      if (l.id === hojaMov.localEfectivo) o.selected = true;
+      sel2.appendChild(o);
+    });
+    hojaClasif.appendChild(et2);
+    hojaClasif.appendChild(sel2);
+  }
 }
 
 function cerrarHoja() {
@@ -6146,6 +6196,14 @@ async function abrirHojaMovimiento(m, alGuardar) {
     }
   }
   if (!fuentesCache.length) await cargarFuentes();
+  if (!localesParaSelector.length) {
+    try {
+      const loc = await (await fetch("/api/finance/locales")).json();
+      localesParaSelector = (loc.ranking || []).map((l) => ({ id: l.id, nombre: l.nombre }));
+    } catch (err) {
+      console.error("No se pudieron cargar los locales:", err);
+    }
+  }
 
   document.querySelectorAll(".hoja-tipo").forEach((b) => {
     b.disabled = m.tipo === "caja";
@@ -6177,6 +6235,9 @@ async function guardarHoja() {
     if (hojaTipo === "gasto") cuerpo.categoriaId = select.value;
     else cuerpo.fuenteId = select.value;
   }
+  const selLocal = document.getElementById("hojaLocalSelect");
+  // Vacio = que vuelva a adivinarlo por el texto.
+  if (selLocal) cuerpo.localId = selLocal.value || null;
 
   await fetch("/api/finance/movements/" + encodeURIComponent(hojaMov.id), {
     method: "PUT",
@@ -6231,4 +6292,39 @@ if (hojaMovimiento) {
   document.getElementById("hojaFondo").addEventListener("click", cerrarHoja);
 }
 
+
+// ---------- Modo oscuro ----------
+// La preferencia es de este celular, no de la cuenta: por eso va en el
+// navegador y no en el servidor.
+const toggleOscuro = document.getElementById("toggleOscuro");
+const toggleOscuroBolita = document.getElementById("toggleOscuroBolita");
+
+function pintarToggleOscuro(activo) {
+  if (!toggleOscuro) return;
+  toggleOscuro.className =
+    "shrink-0 rounded-full w-14 h-8 p-1 transition-all active:scale-95 " +
+    (activo ? "bg-brand-green" : "bg-slate-200");
+  toggleOscuroBolita.className =
+    "block w-6 h-6 rounded-full bg-white shadow transition-all " + (activo ? "translate-x-6" : "");
+}
+
+function aplicarModoOscuro(activo) {
+  document.body.classList.toggle("oscuro", activo);
+  pintarToggleOscuro(activo);
+  try {
+    localStorage.setItem("modoOscuro", activo ? "1" : "0");
+  } catch (err) {
+    // En una ventana privada esto puede fallar; el modo igual queda
+    // aplicado hasta que cierre la app.
+  }
+}
+
+if (toggleOscuro) {
+  let guardado = false;
+  try {
+    guardado = localStorage.getItem("modoOscuro") === "1";
+  } catch (err) {}
+  aplicarModoOscuro(guardado);
+  toggleOscuro.addEventListener("click", () => aplicarModoOscuro(!document.body.classList.contains("oscuro")));
+}
 irAPanel("financeTabResumen");
