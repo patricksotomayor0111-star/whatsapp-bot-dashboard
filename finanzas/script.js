@@ -1525,20 +1525,46 @@ function renderDebtMovimientos(container, persona) {
         const editBtn = document.createElement("button");
         editBtn.innerHTML = '<i class="fa-solid fa-pen text-slate-400"></i>';
         editBtn.className = "w-7 h-7 flex items-center justify-center";
-        editBtn.addEventListener("click", async () => {
-          const nuevoMontoStr = prompt("Nuevo monto:", m.monto);
-          if (nuevoMontoStr === null) return;
-          const nuevoMonto = parseFloat(nuevoMontoStr);
-          if (!Number.isFinite(nuevoMonto) || nuevoMonto <= 0) return;
-          const nuevaDescripcion = prompt("Nueva descripción:", m.descripcion || "");
-          if (nuevaDescripcion === null) return;
-          await fetch(`/api/finance/debts/${encodeURIComponent(persona)}/movements/${m.index}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ monto: nuevoMonto, descripcion: nuevaDescripcion }),
+        editBtn.addEventListener("click", () => {
+          abrirHojaSimple({
+            titulo: "Editar movimiento de " + persona,
+            campos: [
+              {
+                id: "tipo",
+                etiqueta: "Qué es",
+                tipo: "opciones",
+                valor: m.tipo,
+                opciones: [
+                  { valor: "debe", label: "Te quedó debiendo" },
+                  { valor: "pago", label: "Te pagó" },
+                ],
+              },
+              { id: "monto", etiqueta: "Monto", tipo: "numero", valor: m.monto },
+              { id: "descripcion", etiqueta: "Descripción", tipo: "texto", valor: m.descripcion || "" },
+              { id: "fecha", etiqueta: "Fecha", tipo: "fecha", valor: m.fecha || "" },
+              { id: "hora", etiqueta: "Hora", tipo: "hora", valor: (m.hora || "").slice(0, 5) },
+            ],
+            alGuardar: async (v) => {
+              if (!Number.isFinite(v.monto) || v.monto <= 0) {
+                mostrarAviso("El monto tiene que ser mayor que cero.");
+                return false;
+              }
+              await fetch(`/api/finance/debts/${encodeURIComponent(persona)}/movements/${refDeMov(m)}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(v),
+              });
+              await renderDebtMovimientos(container, persona)();
+              await fetchDebts();
+              mostrarAviso("Guardado.");
+            },
+            alEliminar: async () => {
+              await fetch(`/api/finance/debts/${encodeURIComponent(persona)}/movements/${refDeMov(m)}`, { method: "DELETE" });
+              await renderDebtMovimientos(container, persona)();
+              await fetchDebts();
+              mostrarAviso("Movimiento eliminado.");
+            },
           });
-          await renderDebtMovimientos(container, persona)();
-          await fetchDebts();
         });
 
         const delBtn = document.createElement("button");
@@ -1546,7 +1572,7 @@ function renderDebtMovimientos(container, persona) {
         delBtn.className = "w-7 h-7 flex items-center justify-center";
         delBtn.addEventListener("click", async () => {
           if (!confirm("¿Eliminar este movimiento?")) return;
-          await fetch(`/api/finance/debts/${encodeURIComponent(persona)}/movements/${m.index}`, { method: "DELETE" });
+          await fetch(`/api/finance/debts/${encodeURIComponent(persona)}/movements/${refDeMov(m)}`, { method: "DELETE" });
           await renderDebtMovimientos(container, persona)();
           await fetchDebts();
         });
@@ -1663,6 +1689,9 @@ async function fetchDebts() {
     const res = await fetch("/api/finance/debts");
     const data = await res.json();
     renderDebts(data.deudas || []);
+    // El total de arriba sale de la misma lista: si no se refresca, queda
+    // mostrando el numero viejo despues de corregir un movimiento.
+    await fetchFinanceSummaryExtras();
   } catch (err) {
     console.error("No se pudo obtener las deudas:", err);
   }
@@ -1959,17 +1988,38 @@ function renderShortfalls(total, movimientos) {
       const editBtn = document.createElement("button");
       editBtn.innerHTML = '<i class="fa-solid fa-pen text-slate-400"></i>';
       editBtn.className = "w-7 h-7 flex items-center justify-center";
-      editBtn.addEventListener("click", async () => {
-        const nuevoMontoStr = prompt("Nuevo monto:", m.monto);
-        if (nuevoMontoStr === null) return;
-        const nuevoMonto = parseFloat(nuevoMontoStr);
-        if (!Number.isFinite(nuevoMonto) || nuevoMonto <= 0) return;
-        await fetch(`/api/finance/shortfalls/${m.index}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ monto: nuevoMonto }),
+      editBtn.addEventListener("click", () => {
+        abrirHojaSimple({
+          titulo: "Editar faltante",
+          campos: [
+            { id: "monto", etiqueta: "Monto", tipo: "numero", valor: m.monto },
+            { id: "descripcion", etiqueta: "Descripción", tipo: "texto", valor: m.descripcion || "" },
+            { id: "fecha", etiqueta: "Fecha", tipo: "fecha", valor: m.fecha || "" },
+            { id: "hora", etiqueta: "Hora", tipo: "hora", valor: (m.hora || "").slice(0, 5) },
+          ],
+          alGuardar: async (v) => {
+            if (!Number.isFinite(v.monto) || v.monto <= 0) {
+              mostrarAviso("El monto tiene que ser mayor que cero.");
+              return false;
+            }
+            await fetch(`/api/finance/shortfalls/${refDeMov(m)}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(v),
+            });
+            await fetchShortfalls();
+            await fetchCashboxToday();
+            await fetchFinanceSummaryExtras();
+            mostrarAviso("Guardado.");
+          },
+          alEliminar: async () => {
+            await fetch(`/api/finance/shortfalls/${refDeMov(m)}`, { method: "DELETE" });
+            await fetchShortfalls();
+            await fetchCashboxToday();
+            await fetchFinanceSummaryExtras();
+            mostrarAviso("Faltante eliminado.");
+          },
         });
-        await fetchShortfalls();
       });
 
       const delBtn = document.createElement("button");
@@ -1977,8 +2027,10 @@ function renderShortfalls(total, movimientos) {
       delBtn.className = "w-7 h-7 flex items-center justify-center";
       delBtn.addEventListener("click", async () => {
         if (!confirm("¿Eliminar este faltante?")) return;
-        await fetch(`/api/finance/shortfalls/${m.index}`, { method: "DELETE" });
+        await fetch(`/api/finance/shortfalls/${refDeMov(m)}`, { method: "DELETE" });
         await fetchShortfalls();
+        await fetchCashboxToday();
+        await fetchFinanceSummaryExtras();
       });
 
       acciones.appendChild(editBtn);
@@ -3557,17 +3609,74 @@ function renderMovimientosCustodia(container, clave) {
         const editBtn = document.createElement("button");
         editBtn.innerHTML = '<i class="fa-solid fa-pen text-slate-400"></i>';
         editBtn.className = "w-7 h-7 flex items-center justify-center";
-        editBtn.addEventListener("click", async () => {
-          const nuevoMonto = prompt("Nuevo monto:", m.monto);
-          if (nuevoMonto === null) return;
-          const monto = parseFloat(nuevoMonto);
-          if (!Number.isFinite(monto) || monto <= 0) return;
-          await fetch(`/api/finance/custodias/${encodeURIComponent(clave)}/movements/${m.index}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ monto }),
+        editBtn.addEventListener("click", () => {
+          const campos = [
+            {
+              id: "tipo",
+              etiqueta: "Qué es",
+              tipo: "opciones",
+              valor: m.tipo,
+              opciones: [
+                { valor: "guardo", label: "Te dejó plata" },
+                { valor: "gasto", label: "Gastaste de su plata" },
+              ],
+            },
+            { id: "monto", etiqueta: "Monto", tipo: "numero", valor: m.monto },
+            { id: "descripcion", etiqueta: "Descripción", tipo: "texto", valor: m.descripcion || "" },
+            { id: "fecha", etiqueta: "Fecha", tipo: "fecha", valor: m.fecha || "" },
+            { id: "hora", etiqueta: "Hora", tipo: "hora", valor: (m.hora || "").slice(0, 5) },
+          ];
+          // Si hay más de una persona, se puede pasar el movimiento a otra
+          // sin borrarlo y volver a anotarlo.
+          if (custodiasCache.length > 1) {
+            campos.push({
+              id: "destino",
+              etiqueta: "De quién es",
+              tipo: "opciones",
+              valor: clave,
+              opciones: custodiasCache.map((p) => ({ valor: p.clave, label: p.label })),
+            });
+          }
+
+          abrirHojaSimple({
+            titulo: "Editar movimiento",
+            campos,
+            alGuardar: async (v) => {
+              if (!Number.isFinite(v.monto) || v.monto <= 0) {
+                mostrarAviso("El monto tiene que ser mayor que cero.");
+                return false;
+              }
+              const destino = v.destino;
+              delete v.destino;
+              await fetch(`/api/finance/custodias/${encodeURIComponent(clave)}/movements/${refDeMov(m)}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(v),
+              });
+              // El movimiento se mueve DESPUÉS de corregirlo, así los
+              // cambios viajan con él a la otra persona.
+              if (destino && destino !== clave) {
+                await fetch(
+                  `/api/finance/custodias/${encodeURIComponent(clave)}/movements/${refDeMov(m)}/mover`,
+                  {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ destino }),
+                  }
+                );
+              }
+              await fetchCustodias();
+              const nombreDestino = (custodiasCache.find((p) => p.clave === destino) || {}).label;
+              mostrarAviso(destino && destino !== clave ? "Se lo pasé a " + nombreDestino + "." : "Guardado.");
+            },
+            alEliminar: async () => {
+              await fetch(`/api/finance/custodias/${encodeURIComponent(clave)}/movements/${refDeMov(m)}`, {
+                method: "DELETE",
+              });
+              await fetchCustodias();
+              mostrarAviso("Movimiento eliminado.");
+            },
           });
-          await fetchCustodias();
         });
 
         const delBtn = document.createElement("button");
@@ -3575,7 +3684,7 @@ function renderMovimientosCustodia(container, clave) {
         delBtn.className = "w-7 h-7 flex items-center justify-center";
         delBtn.addEventListener("click", async () => {
           if (!confirm("¿Eliminar este movimiento?")) return;
-          await fetch(`/api/finance/custodias/${encodeURIComponent(clave)}/movements/${m.index}`, { method: "DELETE" });
+          await fetch(`/api/finance/custodias/${encodeURIComponent(clave)}/movements/${refDeMov(m)}`, { method: "DELETE" });
           await fetchCustodias();
         });
 
@@ -3588,7 +3697,10 @@ function renderMovimientosCustodia(container, clave) {
   };
 }
 
+let custodiasCache = [];
+
 function renderCustodias(personas) {
+  custodiasCache = personas || [];
   custodiasList.innerHTML = "";
   custodiasEmpty.classList.toggle("hidden", personas.length > 0);
 
@@ -6078,6 +6190,134 @@ function ocultarAviso() {
   if (!avisoFlotante) return;
   avisoFlotante.classList.add("hidden");
   avisoFlotante.classList.remove("flex");
+}
+
+// ---------- Hoja generica para editar cualquier fila ----------
+// Deudas, faltantes y custodia se editaban con los cuadritos del
+// navegador (prompt), uno por campo y sin poder cancelar a medias. Esta
+// hoja es la misma de Movimientos pero armada al vuelo: quien la abre
+// dice que campos quiere y que hacer al guardar.
+//
+// campos: [{ id, etiqueta, tipo, valor, opciones }]
+//   tipo: "numero" | "texto" | "fecha" | "hora" | "opciones"
+// Devuelve un objeto { id: valor } al guardar.
+let hojaSimpleNodo = null;
+
+function cerrarHojaSimple() {
+  if (hojaSimpleNodo) hojaSimpleNodo.remove();
+  hojaSimpleNodo = null;
+}
+
+function abrirHojaSimple({ titulo, campos, alGuardar, alEliminar, textoEliminar }) {
+  cerrarHojaSimple();
+
+  const cont = document.createElement("div");
+  cont.className = "fixed inset-0 z-[60] flex items-end justify-center";
+
+  const fondo = document.createElement("div");
+  fondo.className = "absolute inset-0 bg-slate-900/50";
+  fondo.addEventListener("click", cerrarHojaSimple);
+
+  const hoja = document.createElement("div");
+  hoja.className =
+    "relative w-full max-w-[420px] bg-white rounded-t-3xl px-5 pt-3 pb-7 max-h-[88vh] overflow-y-auto";
+
+  const agarre = document.createElement("div");
+  agarre.className = "w-10 h-1 rounded-full bg-slate-200 mx-auto mb-4";
+  const tit = document.createElement("p");
+  tit.className = "text-sm font-bold text-slate-800 mb-3";
+  tit.textContent = titulo || "Editar";
+  hoja.appendChild(agarre);
+  hoja.appendChild(tit);
+
+  const entradas = {};
+  (campos || []).forEach((c) => {
+    const label = document.createElement("label");
+    label.className = "block text-[11px] font-semibold text-slate-400 mt-2";
+    label.textContent = c.etiqueta;
+
+    let input;
+    if (c.tipo === "opciones") {
+      input = document.createElement("select");
+      (c.opciones || []).forEach((o) => {
+        const op = document.createElement("option");
+        op.value = o.valor;
+        op.textContent = o.label;
+        if (String(o.valor) === String(c.valor)) op.selected = true;
+        input.appendChild(op);
+      });
+    } else {
+      input = document.createElement("input");
+      input.type =
+        c.tipo === "numero" ? "number" : c.tipo === "fecha" ? "date" : c.tipo === "hora" ? "time" : "text";
+      if (c.tipo === "numero") input.step = "0.01";
+      input.value = c.valor === undefined || c.valor === null ? "" : c.valor;
+    }
+    input.className =
+      "w-full mt-0.5 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-green/40";
+
+    label.appendChild(input);
+    hoja.appendChild(label);
+    entradas[c.id] = { input, tipo: c.tipo };
+  });
+
+  const guardar = document.createElement("button");
+  guardar.className =
+    "w-full mt-4 rounded-xl px-4 py-3 text-sm font-bold bg-brand-green text-white active:scale-95 transition-all";
+  guardar.textContent = "Guardar";
+  guardar.addEventListener("click", async () => {
+    const valores = {};
+    for (const [id, e] of Object.entries(entradas)) {
+      valores[id] = e.tipo === "numero" ? parseFloat(e.input.value) : e.input.value;
+    }
+    guardar.disabled = true;
+    try {
+      const r = await alGuardar(valores);
+      if (r === false) {
+        guardar.disabled = false;
+        return;
+      }
+    } catch (err) {
+      console.error("No se pudo guardar:", err);
+      guardar.disabled = false;
+      mostrarAviso("No se pudo guardar.");
+      return;
+    }
+    cerrarHojaSimple();
+  });
+  hoja.appendChild(guardar);
+
+  const fila = document.createElement("div");
+  fila.className = "flex gap-2 mt-2";
+  const cancelar = document.createElement("button");
+  cancelar.className =
+    "flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold bg-slate-100 text-slate-600 active:scale-95 transition-all";
+  cancelar.textContent = "Cancelar";
+  cancelar.addEventListener("click", cerrarHojaSimple);
+  fila.appendChild(cancelar);
+
+  if (typeof alEliminar === "function") {
+    const eliminar = document.createElement("button");
+    eliminar.className =
+      "flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold bg-rose-50 text-rose-600 active:scale-95 transition-all";
+    eliminar.textContent = textoEliminar || "Eliminar";
+    eliminar.addEventListener("click", async () => {
+      cerrarHojaSimple();
+      await alEliminar();
+    });
+    fila.appendChild(eliminar);
+  }
+  hoja.appendChild(fila);
+
+  cont.appendChild(fondo);
+  cont.appendChild(hoja);
+  document.body.appendChild(cont);
+  hojaSimpleNodo = cont;
+}
+
+// El id del movimiento si lo tiene; si no, su posicion (datos viejos).
+function refDeMov(m) {
+  return encodeURIComponent(m && m.id ? m.id : m.index);
 }
 
 // ---------- Hoja para editar un movimiento ----------

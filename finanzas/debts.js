@@ -46,6 +46,25 @@ function ensurePersona(k, label) {
 }
 
 // "Menos X Nombre debe": Nombre te debe X soles. No afecta la caja.
+let contadorMovDeuda = 0;
+function nuevoIdMov() {
+  contadorMovDeuda += 1;
+  return "deu_" + Date.now() + "_" + contadorMovDeuda;
+}
+
+// A los movimientos que ya existian se les pone id la primera vez que se
+// los lee, y se guarda una sola vez.
+function asegurarIds(p) {
+  let cambio = false;
+  (p.movimientos || []).forEach((m) => {
+    if (!m.id) {
+      m.id = nuevoIdMov();
+      cambio = true;
+    }
+  });
+  return cambio;
+}
+
 function addDebt(personaRaw, monto, descripcion) {
   const k = normKey(personaRaw);
   if (!k) return null;
@@ -53,6 +72,7 @@ function addDebt(personaRaw, monto, descripcion) {
   const ahora = peruAhora();
   p.saldo += monto;
   p.movimientos.push({
+    id: nuevoIdMov(),
     fecha: fechaLabel(ahora),
     hora: horaLabel(ahora),
     tipo: "debe",
@@ -71,6 +91,7 @@ function payDebt(personaRaw, monto, descripcion) {
   const ahora = peruAhora();
   p.saldo -= monto;
   p.movimientos.push({
+    id: nuevoIdMov(),
     fecha: fechaLabel(ahora),
     hora: horaLabel(ahora),
     tipo: "pago",
@@ -94,9 +115,30 @@ function getDeuda(personaRaw) {
   return p ? { label: p.label, saldo: p.saldo } : null;
 }
 
+// Por identidad, no por posicion.
+function editMovimientoPorId(personaRaw, id, cambios) {
+  const p = datos().personas[normKey(personaRaw)];
+  if (!p) return null;
+  asegurarIds(p);
+  const i = (p.movimientos || []).findIndex((m) => m.id === id);
+  return i === -1 ? null : editMovimiento(personaRaw, i, cambios);
+}
+
+function removeMovimientoPorId(personaRaw, id) {
+  const p = datos().personas[normKey(personaRaw)];
+  if (!p) return false;
+  asegurarIds(p);
+  const i = (p.movimientos || []).findIndex((m) => m.id === id);
+  return i === -1 ? false : removeMovimiento(personaRaw, i);
+}
+
 function getMovimientos(personaRaw) {
   const p = datos().personas[normKey(personaRaw)];
-  return p ? p.movimientos : [];
+  if (!p) return [];
+  // Los movimientos viejos no tenian id. Se los ponemos al leerlos, una
+  // sola vez, para poder editarlos por identidad y no por posicion.
+  if (asegurarIds(p)) save();
+  return p.movimientos;
 }
 
 // Marca como saldada la deuda completa de una persona (uso desde el panel).
@@ -162,4 +204,6 @@ module.exports = {
   removePersona,
   editMovimiento,
   removeMovimiento,
+  editMovimientoPorId,
+  removeMovimientoPorId,
 };

@@ -486,6 +486,12 @@ function movimientoPorRef(ref) {
   return cashbox.getMovimientos()[Number(texto)] || null;
 }
 
+// Lo mismo para custodias, deudas y faltantes: el panel manda el id y las
+// pestanas viejas todavia mandan el numero de fila.
+function refEsPosicion(ref) {
+  return /^[0-9]+$/.test(String(ref || ""));
+}
+
 app.put("/api/finance/movements/:ref", (req, res) => {
   const objetivo = movimientoPorRef(req.params.ref);
   if (!objetivo) return res.status(404).json({ error: "Movimiento no encontrado." });
@@ -558,17 +564,35 @@ app.post("/api/finance/custodias/:clave/movements", (req, res) => {
   res.json({ ok: true });
 });
 
-app.put("/api/finance/custodias/:clave/movements/:index", (req, res) => {
-  const mov = custodias.editMovimiento(req.params.clave, Number(req.params.index), req.body || {});
+app.put("/api/finance/custodias/:clave/movements/:ref", (req, res) => {
+  const ref = req.params.ref;
+  const mov = refEsPosicion(ref)
+    ? custodias.editMovimiento(req.params.clave, Number(ref), req.body || {})
+    : custodias.editMovimientoPorId(req.params.clave, ref, req.body || {});
   if (!mov) return res.status(404).json({ error: "Movimiento no encontrado." });
   res.json({ ok: true, movimiento: mov });
 });
 
-app.delete("/api/finance/custodias/:clave/movements/:index", (req, res) => {
-  if (!custodias.removeMovimiento(req.params.clave, Number(req.params.index))) {
-    return res.status(404).json({ error: "Movimiento no encontrado." });
-  }
+app.delete("/api/finance/custodias/:clave/movements/:ref", (req, res) => {
+  const ref = req.params.ref;
+  const ok = refEsPosicion(ref)
+    ? custodias.removeMovimiento(req.params.clave, Number(ref))
+    : custodias.removeMovimientoPorId(req.params.clave, ref);
+  if (!ok) return res.status(404).json({ error: "Movimiento no encontrado." });
   res.json({ ok: true });
+});
+
+// Pasar un movimiento de custodia a otra persona, sin borrarlo y volver a
+// anotarlo.
+app.post("/api/finance/custodias/:clave/movements/:ref/mover", (req, res) => {
+  const destino = String(req.body?.destino || "");
+  if (!destino) return res.status(400).json({ error: "Falta a quién se lo pasas." });
+  if (destino === req.params.clave) {
+    return res.status(400).json({ error: "Ya está en esa persona." });
+  }
+  const r = custodias.moverMovimiento(req.params.clave, req.params.ref, destino);
+  if (!r) return res.status(404).json({ error: "No se pudo mover ese movimiento." });
+  res.json({ ok: true, ...r });
 });
 
 // Consultas por WhatsApp del grupo GANANCIAS: frases que disparan cada
@@ -720,14 +744,20 @@ app.get("/api/finance/debts/:persona/movements", (req, res) => {
   res.json({ movimientos });
 });
 
-app.put("/api/finance/debts/:persona/movements/:index", (req, res) => {
-  const resultado = debts.editMovimiento(req.params.persona, Number(req.params.index), req.body || {});
+app.put("/api/finance/debts/:persona/movements/:ref", (req, res) => {
+  const ref = req.params.ref;
+  const resultado = refEsPosicion(ref)
+    ? debts.editMovimiento(req.params.persona, Number(ref), req.body || {})
+    : debts.editMovimientoPorId(req.params.persona, ref, req.body || {});
   if (!resultado) return res.status(404).json({ error: "Movimiento no encontrado." });
   res.json({ ok: true, ...resultado });
 });
 
-app.delete("/api/finance/debts/:persona/movements/:index", (req, res) => {
-  const ok = debts.removeMovimiento(req.params.persona, Number(req.params.index));
+app.delete("/api/finance/debts/:persona/movements/:ref", (req, res) => {
+  const ref = req.params.ref;
+  const ok = refEsPosicion(ref)
+    ? debts.removeMovimiento(req.params.persona, Number(ref))
+    : debts.removeMovimientoPorId(req.params.persona, ref);
   if (!ok) return res.status(404).json({ error: "Movimiento no encontrado." });
   res.json({ ok: true });
 });
@@ -750,8 +780,11 @@ app.post("/api/finance/shortfalls", (req, res) => {
   res.json({ ok: true });
 });
 
-app.put("/api/finance/shortfalls/:index", (req, res) => {
-  const mov = shortfalls.editMovimiento(Number(req.params.index), req.body || {});
+app.put("/api/finance/shortfalls/:ref", (req, res) => {
+  const ref = req.params.ref;
+  const mov = refEsPosicion(ref)
+    ? shortfalls.editMovimiento(Number(ref), req.body || {})
+    : shortfalls.editMovimientoPorId(ref, req.body || {});
   if (!mov) return res.status(404).json({ error: "Movimiento no encontrado." });
   // El gasto que este faltante dejó en la caja tiene que quedar igual, si no
   // el efectivo esperado seguiría calculado con el monto viejo.
@@ -759,8 +792,11 @@ app.put("/api/finance/shortfalls/:index", (req, res) => {
   res.json({ ok: true, movimiento: mov });
 });
 
-app.delete("/api/finance/shortfalls/:index", (req, res) => {
-  const mov = shortfalls.removeMovimiento(Number(req.params.index));
+app.delete("/api/finance/shortfalls/:ref", (req, res) => {
+  const ref = req.params.ref;
+  const mov = refEsPosicion(ref)
+    ? shortfalls.removeMovimiento(Number(ref))
+    : shortfalls.removeMovimientoPorId(ref);
   if (!mov) return res.status(404).json({ error: "Movimiento no encontrado." });
   if (mov.movimientoId) cashbox.removeMovimientoPorId(mov.movimientoId);
   res.json({ ok: true, enlazado: !!mov.movimientoId });

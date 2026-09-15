@@ -30,6 +30,28 @@ function normalizar(texto) {
     .trim();
 }
 
+// Cada movimiento lleva su propio identificador. Antes se editaban por
+// posicion en la lista, y si la lista cambiaba entre que la abrias y que
+// tocabas guardar (otra pestana, el bot anotando algo) terminabas
+// corrigiendo el movimiento equivocado.
+let contadorMovCustodia = 0;
+function nuevoIdMov() {
+  contadorMovCustodia += 1;
+  return "cus_" + Date.now() + "_" + contadorMovCustodia;
+}
+
+// A los movimientos viejos se les pone id la primera vez que se los lee.
+function asegurarIds(p) {
+  let cambio = false;
+  (p.movimientos || []).forEach((m) => {
+    if (!m.id) {
+      m.id = nuevoIdMov();
+      cambio = true;
+    }
+  });
+  return cambio;
+}
+
 function claveDe(nombre) {
   return normalizar(nombre).replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 }
@@ -100,6 +122,7 @@ function registrar(clave, tipo, monto, descripcion) {
   if (!p) return null;
   const ahora = businessDay.peruAhora();
   p.movimientos.push({
+    id: nuevoIdMov(),
     fecha: businessDay.businessDayLabel(),
     hora: businessDay.horaLabel(ahora),
     tipo,
@@ -112,7 +135,45 @@ function registrar(clave, tipo, monto, descripcion) {
 
 function getMovimientos(clave) {
   const p = datos().personas[clave];
-  return p ? p.movimientos : [];
+  if (!p) return [];
+  if (asegurarIds(p)) save();
+  return p.movimientos;
+}
+
+// Por identidad, no por posicion.
+function indicePorId(p, id) {
+  asegurarIds(p);
+  return (p.movimientos || []).findIndex((m) => m.id === id);
+}
+
+function editMovimientoPorId(clave, id, cambios) {
+  const p = datos().personas[clave];
+  if (!p) return null;
+  const i = indicePorId(p, id);
+  return i === -1 ? null : editMovimiento(clave, i, cambios);
+}
+
+function removeMovimientoPorId(clave, id) {
+  const p = datos().personas[clave];
+  if (!p) return false;
+  const i = indicePorId(p, id);
+  return i === -1 ? false : removeMovimiento(clave, i);
+}
+
+// Pasar un movimiento de una persona a otra: si anotaste que guardabas
+// plata de alguien y era de otro, no hay que borrar y volver a anotar.
+function moverMovimiento(claveOrigen, id, claveDestino) {
+  const origen = datos().personas[claveOrigen];
+  const destino = datos().personas[claveDestino];
+  if (!origen || !destino) return null;
+  if (claveOrigen === claveDestino) return null;
+  const i = indicePorId(origen, id);
+  if (i === -1) return null;
+  const mov = origen.movimientos[i];
+  origen.movimientos.splice(i, 1);
+  destino.movimientos.push(mov);
+  save();
+  return { movimiento: mov, de: origen.label, a: destino.label };
 }
 
 function editMovimiento(clave, indice, cambios) {
@@ -123,6 +184,8 @@ function editMovimiento(clave, indice, cambios) {
   if (cambios.tipo !== undefined) mov.tipo = cambios.tipo === "guardo" ? "guardo" : "gasto";
   if (cambios.monto !== undefined) mov.monto = Number(cambios.monto) || 0;
   if (cambios.descripcion !== undefined) mov.descripcion = cambios.descripcion;
+  if (cambios.fecha !== undefined) mov.fecha = cambios.fecha;
+  if (cambios.hora !== undefined) mov.hora = cambios.hora;
 
   save();
   return mov;
@@ -172,5 +235,8 @@ module.exports = {
   getMovimientos,
   editMovimiento,
   removeMovimiento,
+  editMovimientoPorId,
+  removeMovimientoPorId,
+  moverMovimiento,
   migrarDesdeAna,
 };

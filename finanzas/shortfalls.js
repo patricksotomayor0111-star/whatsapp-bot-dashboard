@@ -19,6 +19,27 @@ function peruAhora() {
   return new Date(utcMs - 5 * 3600000);
 }
 
+// Identificador propio de cada faltante, para editarlo por identidad y no
+// por su posicion en la lista. "movimientoId" es otra cosa: es el gasto
+// que este faltante dejo en la caja.
+let contadorFaltante = 0;
+function nuevoIdFaltante() {
+  contadorFaltante += 1;
+  return "fal_" + Date.now() + "_" + contadorFaltante;
+}
+
+// A los faltantes viejos se les pone id la primera vez que se los lee.
+function asegurarIds() {
+  let cambio = false;
+  (datos().movimientos || []).forEach((m) => {
+    if (!m.id) {
+      m.id = nuevoIdFaltante();
+      cambio = true;
+    }
+  });
+  return cambio;
+}
+
 function fechaLabel(d) {
   const y = d.getFullYear();
   const mo = String(d.getMonth() + 1).padStart(2, "0");
@@ -41,6 +62,7 @@ function addFaltante(monto, descripcion, movimientoId) {
   const ahora = peruAhora();
   datos().total += monto;
   datos().movimientos.push({
+    id: nuevoIdFaltante(),
     fecha: fechaLabel(ahora),
     hora: horaLabel(ahora),
     monto,
@@ -55,7 +77,24 @@ function getTotal() {
 }
 
 function getMovimientos() {
+  if (asegurarIds()) save();
   return datos().movimientos;
+}
+
+// Por identidad, no por posicion.
+function indicePorId(id) {
+  asegurarIds();
+  return (datos().movimientos || []).findIndex((m) => m.id === id);
+}
+
+function editMovimientoPorId(id, cambios) {
+  const i = indicePorId(id);
+  return i === -1 ? null : editMovimiento(i, cambios);
+}
+
+function removeMovimientoPorId(id) {
+  const i = indicePorId(id);
+  return i === -1 ? null : removeMovimiento(i);
 }
 
 // Corrige el total de faltantes. Devuelve el movimiento (con su
@@ -105,6 +144,8 @@ module.exports = {
   getMovimientos,
   editMovimiento,
   removeMovimiento,
+  editMovimientoPorId,
+  removeMovimientoPorId,
   removePorMovimiento,
   editPorMovimiento,
 };
