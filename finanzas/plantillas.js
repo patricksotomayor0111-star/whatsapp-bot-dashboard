@@ -21,6 +21,8 @@ const TIPOS = {
   items: { nombre: "Productos", datos: false },
   totales: { nombre: "Totales", datos: false },
   pago: { nombre: "Pago y vuelto", datos: false },
+  cabeceraItems: { nombre: "Encabezado de columnas", datos: false },
+  letras: { nombre: "Total en letras", datos: false },
   qr: { nombre: "QR", datos: false },
   codigoBarras: { nombre: "Código de barras", datos: false },
   pie: { nombre: "Mensaje del pie", datos: false },
@@ -59,6 +61,41 @@ const DE_FABRICA = [
       { tipo: "separador", caracter: "=" },
       { tipo: "totales" },
       { tipo: "pago" },
+      { tipo: "pie" },
+    ],
+  },
+  {
+    id: "detallada",
+    nombre: "Detallada con columnas",
+    deFabrica: true,
+    // La forma que usan las cajas registradoras de acá: encabezado de
+    // columnas, unidad de medida, operaciones gravadas y el total en
+    // letras. Los campos apuntan a TU perfil; lo que se copia es la
+    // estructura, no los datos de nadie.
+    bloques: [
+      { tipo: "logo" },
+      { tipo: "separador", caracter: "=" },
+      { tipo: "campo", campo: "emisor.nombre", align: "center", negrita: true },
+      { tipo: "campo", campo: "emisor.ruc", prefijo: "RUC ", align: "center" },
+      { tipo: "campo", campo: "emisor.direccion", align: "center" },
+      { tipo: "campo", campo: "emisor.telefono", prefijo: "Tel. ", align: "center" },
+      { tipo: "separador", caracter: "=" },
+      { tipo: "campo", campo: "tipo", align: "center", negrita: true },
+      { tipo: "campo", campo: "numero", align: "center", negrita: true },
+      { tipo: "separador" },
+      { tipo: "par", etiqueta: "F. Emisión:", campo: "fecha" },
+      { tipo: "par", etiqueta: "Cliente:", campo: "cliente" },
+      { tipo: "separador" },
+      { tipo: "cabeceraItems" },
+      { tipo: "separador" },
+      { tipo: "items", columnas: true },
+      { tipo: "separador" },
+      { tipo: "totales", opGravadas: true, etiquetaTotal: "TOTAL A PAGAR:" },
+      { tipo: "separador" },
+      { tipo: "letras" },
+      { tipo: "separador" },
+      { tipo: "pago" },
+      { tipo: "qr" },
       { tipo: "pie" },
     ],
   },
@@ -109,6 +146,15 @@ function limpiarBloque(b) {
     if (b.sufijo) salida.sufijo = String(b.sufijo).slice(0, 40);
   }
   if (b.tipo === "par") salida.etiqueta = String(b.etiqueta || "").slice(0, 40);
+  if (b.tipo === "items" || b.tipo === "cabeceraItems") {
+    if (b.columnas) salida.columnas = true;
+    if (b.unidad === false) salida.unidad = false;
+  }
+  if (b.tipo === "totales") {
+    if (b.opGravadas) salida.opGravadas = true;
+    if (b.etiquetaTotal) salida.etiquetaTotal = String(b.etiquetaTotal).slice(0, 30);
+  }
+  if (b.tipo === "letras" && b.prefijo !== undefined) salida.prefijo = String(b.prefijo).slice(0, 20);
   if (b.tipo === "separador") {
     // Un solo carácter: el separador se repite hasta llenar el ancho, y con
     // dos o más la última repetición quedaría cortada a la mitad.

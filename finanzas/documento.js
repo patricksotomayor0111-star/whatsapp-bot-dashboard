@@ -78,6 +78,79 @@ function cantidadATexto(cantidad) {
   return String(Number(n.toFixed(3)));
 }
 
+// ---------- El monto en letras ----------
+//
+// "SON: VEINTIÚN CON 50/100 SOLES". Se usa en todos los comprobantes de
+// acá y no es decoración: es la defensa contra que alguien le agregue un
+// dígito al número. Por eso se escribe SIEMPRE desde el total calculado y
+// nunca a mano.
+
+const UNIDADES = ["", "UN", "DOS", "TRES", "CUATRO", "CINCO", "SEIS", "SIETE", "OCHO",
+  "NUEVE", "DIEZ", "ONCE", "DOCE", "TRECE", "CATORCE", "QUINCE", "DIECISÉIS",
+  "DIECISIETE", "DIECIOCHO", "DIECINUEVE", "VEINTE"];
+
+// Del 21 al 29 no sirve la regla general: se escriben pegados y con tilde
+// ("VEINTIDÓS", no "VEINTE Y DOS").
+const VEINTIS = ["", "VEINTIÚN", "VEINTIDÓS", "VEINTITRÉS", "VEINTICUATRO",
+  "VEINTICINCO", "VEINTISÉIS", "VEINTISIETE", "VEINTIOCHO", "VEINTINUEVE"];
+
+const DECENAS = ["", "", "", "TREINTA", "CUARENTA", "CINCUENTA", "SESENTA",
+  "SETENTA", "OCHENTA", "NOVENTA"];
+
+const CENTENAS = ["", "CIENTO", "DOSCIENTOS", "TRESCIENTOS", "CUATROCIENTOS",
+  "QUINIENTOS", "SEISCIENTOS", "SETECIENTOS", "OCHOCIENTOS", "NOVECIENTOS"];
+
+function hastaNovecientos(n) {
+  if (n === 0) return "";
+  // 100 exacto es "CIEN"; 101 en adelante es "CIENTO UNO". Es la excepción
+  // que más se ve mal escrita.
+  if (n === 100) return "CIEN";
+
+  const centena = Math.floor(n / 100);
+  const resto = n % 100;
+  const partes = [];
+  if (centena) partes.push(CENTENAS[centena]);
+
+  if (resto <= 20) {
+    if (resto) partes.push(UNIDADES[resto]);
+  } else if (resto < 30) {
+    partes.push(VEINTIS[resto - 20]);
+  } else {
+    const decena = Math.floor(resto / 10);
+    const unidad = resto % 10;
+    partes.push(DECENAS[decena] + (unidad ? " Y " + UNIDADES[unidad] : ""));
+  }
+  return partes.join(" ");
+}
+
+function enteroALetras(n) {
+  if (n === 0) return "CERO";
+  if (n < 1000) return hastaNovecientos(n);
+
+  const millones = Math.floor(n / 1000000);
+  const miles = Math.floor((n % 1000000) / 1000);
+  const resto = n % 1000;
+  const partes = [];
+
+  if (millones === 1) partes.push("UN MILLÓN");
+  else if (millones > 1) partes.push(hastaNovecientos(millones) + " MILLONES");
+  // "MIL" solo, nunca "UN MIL".
+  if (miles === 1) partes.push("MIL");
+  else if (miles > 1) partes.push(hastaNovecientos(miles) + " MIL");
+  if (resto) partes.push(hastaNovecientos(resto));
+
+  return partes.join(" ");
+}
+
+// Los centavos van como fracción y no en letras: así es como se imprime acá
+// ("CON 50/100"), y además no hay forma de confundir 5 con 50.
+function montoEnLetras(centavos, moneda = "SOLES") {
+  const n = Math.abs(Math.round(Number(centavos) || 0));
+  const enteros = Math.floor(n / 100);
+  const resto = n % 100;
+  return `${enteroALetras(enteros)} CON ${String(resto).padStart(2, "0")}/100 ${moneda}`;
+}
+
 // ---------- Tipos de documento ----------
 // A propósito no hay tipo "boleta" ni "factura": esos son comprobantes de
 // pago y solo valen emitidos electrónicamente contra SUNAT, que devuelve
@@ -114,6 +187,9 @@ function normalizarItem(item, indice, dinero = aCentavos) {
   return {
     id: (item && item.id) || `it${indice + 1}`,
     descripcion: String((item && item.descripcion) || "").trim(),
+    // Unidad de medida. "NIU" (unidad) es la que usa SUNAT por defecto;
+    // también se ven KGM, LTR, ZZ (servicio).
+    unidad: String((item && item.unidad) || "").trim().toUpperCase().slice(0, 4),
     cantidad: Number.isFinite(cantidad) && cantidad > 0 ? cantidad : 1,
     precioUnitario: dinero(item && item.precioUnitario),
     // Descuento por línea, en centavos y ya como monto (no porcentaje):
@@ -298,6 +374,8 @@ function revisar(doc) {
     TIPOS,
     IGV_PERU,
     aCentavos,
+  enteroALetras,
+  montoEnLetras,
     aTexto,
     cantidadATexto,
     importeDe,

@@ -76,6 +76,23 @@ const exo = d.normalizar({ tasaIgv: 0, items: [{ descripcion: "X", cantidad: 2, 
 ok("sin IGV el total es la suma", exo.totales.total, 1000);
 ok("IGV cero", exo.totales.igv, 0);
 
+console.log("\n-- el monto en letras --");
+ok("el de la boleta de la foto", d.montoEnLetras(2150), "VEINTIÚN CON 50/100 SOLES");
+ok("uno", d.montoEnLetras(100), "UN CON 00/100 SOLES");
+ok("cien exacto es CIEN", d.montoEnLetras(10000), "CIEN CON 00/100 SOLES");
+ok("ciento uno no es CIEN UNO", d.montoEnLetras(10100), "CIENTO UN CON 00/100 SOLES");
+ok("veintidós va pegado", d.montoEnLetras(2200), "VEINTIDÓS CON 00/100 SOLES");
+ok("veintiséis con tilde", d.montoEnLetras(2600), "VEINTISÉIS CON 00/100 SOLES");
+ok("treinta y uno va separado", d.montoEnLetras(3100), "TREINTA Y UN CON 00/100 SOLES");
+ok("mil solo, nunca UN MIL", d.montoEnLetras(100000), "MIL CON 00/100 SOLES");
+ok("dos mil", d.montoEnLetras(200000), "DOS MIL CON 00/100 SOLES");
+ok("cero", d.montoEnLetras(0), "CERO CON 00/100 SOLES");
+ok("solo centavos", d.montoEnLetras(5), "CERO CON 05/100 SOLES");
+ok("centavos con cero a la izquierda", d.montoEnLetras(1205), "DOCE CON 05/100 SOLES");
+ok("un millón", d.montoEnLetras(100000000), "UN MILLÓN CON 00/100 SOLES");
+ok("quinientos", d.montoEnLetras(50000), "QUINIENTOS CON 00/100 SOLES");
+ok("otra moneda", d.montoEnLetras(2150, "DÓLARES"), "VEINTIÚN CON 50/100 DÓLARES");
+
 console.log("\n-- envolver --");
 ok("palabra larguísima se parte", t.envolver("ABCDEFGHIJ", 4), ["ABCD", "EFGH", "IJ"]);
 ok("respeta palabras", t.envolver("hola mundo cruel", 11), ["hola mundo", "cruel"]);

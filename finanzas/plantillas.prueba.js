@@ -24,7 +24,7 @@ const DOC = {
 
 correrComo("prueba", () => {
   console.log("\n-- las de fábrica --");
-  ok("hay tres", pl.DE_FABRICA.length, 3);
+  ok("hay cuatro", pl.DE_FABRICA.length, 4);
   ok("la activa por defecto", pl.activa().id, "completa");
   ok("no se pueden borrar", pl.eliminar("completa"), false);
 
@@ -38,6 +38,38 @@ correrComo("prueba", () => {
   ok("la comanda no muestra totales", comanda.includes("TOTAL"), false);
   ok("la comanda sí los productos", comanda.includes("Pan"), true);
 
+  console.log("\n-- la detallada con columnas --");
+  const DETALLE = {
+    emisor: { nombre: "MI CHIFA", ruc: "20123456789" },
+    numero: "NV001-000123",
+    items: [
+      { descripcion: "12 Pollo enrollado c/chaufa", cantidad: 1, unidad: "NIU", precioUnitario: "20.00" },
+      { descripcion: "Taper", cantidad: 1, unidad: "NIU", precioUnitario: "1.50" },
+    ],
+  };
+  const det = termica.previa(DETALLE, { perfil: "pos-8001dd", plantilla: pl.porId("detallada").bloques });
+  ok("trae el encabezado de columnas", det.includes("CANT.") && det.includes("P.UNIT"), true);
+  ok("trae la unidad de medida", det.includes("NIU"), true);
+  ok("la cantidad va con dos decimales", det.includes("1.00 NIU"), true);
+  ok("trae operaciones gravadas", det.includes("OP. GRAVADAS:"), true);
+  ok("el total se llama TOTAL A PAGAR", det.includes("TOTAL A PAGAR:"), true);
+  ok("trae el monto en letras", det.includes("SON: VEINTIÚN CON 50/100 SOLES"), true);
+
+  // La descripción larga sigue abajo, sangrada hasta su columna: así se ve
+  // que es continuación y no otro producto.
+  const continuacion = det.split("\n").find((l) => l.trim() === "c/chaufa");
+  ok("la descripción larga continúa abajo", Boolean(continuacion), true);
+  ok("y va sangrada", continuacion.startsWith("         "), true);
+
+  console.log("\n-- el total en letras no se puede escribir a mano --");
+  // Sale del total calculado: si se pudiera escribir, dejaría de servir
+  // para lo único que sirve, que es delatar un número alterado.
+  const mentira = termica.previa({ ...DETALLE, letras: "UN MILLÓN" }, {
+    perfil: "pos-8001dd", plantilla: [{ tipo: "totales" }, { tipo: "letras" }],
+  });
+  ok("ignora lo que le manden", mentira.includes("UN MILLÓN"), false);
+  ok("escribe el total de verdad", mentira.includes("VEINTIÚN CON 50/100"), true);
+
   console.log("\n-- guardar una propia --");
   const mia = pl.guardar("La mía", [
     { tipo: "campo", campo: "emisor.nombre", align: "center", negrita: true },
@@ -46,7 +78,7 @@ correrComo("prueba", () => {
   ]);
   ok("le pone id", mia.id, "p1");
   ok("queda activa al guardarla", pl.activa().id, "p1");
-  ok("aparece en la lista", pl.todas().length, 4);
+  ok("aparece en la lista", pl.todas().length, 5);
 
   console.log("\n-- limpieza de lo que llega --");
   const sucia = pl.limpiarBloques([
@@ -71,7 +103,7 @@ correrComo("prueba", () => {
   console.log("\n-- editar y borrar --");
   pl.guardar("Renombrada", mia.bloques, "p1");
   ok("se renombró sin duplicar", pl.todas().filter((p) => p.id === "p1")[0].nombre, "Renombrada");
-  ok("sigue habiendo 4", pl.todas().length, 4);
+  ok("sigue habiendo 5", pl.todas().length, 5);
   ok("borrar la propia", pl.eliminar("p1"), true);
   ok("al borrar la activa vuelve a la de fábrica", pl.activa().id, "completa");
 
