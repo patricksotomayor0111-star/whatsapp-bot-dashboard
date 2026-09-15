@@ -1,4 +1,5 @@
 const { crearAlmacen } = require("./almacenPorUsuario");
+const bitacora = require("./bitacora");
 
 
 
@@ -80,6 +81,13 @@ function addDebt(personaRaw, monto, descripcion) {
     descripcion: descripcion || "",
   });
   save();
+  bitacora.registrar({
+    que: "deuda",
+    accion: "creo",
+    ref: k,
+    resumen: p.label + " te quedó debiendo S/ " + monto + (descripcion ? " · " + descripcion : "") +
+      ". Ahora te debe S/ " + p.saldo,
+  });
   return { key: k, label: p.label, saldo: p.saldo };
 }
 
@@ -99,6 +107,13 @@ function payDebt(personaRaw, monto, descripcion) {
     descripcion: descripcion || "",
   });
   save();
+  bitacora.registrar({
+    que: "deuda",
+    accion: "pago",
+    ref: k,
+    resumen: p.label + " te pagó S/ " + monto + (descripcion ? " · " + descripcion : "") +
+      ". Queda debiendo S/ " + p.saldo,
+  });
   return { key: k, label: p.label, saldo: p.saldo };
 }
 
@@ -168,6 +183,7 @@ function editMovimiento(personaRaw, indice, cambios) {
   const p = datos().personas[normKey(personaRaw)];
   if (!p || !p.movimientos[indice]) return null;
   const mov = p.movimientos[indice];
+  const copiaAntes = { ...mov };
 
   p.saldo += efectoDelta(mov.tipo, mov.monto, -1);
 
@@ -180,6 +196,14 @@ function editMovimiento(personaRaw, indice, cambios) {
   p.saldo += efectoDelta(mov.tipo, mov.monto, 1);
 
   save();
+  bitacora.registrar({
+    que: "deuda",
+    accion: "edito",
+    ref: mov.id,
+    resumen: "Corregiste un movimiento de " + p.label + ". Ahora te debe S/ " + p.saldo,
+    antes: copiaAntes,
+    despues: mov,
+  });
   return { saldo: p.saldo, movimiento: mov };
 }
 
@@ -191,6 +215,13 @@ function removeMovimiento(personaRaw, indice) {
   p.saldo += efectoDelta(mov.tipo, mov.monto, -1);
   p.movimientos.splice(indice, 1);
   save();
+  bitacora.registrar({
+    que: "deuda",
+    accion: "borro",
+    ref: mov.id,
+    resumen: "Borraste un movimiento de " + p.label + ". Ahora te debe S/ " + p.saldo,
+    antes: mov,
+  });
   return true;
 }
 

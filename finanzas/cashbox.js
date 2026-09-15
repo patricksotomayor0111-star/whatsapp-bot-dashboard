@@ -1,4 +1,5 @@
 const { crearAlmacen } = require("./almacenPorUsuario");
+const bitacora = require("./bitacora");
 const businessDay = require("./businessDay");
 
 const MAX_CIERRES = 90; // días de historial de cierres que se conservan
@@ -114,6 +115,13 @@ function addGanancia(monto, descripcion) {
   datos().todayGanancias += monto;
   const movimiento = registrarMovimiento("ganancia", monto, descripcion);
   save();
+  bitacora.registrar({
+    que: "movimiento",
+    accion: "creo",
+    ref: movimiento.id,
+    resumen: "Ganancia de S/ " + monto + (descripcion ? " · " + descripcion : ""),
+    despues: movimiento,
+  });
   // Devuelve el id igual que addGasto: hace falta para colgarle la foto de
   // la boleta al movimiento que se acaba de crear.
   return movimiento.id;
@@ -137,6 +145,13 @@ function addGasto(monto, descripcion) {
   datos().todayGastos += monto;
   const movimiento = registrarMovimiento("gasto", monto, descripcion);
   save();
+  bitacora.registrar({
+    que: "movimiento",
+    accion: "creo",
+    ref: movimiento.id,
+    resumen: "Gasto de S/ " + monto + (descripcion ? " · " + descripcion : ""),
+    despues: movimiento,
+  });
   return movimiento.id;
 }
 
@@ -166,6 +181,12 @@ function setCaja(montoContado) {
       : "conteo de caja (" + (diferencia > 0 ? "sobraban +" : "faltaban ") + diferencia + ")";
   registrarMovimiento("caja", montoContado, nota);
   save();
+  bitacora.registrar({
+    que: "caja",
+    accion: "conto",
+    resumen: "Contaste S/ " + montoContado + ". Esperado S/ " + esperadoAntes +
+      (diferencia === 0 ? " (cuadró)" : diferencia > 0 ? " (sobraban " + diferencia + ")" : " (faltaban " + Math.abs(diferencia) + ")"),
+  });
   return { contado: montoContado, esperadoAntes, diferencia };
 }
 
@@ -286,6 +307,14 @@ function closeDay(dayLabel) {
   // Lo que se anote de ahora en adelante pertenece al dia siguiente.
   datos().diaEnCurso = addDays(dayLabel, 1);
   save();
+  bitacora.registrar({
+    que: "dia",
+    accion: yaEstaba === -1 ? "cerro" : "recerro",
+    ref: dayLabel,
+    resumen: "Cerró el " + dayLabel + ": ganaste S/ " + resumen.ganancias +
+      ", gastaste S/ " + resumen.gastos + ", quedaron S/ " + resumen.esperado +
+      (yaEstaba === -1 ? "" : " (ese día ya se había cerrado antes)"),
+  });
   return resumen;
 }
 
@@ -395,6 +424,14 @@ function addMovimientoManual(tipo, monto, descripcion, fecha, hora) {
   const efecto = efectoDelta(tipo, monto, 1);
   ajustarTotalesPorFecha(f, efecto.g, efecto.gs);
   save();
+  bitacora.registrar({
+    que: "movimiento",
+    accion: "creo",
+    ref: movimiento.id,
+    resumen: (tipo === "ganancia" ? "Ganancia" : "Gasto") + " de S/ " + monto +
+      (descripcion ? " · " + descripcion : ""),
+    despues: movimiento,
+  });
   return movimiento.id;
 }
 
@@ -404,6 +441,8 @@ function addMovimientoManual(tipo, monto, descripcion, fecha, hora) {
 function editMovimiento(indice, cambios) {
   const mov = datos().movimientos[indice];
   if (!mov) return null;
+  // Copia de como estaba, para poder anotar despues que cambio.
+  const copiaAntes = { ...mov };
 
   const viejo = efectoDelta(mov.tipo, mov.monto, -1);
   ajustarTotalesPorFecha(mov.fecha, viejo.g, viejo.gs);
@@ -440,11 +479,24 @@ function editMovimiento(indice, cambios) {
     if (cambios.localId) mov.localId = cambios.localId;
     else delete mov.localId;
   }
+  // Donde esta esa plata: en el bolsillo, en Yape, en el banco.
+  if (cambios.lugarId !== undefined) {
+    if (cambios.lugarId) mov.lugarId = cambios.lugarId;
+    else delete mov.lugarId;
+  }
 
   const nuevo = efectoDelta(mov.tipo, mov.monto, 1);
   ajustarTotalesPorFecha(mov.fecha, nuevo.g, nuevo.gs);
 
   save();
+  bitacora.registrar({
+    que: "movimiento",
+    accion: "edito",
+    ref: mov.id,
+    resumen: "Corregiste: " + (mov.descripcion || "un movimiento") + " · S/ " + mov.monto,
+    antes: copiaAntes,
+    despues: mov,
+  });
   return mov;
 }
 
@@ -469,6 +521,13 @@ function removeMovimiento(indice) {
   ajustarTotalesPorFecha(mov.fecha, efecto.g, efecto.gs);
   datos().movimientos.splice(indice, 1);
   save();
+  bitacora.registrar({
+    que: "movimiento",
+    accion: "borro",
+    ref: mov.id,
+    resumen: "Borraste: " + (mov.descripcion || "un movimiento") + " · S/ " + mov.monto,
+    antes: mov,
+  });
   return true;
 }
 

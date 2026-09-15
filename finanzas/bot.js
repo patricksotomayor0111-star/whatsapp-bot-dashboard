@@ -1171,7 +1171,11 @@ async function startBot(userId) {
   // financieras. Todo lo demás (otros grupos, cotizaciones, keywords) no
   // existe en este bot — vive en el proyecto de delivery, aparte.
   sock.ev.on("messages.upsert", ({ messages }) =>
-    contexto.correrComo(userId, () => procesarMensajes(bot, messages))
+    contexto.correrComo(userId, () => {
+      // Para la bitacora: esto entro por un mensaje de WhatsApp.
+      contexto.marcarOrigen("whatsapp");
+      return procesarMensajes(bot, messages);
+    })
   );
 
   return sock;

@@ -1,4 +1,5 @@
 const { crearAlmacen } = require("./almacenPorUsuario");
+const bitacora = require("./bitacora");
 
 
 
@@ -70,6 +71,12 @@ function addFaltante(monto, descripcion, movimientoId) {
     movimientoId: movimientoId || null,
   });
   save();
+  bitacora.registrar({
+    que: "faltante",
+    accion: "creo",
+    resumen: "Te faltaron S/ " + monto + (descripcion ? " · " + descripcion : "") +
+      ". En total llevas S/ " + datos().total,
+  });
 }
 
 function getTotal() {
@@ -103,6 +110,7 @@ function removeMovimientoPorId(id) {
 function editMovimiento(indice, cambios) {
   const mov = datos().movimientos[indice];
   if (!mov) return null;
+  const copiaAntes = { ...mov };
   datos().total -= mov.monto;
   if (cambios.monto !== undefined) mov.monto = Number(cambios.monto) || 0;
   if (cambios.descripcion !== undefined) mov.descripcion = cambios.descripcion;
@@ -110,6 +118,14 @@ function editMovimiento(indice, cambios) {
   if (cambios.hora !== undefined) mov.hora = cambios.hora;
   datos().total += mov.monto;
   save();
+  bitacora.registrar({
+    que: "faltante",
+    accion: "edito",
+    ref: mov.id,
+    resumen: "Corregiste un faltante. En total llevas S/ " + datos().total,
+    antes: copiaAntes,
+    despues: mov,
+  });
   return mov;
 }
 
@@ -120,6 +136,13 @@ function removeMovimiento(indice) {
   datos().total -= mov.monto;
   datos().movimientos.splice(indice, 1);
   save();
+  bitacora.registrar({
+    que: "faltante",
+    accion: "borro",
+    ref: mov.id,
+    resumen: "Borraste un faltante de S/ " + mov.monto + ". En total llevas S/ " + datos().total,
+    antes: mov,
+  });
   return mov;
 }
 

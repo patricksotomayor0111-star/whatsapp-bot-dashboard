@@ -30,10 +30,24 @@ function usuarioActual() {
   return ctx.userId;
 }
 
+// De donde salio lo que se esta haciendo: del panel, de un mensaje de
+// WhatsApp, o de algo que la app hace sola (cerrar el dia, por ejemplo).
+// Lo usa la bitacora para poder decir despues "esto lo cambiaste vos
+// desde el panel" o "esto entro por WhatsApp".
+function marcarOrigen(origen) {
+  const ctx = almacen.getStore();
+  if (ctx) ctx.origen = origen;
+}
+
+function origenActual() {
+  const ctx = almacen.getStore();
+  return (ctx && ctx.origen) || "automatico";
+}
+
 // Para los pocos casos donde solo se quiere saber si hay contexto.
 function hayContexto() {
   const ctx = almacen.getStore();
   return Boolean(ctx && ctx.userId);
 }
 
-module.exports = { correrComo, usuarioActual, hayContexto };
+module.exports = { correrComo, usuarioActual, hayContexto, marcarOrigen, origenActual };

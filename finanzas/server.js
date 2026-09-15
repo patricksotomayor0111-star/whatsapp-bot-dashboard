@@ -31,6 +31,10 @@ const users = require("./users");
 const contexto = require("./contexto");
 const chatConfig = require("./chatConfig");
 const custodias = require("./custodias");
+const bitacora = require("./bitacora");
+const lugaresDinero = require("./lugaresDinero");
+const gastosHormiga = require("./gastosHormiga");
+const calendario = require("./calendario");
 const diasLibres = require("./diasLibres");
 const combustible = require("./combustible");
 const fuentesIngreso = require("./fuentesIngreso");
@@ -135,7 +139,12 @@ app.use((req, res, next) => {
   // hace como esta cuenta. Es lo que impide que un pedido lea o escriba
   // en la información de otra.
   req.userId = cuenta.id;
-  contexto.correrComo(cuenta.id, next);
+  contexto.correrComo(cuenta.id, () => {
+    // Para la bitacora: todo lo que cambie de aca en adelante salio del
+    // panel, no de un mensaje de WhatsApp ni de algo automatico.
+    contexto.marcarOrigen("panel");
+    next();
+  });
 });
 
 // Quién soy: lo usa el panel para saludar y para mostrar la
@@ -415,6 +424,73 @@ app.post("/api/prices/:id/remove", (req, res) => {
   res.json({ ok: true, precios: productPrices.getAll() });
 });
 
+// ---------- El mes visto como mes ----------
+// Cada dia con lo que ganaste y gastaste; los que vienen, con lo que te
+// toca pagar.
+app.get("/api/finance/calendario", (req, res) => {
+  const mes = /^[0-9]{4}-[0-9]{2}$/.test(req.query.mes || "")
+    ? req.query.mes
+    : cashbox.getHoyLabel().slice(0, 7);
+  const movimientos = cashbox.getMovimientos();
+  res.json(
+    calendario.armar({
+      mes,
+      movimientos,
+      recordatorios: reminders.getAll(),
+      proyeccionDia: (fecha) => scheduledExpenses.getProyeccion(fecha, fecha, movimientos),
+    })
+  );
+});
+
+// ---------- Gastos hormiga ----------
+// Lo chiquito que se repite y no aparece en ningun lado porque cada uno
+// se ve suelto.
+app.get("/api/finance/hormiga", (req, res) => {
+  res.json(
+    gastosHormiga.analizar(cashbox.getMovimientos(), {
+      desde: req.query.desde || "",
+      hasta: req.query.hasta || "",
+      tope: req.query.tope,
+      minimoVeces: req.query.veces,
+    })
+  );
+});
+
+// ---------- Donde esta la plata ----------
+// El total sigue sumando igual (esa plata es suya y sirve para pagar),
+// pero ahora se puede ver cuanto hay en cada lado.
+app.get("/api/finance/lugares", (req, res) => {
+  res.json({
+    lugares: lugaresDinero.getAll(),
+    ...lugaresDinero.getSaldos(cashbox.getMovimientos()),
+  });
+});
+
+app.post("/api/finance/lugares", (req, res) => {
+  try {
+    res.json({ ok: true, lugar: lugaresDinero.addLugar(req.body || {}) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.put("/api/finance/lugares/:id", (req, res) => {
+  const l = lugaresDinero.editLugar(req.params.id, req.body || {});
+  if (!l) return res.status(404).json({ error: "Lugar no encontrado." });
+  res.json({ ok: true, lugar: l });
+});
+
+app.delete("/api/finance/lugares/:id", (req, res) => {
+  try {
+    if (!lugaresDinero.removeLugar(req.params.id)) {
+      return res.status(404).json({ error: "Lugar no encontrado." });
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 app.get("/api/cashbox/today", (req, res) => {
   // "custodia" es el total de plata de OTRAS personas que estás guardando,
   // sumando a todas: antes era solo de Ana, que estaba fija en el código.
@@ -457,6 +533,8 @@ app.get("/api/finance/movements", (req, res) => {
     fuenteEfectiva: m.tipo === "ganancia" ? fuentesIngreso.resolveFuenteId(m) : undefined,
     // Y de que local vino, para poder cambiarlo desde el panel.
     localEfectivo: m.tipo === "ganancia" ? (locales.resolveLocal(m) || {}).id : undefined,
+    // Donde esta esa plata: bolsillo, Yape, banco.
+    lugarEfectivo: m.tipo === "caja" ? undefined : lugaresDinero.resolveLugarId(m),
   }));
   res.json({ movimientos });
 });
@@ -992,6 +1070,23 @@ app.delete("/api/finance/accounts/entries/:index", (req, res) => {
 // Historial de cierres diarios (ganancias/gastos/efectivo esperado por
 // día) más el día en curso, para los gráficos y la lista diaria de
 // Finanzas.
+// ---------- Historial de cambios ----------
+// Quien toco que y cuando. Es de solo lectura a proposito: si se pudiera
+// editar o borrar, dejaria de servir para lo unico que sirve, que es
+// averiguar por que algo no cuadra.
+app.get("/api/finance/bitacora", (req, res) => {
+  const limite = Math.min(Number(req.query.limite) || 200, 1000);
+  res.json({
+    entradas: bitacora.getEntradas({
+      desde: req.query.desde || "",
+      hasta: req.query.hasta || "",
+      que: req.query.que || "",
+      limite,
+    }),
+    total: bitacora.contar(),
+  });
+});
+
 app.get("/api/finance/history", (req, res) => {
   // "meses" sale de TODOS los movimientos (no solo los cierres) para que un
   // gasto cargado a mano con fecha pasada también aparezca como mes

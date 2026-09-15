@@ -44,10 +44,13 @@ function formatSoles(n) {
   return "S/ " + Number(n || 0).toLocaleString("es-PE", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
 
+let esperadoActual = 0;
+
 async function fetchCashboxToday() {
   try {
     const res = await fetch("/api/cashbox/today");
     const data = await res.json();
+    esperadoActual = data.esperado || 0;
     statGanancias.textContent = formatSoles(data.ganancias);
     statGastos.textContent = "-" + formatSoles(data.gastos);
     statTotal.textContent = formatSoles(data.total);
@@ -58,6 +61,8 @@ async function fetchCashboxToday() {
       statAnaGastado.textContent = "-" + formatSoles(data.custodia.gastado);
       statAnaSaldo.textContent = formatSoles(data.custodia.saldo);
     }
+    // La tarjeta de "donde esta tu plata" reparte ESTE numero.
+    if (ultimosLugares) pintarLugares(ultimosLugares);
   } catch (err) {
     console.error("No se pudo obtener la caja chica del día:", err);
   }
@@ -1038,6 +1043,7 @@ function showFinanceTab(tabId) {
     fetchCashboxToday();
     fetchFinanceSummaryExtras();
     fetchGoalsAndProgress();
+    fetchLugares();
   } else if (tabId === "financeTabMovimientos") {
     fetchDailyHistory();
     fetchMovimientos();
@@ -1068,6 +1074,14 @@ function showFinanceTab(tabId) {
     renderGuia();
   } else if (tabId === "financeTabPrecios") {
     fetchPrices();
+  } else if (tabId === "financeTabCalendario") {
+    fetchCalendario(calMes);
+  } else if (tabId === "financeTabHormiga") {
+    prepararHormiga();
+  } else if (tabId === "financeTabBitacora") {
+    fetchBitacora();
+  } else if (tabId === "financeTabAjustes") {
+    fetchLugares();
   }
 }
 
@@ -1712,21 +1726,31 @@ addMovimientoBtn.addEventListener("click", async () => {
   const tipo = movNuevoTipo.value;
   const monto = parseFloat(movNuevoMonto.value);
   if (!Number.isFinite(monto) || monto <= 0) return;
-  await fetch("/api/finance/movements", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      tipo,
-      monto,
-      descripcion: movNuevoDescripcion.value.trim(),
-      fecha: movNuevoFecha.value || undefined,
-    }),
-  });
+  const descripcion = movNuevoDescripcion.value.trim();
+  // Si estas sin senal no se pierde: queda esperando en el celular y sale
+  // solo cuando vuelve.
+  const r = await mandarOGuardar(
+    "/api/finance/movements",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tipo,
+        monto,
+        descripcion,
+        fecha: movNuevoFecha.value || undefined,
+      }),
+    },
+    (tipo === "ganancia" ? "Ganancia" : "Gasto") + " de S/ " + monto + (descripcion ? " · " + descripcion : "")
+  );
   movNuevoMonto.value = "";
   movNuevoDescripcion.value = "";
   movNuevoFecha.value = "";
-  await fetchMovimientos();
-  fetchCashboxToday();
+  if (r.enCola) {
+    mostrarAviso("Sin señal: lo guardé en el celular y lo mando apenas vuelva.");
+    return;
+  }
+  await refrescarPorMovimiento();
 });
 
 // ---------- Finanzas: Deudas (por persona, no tocan caja) ----------
@@ -5557,6 +5581,8 @@ const SECCIONES = [
   { id: "analisis", icono: "fa-chart-simple", label: "Analisis",
     paneles: [
       ["financeTabGraficos", "Graficos"],
+      ["financeTabCalendario", "Calendario"],
+      ["financeTabHormiga", "Gastos hormiga"],
       ["financeTabLocales", "Locales"],
       ["financeTabPresupuesto", "Presupuesto"],
     ] },
@@ -5568,6 +5594,7 @@ const SECCIONES = [
       ["financeTabPrecios", "Precios"],
       ["financeTabConsultas", "Consultas"],
       ["financeTabAjustes", "Ajustes"],
+      ["financeTabBitacora", "Historial de cambios"],
       ["financeTabGuia", "Guia"],
     ] },
 ];
@@ -5643,6 +5670,134 @@ function pintarSubTabs(seccion, panelActivo) {
     subTabs.appendChild(b);
   });
 }
+GUIA.push(
+  {
+    icono: "📅",
+    titulo: "El calendario del mes",
+    resumen: "El mes entero de un vistazo, no como lista.",
+    bloques: [
+      {
+        tipo: "texto",
+        texto:
+          "Está en Análisis → Calendario. Cada día que ya pasó muestra en verde lo que ganaste " +
+          "y en rojo lo que gastaste. Los días que vienen muestran en naranja lo que te toca pagar. " +
+          "El punto naranja marca los días con un pago con nombre (Junta, Natura, Luz).",
+      },
+      {
+        tipo: "lista",
+        titulo: "Qué puedes hacer",
+        items: [
+          "Tocar un día que ya pasó te lleva a Movimientos filtrado por ese día, y ahí lo corriges.",
+          "Tocar un día que viene te dice qué se paga ese día.",
+          "Las flechas de arriba te mueven de mes: sirve para comparar cómo te fue antes.",
+          "Abajo está el resumen del mes: cuánto ganaste, cuántos días trabajaste y tu mejor día.",
+        ],
+      },
+    ],
+  },
+  {
+    icono: "💳",
+    titulo: "Dónde está tu plata",
+    resumen: "Separar lo que está en el bolsillo de lo que está en Yape o el banco.",
+    bloques: [
+      {
+        tipo: "texto",
+        texto:
+          "La app siempre dio por hecho que todo era efectivo, así que el efectivo esperado contaba " +
+          "plata que no tenías en la mano. El total no cambia — esa plata es tuya y sirve igual para " +
+          "pagar — pero ahora ves cuánto está en cada lado.",
+      },
+      {
+        tipo: "ejemplos",
+        titulo: "Cómo se anota",
+        items: [
+          ["80 bum yape", "La palabra yape hace que esa ganancia quede en Yape, no en efectivo"],
+          ["menos 30 recarga plin", "Lo mismo del lado de los gastos"],
+        ],
+      },
+      {
+        tipo: "lista",
+        titulo: "Para tenerlo en cuenta",
+        items: [
+          "Los lugares y sus palabras se editan en Ajustes → Dónde está tu plata.",
+          "El efectivo es el lugar por defecto: todo lo que no nombre otro lugar cae ahí.",
+          "Puedes cambiar el lugar de un movimiento ya anotado desde el lápiz, abajo del todo.",
+          "Si una palabra está en Anotaciones (cuentas configuradas), eso manda: esa frase queda como nota y no cuenta.",
+        ],
+      },
+    ],
+  },
+  {
+    icono: "🐜",
+    titulo: "Gastos hormiga",
+    resumen: "Lo chiquito que se repite y suma más de lo que parece.",
+    bloques: [
+      {
+        tipo: "texto",
+        texto:
+          "Está en Análisis → Gastos hormiga. Junta los gastos chicos por lo que son (almuerzo, " +
+          "gasolina, pasaje) y los muestra sumados. Treinta almuerzos de S/6 se ven como S/180, " +
+          "que es lo que de verdad son.",
+      },
+      {
+        tipo: "lista",
+        titulo: "Cómo se usa",
+        items: [
+          "Eliges desde qué fecha hasta qué fecha quieres mirar.",
+          "\"Cuenta como chico hasta\" decide qué es un gasto chico: por defecto S/25.",
+          "Solo aparece lo que se repitió 4 veces o más; algo suelto no es un gasto hormiga.",
+          "\"Ver estos gastos\" te lleva a Movimientos con esos gastos filtrados.",
+        ],
+      },
+    ],
+  },
+  {
+    icono: "🕘",
+    titulo: "Historial de cambios",
+    resumen: "Para cuando algo no cuadra y quieres saber por qué.",
+    bloques: [
+      {
+        tipo: "texto",
+        texto:
+          "Está en Más → Historial de cambios. Cada vez que algo cambia queda una línea: qué fue, " +
+          "a qué hora, y de dónde vino (del panel, por WhatsApp, o algo que la app hizo sola). " +
+          "Si corregiste un movimiento, dice exactamente qué cambió: \"monto: 50 → 80\".",
+      },
+      {
+        tipo: "lista",
+        titulo: "Para tenerlo en cuenta",
+        items: [
+          "No se puede editar ni borrar. Si se pudiera, dejaría de servir para lo único que sirve.",
+          "También anota los cierres de día y los conteos de caja, con cuánto sobraba o faltaba.",
+          "El selector de arriba filtra por tipo: solo deudas, solo custodia, solo conteos.",
+        ],
+      },
+    ],
+  },
+  {
+    icono: "📶",
+    titulo: "Anotar sin señal",
+    resumen: "Si no hay internet, lo que anotes no se pierde.",
+    bloques: [
+      {
+        tipo: "texto",
+        texto:
+          "Antes, si estabas en una zona sin señal, la pantalla abría pero lo que anotabas se perdía. " +
+          "Ahora queda guardado en tu celular y sale solo apenas vuelve la señal. Mientras tanto ves " +
+          "un aviso naranja abajo que dice cuántas cosas están esperando.",
+      },
+      {
+        tipo: "lista",
+        titulo: "Para tenerlo en cuenta",
+        items: [
+          "Vale para anotar cosas nuevas desde el panel.",
+          "Corregir y borrar sí necesitan señal: hacerlo a ciegas podría pisar algo que no viste.",
+          "Si cierras la app no pasa nada: lo pendiente sigue guardado y se manda cuando la abras.",
+        ],
+      },
+    ],
+  },
+);
 
 // ---------- La pantalla "Todo": el indice de la app ----------
 const DESTINOS = [
@@ -5653,6 +5808,9 @@ const DESTINOS = [
   { icono: "🤝", nombre: "Deudas", que: "Quién te debe y cuánto te han pagado", panel: "financeTabDeudas" },
   { icono: "🛡️", nombre: "Custodia", que: "Plata de otras personas que guardas", panel: "financeTabAna" },
   { icono: "📊", nombre: "Gráficos", que: "Qué día rinde más, gasolina, categorías y meses", panel: "financeTabGraficos" },
+  { icono: "📅", nombre: "Calendario", que: "El mes entero: qué hiciste cada día y qué te toca pagar", panel: "financeTabCalendario" },
+  { icono: "🐜", nombre: "Gastos hormiga", que: "Lo chiquito que se repite y no se nota", panel: "financeTabHormiga" },
+  { icono: "🕘", nombre: "Historial de cambios", que: "Qué se tocó, cuándo y de dónde vino", panel: "financeTabBitacora" },
   { icono: "🏪", nombre: "Locales", que: "Qué restaurante te deja más", panel: "financeTabLocales" },
   { icono: "💸", nombre: "Presupuesto", que: "Límites por categoría y gastos programados", panel: "financeTabPresupuesto" },
   { icono: "🎯", nombre: "Metas y ahorro", que: "Cuánto necesitas por día y tu plan de ahorro", panel: "financeTabMetas" },
@@ -6456,6 +6614,654 @@ function ocultarAviso() {
   avisoFlotante.classList.remove("flex");
 }
 
+
+// ---------- Anotar sin señal ----------
+// Antes, si estabas en una zona sin señal, la pantalla cargaba (queda
+// guardada en el celular) pero lo que anotabas se perdía: el pedido
+// fallaba y no quedaba nada. Ahora lo que no se puede mandar queda
+// esperando en el celular y sale solo apenas vuelve la señal.
+//
+// Solo se guardan COSAS NUEVAS, no correcciones ni borrados: corregir sin
+// señal, con el panel abierto en dos lados, terminaría pisando cambios
+// que no viste.
+const COLA_CLAVE = "finanzas-pendientes-de-mandar";
+const sinSenalAviso = document.getElementById("sinSenalAviso");
+const sinSenalTexto = document.getElementById("sinSenalTexto");
+
+function leerCola() {
+  try {
+    const crudo = localStorage.getItem(COLA_CLAVE);
+    const lista = crudo ? JSON.parse(crudo) : [];
+    return Array.isArray(lista) ? lista : [];
+  } catch (err) {
+    return [];
+  }
+}
+
+function guardarCola(lista) {
+  try {
+    localStorage.setItem(COLA_CLAVE, JSON.stringify(lista));
+  } catch (err) {
+    console.error("No se pudo guardar lo pendiente:", err);
+  }
+}
+
+function pintarSinSenal() {
+  if (!sinSenalAviso) return;
+  const n = leerCola().length;
+  if (n === 0) {
+    sinSenalAviso.classList.add("hidden");
+    sinSenalAviso.classList.remove("flex");
+    return;
+  }
+  sinSenalTexto.textContent =
+    n === 1 ? "1 anotación esperando señal" : n + " anotaciones esperando señal";
+  sinSenalAviso.classList.remove("hidden");
+  sinSenalAviso.classList.add("flex");
+}
+
+// Manda algo; si no hay señal, lo deja esperando en el celular en vez de
+// perderlo. Devuelve { ok, enCola }.
+async function mandarOGuardar(url, opciones, descripcion) {
+  try {
+    const res = await fetch(url, opciones);
+    // Un 4xx/5xx no es falta de señal: el servidor contestó y dijo que no.
+    // Guardarlo para reintentarlo lo repetiría para siempre.
+    return { ok: res.ok, enCola: false, res };
+  } catch (err) {
+    const cola = leerCola();
+    cola.push({
+      id: "cola_" + Date.now() + "_" + cola.length,
+      url,
+      metodo: opciones.method || "POST",
+      cuerpo: opciones.body || null,
+      descripcion: descripcion || "",
+      cuando: new Date().toISOString(),
+    });
+    guardarCola(cola);
+    pintarSinSenal();
+    return { ok: false, enCola: true };
+  }
+}
+
+// Intenta mandar lo que quedó esperando. Se llama al volver la señal, al
+// abrir la app, y cada tanto.
+let mandandoCola = false;
+async function vaciarCola() {
+  if (mandandoCola) return;
+  const cola = leerCola();
+  if (cola.length === 0) return;
+  mandandoCola = true;
+  const quedan = [];
+  let mandados = 0;
+
+  for (const item of cola) {
+    try {
+      const res = await fetch(item.url, {
+        method: item.metodo,
+        headers: { "Content-Type": "application/json" },
+        body: item.cuerpo,
+      });
+      if (res.ok) mandados += 1;
+      // Si el servidor contestó que no, no sirve reintentarlo: se
+      // descarta para que no quede trabado para siempre.
+      else if (res.status >= 500) quedan.push(item);
+    } catch (err) {
+      quedan.push(item); // sigue sin señal
+    }
+  }
+
+  guardarCola(quedan);
+  mandandoCola = false;
+  pintarSinSenal();
+
+  if (mandados > 0) {
+    mostrarAviso(
+      mandados === 1 ? "Mandé la anotación que estaba esperando." : "Mandé " + mandados + " anotaciones que estaban esperando."
+    );
+    if (typeof refrescarPorMovimiento === "function") await refrescarPorMovimiento();
+  }
+}
+
+window.addEventListener("online", vaciarCola);
+window.addEventListener("load", () => {
+  pintarSinSenal();
+  vaciarCola();
+});
+// Por si el navegador no avisa el "online" (pasa en algunos celulares).
+setInterval(vaciarCola, 60000);
+
+// ---------- Dónde está la plata ----------
+// El total sigue siendo el mismo: esa plata es suya y sirve para pagar.
+// Lo que faltaba era saber cuánto está en el bolsillo y cuánto no.
+const lugaresCard = document.getElementById("lugaresCard");
+const lugaresLista = document.getElementById("lugaresLista");
+const lugaresNota = document.getElementById("lugaresNota");
+const lugaresVerMas = document.getElementById("lugaresVerMas");
+
+let lugaresCache = [];
+let ultimosLugares = null;
+
+async function fetchLugares() {
+  if (!lugaresCard) return;
+  try {
+    const data = await (await fetch("/api/finance/lugares")).json();
+    lugaresCache = data.lugares || [];
+    pintarLugares(data);
+  } catch (err) {
+    console.error("No se pudo obtener dónde está la plata:", err);
+  }
+}
+
+function pintarLugares(data) {
+  ultimosLugares = data;
+  pintarLugaresAjustes(data.lugares || []);
+  (data.detalle || []).forEach((l) => {
+    const nodo = document.querySelector('[data-lugar-saldo="' + l.id + '"]');
+    if (nodo) {
+      nodo.textContent = l.movimientos === 0
+        ? "Todavia nada cayo aca."
+        : l.movimientos + " movimientos · queda " + formatSoles(l.saldo);
+    }
+  });
+  const fueraDelBolsillo = (data.detalle || []).filter((l) => !l.esEfectivo && l.movimientos > 0);
+  // Si todo esta en efectivo, la tarjeta no aporta nada y estorba.
+  if (fueraDelBolsillo.length === 0) {
+    lugaresCard.classList.add("hidden");
+    return;
+  }
+  lugaresCard.classList.remove("hidden");
+
+  // El bolsillo es lo que queda del efectivo esperado despues de sacar lo
+  // que esta en Yape o en el banco. Asi las lineas suman exactamente el
+  // numero grande de arriba y no hay dos verdades en la misma pantalla.
+  const enBolsillo = esperadoActual - (data.fueraDelEfectivo || 0);
+  const filas = [{ label: "En el bolsillo", monto: enBolsillo, icono: "fa-money-bill-wave" }].concat(
+    fueraDelBolsillo.map((l) => ({ label: l.label, monto: l.saldo, icono: "fa-mobile-screen" }))
+  );
+
+  lugaresLista.innerHTML = "";
+  filas.forEach((f) => {
+    const fila = document.createElement("div");
+    fila.className = "flex items-center justify-between gap-2 text-xs";
+    const nombre = document.createElement("span");
+    nombre.className = "text-slate-600 truncate";
+    nombre.innerHTML = '<i class="fa-solid ' + f.icono + ' text-slate-300 mr-1.5"></i>' + f.label;
+    const monto = document.createElement("b");
+    monto.className = f.monto < 0 ? "text-brand-red shrink-0" : "text-slate-800 shrink-0";
+    monto.textContent = formatSoles(f.monto);
+    fila.appendChild(nombre);
+    fila.appendChild(monto);
+    lugaresLista.appendChild(fila);
+  });
+
+  lugaresNota.textContent =
+    "De tus " + formatSoles(esperadoActual) + ", " + formatSoles(data.fueraDelEfectivo) +
+    " no están en el bolsillo.";
+}
+
+if (lugaresVerMas) {
+  lugaresVerMas.addEventListener("click", () => irAPanel("financeTabAjustes"));
+}
+
+// ---------- El mes visto como mes ----------
+const calGrilla = document.getElementById("calGrilla");
+const calMesTitulo = document.getElementById("calMesTitulo");
+const calResumen = document.getElementById("calResumen");
+const calPorVenir = document.getElementById("calPorVenir");
+const calAnterior = document.getElementById("calAnterior");
+const calSiguiente = document.getElementById("calSiguiente");
+
+const MESES_ES = ["enero", "febrero", "marzo", "abril", "mayo", "junio",
+  "julio", "agosto", "setiembre", "octubre", "noviembre", "diciembre"];
+
+let calMes = "";
+
+function mesVecino(mes, paso) {
+  const [y, mo] = mes.split("-").map(Number);
+  const d = new Date(Date.UTC(y, mo - 1 + paso, 1));
+  return d.getUTCFullYear() + "-" + String(d.getUTCMonth() + 1).padStart(2, "0");
+}
+
+async function fetchCalendario(mes) {
+  if (!calGrilla) return;
+  try {
+    const url = "/api/finance/calendario" + (mes ? "?mes=" + encodeURIComponent(mes) : "");
+    const data = await (await fetch(url)).json();
+    calMes = data.mes;
+    pintarCalendario(data);
+  } catch (err) {
+    console.error("No se pudo obtener el calendario:", err);
+  }
+}
+
+function pintarCalendario(data) {
+  const [y, mo] = data.mes.split("-").map(Number);
+  calMesTitulo.textContent = MESES_ES[mo - 1] + " " + y;
+
+  calGrilla.innerHTML = "";
+  // Huecos hasta que empiece el mes, para que cada día caiga en su
+  // columna de la semana.
+  for (let i = 0; i < data.empiezaEn; i++) {
+    const hueco = document.createElement("div");
+    calGrilla.appendChild(hueco);
+  }
+
+  data.dias.forEach((d) => {
+    const celda = document.createElement("button");
+    const base = "rounded-lg py-1 px-0.5 text-center active:scale-95 transition-all border ";
+    celda.className =
+      base +
+      (d.esHoy
+        ? "bg-brand-green text-white border-brand-green"
+        : d.esFuturo
+        ? "bg-white border-slate-100"
+        : d.movimientos > 0
+        ? "bg-slate-50 border-slate-100"
+        : "bg-white border-slate-50");
+
+    const num = document.createElement("p");
+    num.className = "text-[11px] font-bold " + (d.esHoy ? "text-white" : "text-slate-700");
+    num.textContent = d.dia;
+    celda.appendChild(num);
+
+    if (!d.esFuturo && d.movimientos > 0) {
+      const g = document.createElement("p");
+      g.className = "text-[9px] font-semibold leading-tight " + (d.esHoy ? "text-white/90" : "text-brand-green");
+      g.textContent = Math.round(d.ganancias);
+      celda.appendChild(g);
+      if (d.gastos > 0) {
+        const gs = document.createElement("p");
+        gs.className = "text-[9px] leading-tight " + (d.esHoy ? "text-white/80" : "text-brand-red");
+        gs.textContent = "-" + Math.round(d.gastos);
+        celda.appendChild(gs);
+      }
+    } else if (d.esFuturo && d.porPagar > 0) {
+      const p = document.createElement("p");
+      p.className = "text-[9px] font-semibold text-amber-600 leading-tight";
+      p.textContent = "-" + Math.round(d.porPagar);
+      celda.appendChild(p);
+    }
+
+    // Un puntito si ese día hay un pago con nombre (Junta, Natura...).
+    if (d.pagos.length > 0) {
+      const punto = document.createElement("span");
+      punto.className = "block w-1 h-1 rounded-full bg-amber-500 mx-auto mt-0.5";
+      celda.appendChild(punto);
+    }
+
+    celda.addEventListener("click", () => abrirDiaDelCalendario(d));
+    calGrilla.appendChild(celda);
+  });
+
+  const t = data.totales;
+  calResumen.innerHTML = "";
+  const filas = [
+    ["Ganaste", formatSoles(t.ganancias), "text-brand-green"],
+    ["Gastaste", formatSoles(t.gastos), "text-brand-red"],
+    ["Te quedó", formatSoles(t.neto), t.neto < 0 ? "text-brand-red" : "text-slate-800"],
+    ["Días que trabajaste", String(t.diasTrabajados), "text-slate-800"],
+    ["Falta pagar este mes", formatSoles(t.porPagar), "text-amber-600"],
+  ];
+  if (t.mejorDia && t.mejorDia.ganancias > 0) {
+    filas.push(["Tu mejor día", fmtFecha(t.mejorDia.fecha) + " · " + formatSoles(t.mejorDia.ganancias), "text-slate-800"]);
+  }
+  filas.forEach(([label, valor, clase]) => {
+    const f = document.createElement("div");
+    f.className = "flex items-center justify-between gap-2";
+    f.innerHTML = '<span class="text-slate-500">' + label + "</span>";
+    const b = document.createElement("b");
+    b.className = clase + " shrink-0";
+    b.textContent = valor;
+    f.appendChild(b);
+    calResumen.appendChild(f);
+  });
+
+  // Lo que viene: los próximos días con algo que pagar.
+  calPorVenir.innerHTML = "";
+  const proximos = data.dias.filter((d) => d.esFuturo && d.porPagar > 0).slice(0, 8);
+  if (proximos.length === 0) {
+    const vacio = document.createElement("p");
+    vacio.className = "text-xs text-slate-400 text-center py-3";
+    vacio.textContent = "No te queda nada programado para lo que resta del mes.";
+    calPorVenir.appendChild(vacio);
+  }
+  proximos.forEach((d) => {
+    const fila = document.createElement("button");
+    fila.className =
+      "w-full flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs bg-white border border-slate-100 active:scale-95 transition-all text-left";
+    const izq = document.createElement("div");
+    izq.className = "min-w-0";
+    const l1 = document.createElement("p");
+    l1.className = "font-semibold text-slate-800";
+    l1.textContent = fmtFecha(d.fecha);
+    const l2 = document.createElement("p");
+    l2.className = "text-slate-400 truncate";
+    l2.textContent = d.pagos.length ? d.pagos.map((p) => p.label).join(", ") : "Gastos de todos los días";
+    izq.appendChild(l1);
+    izq.appendChild(l2);
+    const monto = document.createElement("b");
+    monto.className = "text-amber-600 shrink-0";
+    monto.textContent = formatSoles(d.porPagar);
+    fila.appendChild(izq);
+    fila.appendChild(monto);
+    fila.addEventListener("click", () => abrirDiaDelCalendario(d));
+    calPorVenir.appendChild(fila);
+  });
+}
+
+// Tocar un día: si ya pasó, se abre Movimientos filtrado por ese día
+// (ahí se ven las dos cosas y se pueden corregir); si viene, se muestra
+// lo que hay que pagar.
+function abrirDiaDelCalendario(d) {
+  if (!d.esFuturo && d.movimientos > 0) {
+    irAPanel("financeTabMovimientos");
+    movFiltroDesde.value = d.fecha;
+    movFiltroHasta.value = d.fecha;
+    movFiltroTipo.value = "";
+    movFiltroTexto.value = "";
+    renderMovimientos();
+    mostrarAviso(fmtFecha(d.fecha) + ": " + d.movimientos + (d.movimientos === 1 ? " movimiento" : " movimientos"));
+    return;
+  }
+  if (d.porPagar > 0) {
+    const detalle = d.pagos.map((p) => p.label + " " + formatSoles(p.monto)).join(" · ");
+    mostrarAviso(
+      fmtFecha(d.fecha) + ": " + formatSoles(d.porPagar) + (detalle ? " · " + detalle : " en gastos de todos los días")
+    );
+    return;
+  }
+  mostrarAviso(fmtFecha(d.fecha) + ": no hay nada anotado.");
+}
+
+if (calAnterior) {
+  calAnterior.addEventListener("click", () => fetchCalendario(mesVecino(calMes, -1)));
+  calSiguiente.addEventListener("click", () => fetchCalendario(mesVecino(calMes, 1)));
+}
+
+// ---------- Gastos hormiga ----------
+const hormigaDesde = document.getElementById("hormigaDesde");
+const hormigaHasta = document.getElementById("hormigaHasta");
+const hormigaTope = document.getElementById("hormigaTope");
+const hormigaVer = document.getElementById("hormigaVer");
+const hormigaLista = document.getElementById("hormigaLista");
+const hormigaVacio = document.getElementById("hormigaVacio");
+const hormigaTotalCard = document.getElementById("hormigaTotalCard");
+const hormigaTotal = document.getElementById("hormigaTotal");
+const hormigaContexto = document.getElementById("hormigaContexto");
+
+async function fetchHormiga() {
+  if (!hormigaLista) return;
+  const params = new URLSearchParams();
+  if (hormigaDesde.value) params.set("desde", hormigaDesde.value);
+  if (hormigaHasta.value) params.set("hasta", hormigaHasta.value);
+  if (hormigaTope.value) params.set("tope", hormigaTope.value);
+  try {
+    const data = await (await fetch("/api/finance/hormiga?" + params.toString())).json();
+    pintarHormiga(data);
+  } catch (err) {
+    console.error("No se pudo calcular los gastos hormiga:", err);
+  }
+}
+
+function pintarHormiga(data) {
+  hormigaLista.innerHTML = "";
+  const hay = (data.grupos || []).length > 0;
+  hormigaVacio.classList.toggle("hidden", hay);
+  hormigaTotalCard.classList.toggle("hidden", !hay);
+  if (!hay) return;
+
+  hormigaTotal.textContent = formatSoles(data.totalHormiga);
+  const porcentaje = data.totalGastos > 0 ? Math.round((data.totalHormiga / data.totalGastos) * 100) : 0;
+  // Compararlo contra algo que sí mira todos los meses es lo que hace
+  // que el número se entienda.
+  const dias = ultimasMetas && ultimasMetas.ritmo && ultimasMetas.ritmo.promedioDiario > 0
+    ? Math.round((data.totalHormiga / ultimasMetas.ritmo.promedioDiario) * 10) / 10
+    : 0;
+  hormigaContexto.textContent =
+    "Es el " + porcentaje + "% de todo lo que gastaste" +
+    (dias > 0 ? ". Son " + dias + (dias === 1 ? " día" : " días") + " de trabajo tuyos." : ".");
+
+  data.grupos.forEach((g) => {
+    const card = document.createElement("div");
+    card.className = "card bg-white border border-slate-100 py-3";
+
+    const top = document.createElement("div");
+    top.className = "flex items-baseline justify-between gap-2";
+    const nombre = document.createElement("p");
+    nombre.className = "text-sm font-bold text-slate-800 truncate";
+    nombre.textContent = g.label;
+    const monto = document.createElement("b");
+    monto.className = "text-brand-red shrink-0";
+    monto.textContent = formatSoles(g.total);
+    top.appendChild(nombre);
+    top.appendChild(monto);
+
+    const detalle = document.createElement("p");
+    detalle.className = "text-[11px] text-slate-400 mt-0.5";
+    detalle.textContent =
+      g.veces + " veces de " + formatSoles(g.promedio) + " · " + g.porcentaje + "% de tus gastos";
+
+    const barra = document.createElement("div");
+    barra.className = "w-full h-1.5 rounded-full bg-slate-100 overflow-hidden mt-2";
+    const relleno = document.createElement("div");
+    relleno.className = "h-full bg-rose-400";
+    relleno.style.width = Math.min(100, g.porcentaje * 3) + "%";
+    barra.appendChild(relleno);
+
+    const ver = document.createElement("button");
+    ver.className = "text-[11px] font-bold text-brand-green mt-2";
+    ver.textContent = "Ver estos gastos";
+    ver.addEventListener("click", () => {
+      irAPanel("financeTabMovimientos");
+      movFiltroTipo.value = "gasto";
+      movFiltroTexto.value = g.label.toLowerCase();
+      if (data.desde) movFiltroDesde.value = data.desde;
+      if (data.hasta) movFiltroHasta.value = data.hasta;
+      renderMovimientos();
+    });
+
+    card.appendChild(top);
+    card.appendChild(detalle);
+    card.appendChild(barra);
+    card.appendChild(ver);
+    hormigaLista.appendChild(card);
+  });
+}
+
+if (hormigaVer) hormigaVer.addEventListener("click", fetchHormiga);
+
+// ---------- Historial de cambios ----------
+const bitacoraLista = document.getElementById("bitacoraLista");
+const bitacoraVacio = document.getElementById("bitacoraVacio");
+const bitacoraFiltro = document.getElementById("bitacoraFiltro");
+
+const BITACORA_ICONO = {
+  movimiento: "fa-receipt",
+  caja: "fa-cash-register",
+  dia: "fa-calendar-day",
+  deuda: "fa-handshake",
+  custodia: "fa-user-shield",
+  faltante: "fa-triangle-exclamation",
+};
+
+const BITACORA_ORIGEN = {
+  panel: "desde el panel",
+  whatsapp: "por WhatsApp",
+  automatico: "solo",
+};
+
+const BITACORA_CAMPO = {
+  tipo: "qué es",
+  monto: "monto",
+  descripcion: "descripción",
+  fecha: "fecha",
+  hora: "hora",
+  categoriaId: "categoría",
+  fuenteId: "de dónde vino",
+  localId: "local",
+  lugarId: "dónde está",
+};
+
+async function fetchBitacora() {
+  if (!bitacoraLista) return;
+  const params = new URLSearchParams({ limite: "200" });
+  if (bitacoraFiltro.value) params.set("que", bitacoraFiltro.value);
+  try {
+    const data = await (await fetch("/api/finance/bitacora?" + params.toString())).json();
+    pintarBitacora(data.entradas || []);
+  } catch (err) {
+    console.error("No se pudo obtener el historial de cambios:", err);
+  }
+}
+
+function pintarBitacora(entradas) {
+  bitacoraLista.innerHTML = "";
+  bitacoraVacio.classList.toggle("hidden", entradas.length > 0);
+
+  let ultimaFecha = "";
+  entradas.forEach((e) => {
+    if (e.fecha !== ultimaFecha) {
+      ultimaFecha = e.fecha;
+      const cabecera = document.createElement("p");
+      cabecera.className = "text-[11px] font-bold text-slate-400 pt-2";
+      cabecera.textContent = fmtFecha(e.fecha);
+      bitacoraLista.appendChild(cabecera);
+    }
+
+    const fila = document.createElement("div");
+    fila.className = "rounded-lg px-3 py-2 text-xs bg-white border border-slate-100";
+
+    const top = document.createElement("div");
+    top.className = "flex items-start gap-2";
+    const icono = document.createElement("i");
+    icono.className = "fa-solid " + (BITACORA_ICONO[e.que] || "fa-circle") + " text-slate-300 mt-0.5 shrink-0";
+    const texto = document.createElement("div");
+    texto.className = "min-w-0 flex-1";
+    const l1 = document.createElement("p");
+    l1.className = "text-slate-800 break-words";
+    l1.textContent = e.resumen;
+    const l2 = document.createElement("p");
+    l2.className = "text-slate-400";
+    l2.textContent = e.hora + " · " + (BITACORA_ORIGEN[e.origen] || e.origen);
+    texto.appendChild(l1);
+    texto.appendChild(l2);
+    top.appendChild(icono);
+    top.appendChild(texto);
+    fila.appendChild(top);
+
+    // Qué cambió exactamente. Sin esto diría "se editó" y no serviría.
+    (e.cambios || []).forEach((c) => {
+      const cambio = document.createElement("p");
+      cambio.className = "text-[11px] text-slate-500 mt-1 pl-6";
+      const antes = c.antes === null || c.antes === "" ? "(vacío)" : c.antes;
+      const despues = c.despues === null || c.despues === "" ? "(vacío)" : c.despues;
+      cambio.textContent = (BITACORA_CAMPO[c.campo] || c.campo) + ": " + antes + " → " + despues;
+      fila.appendChild(cambio);
+    });
+
+    bitacoraLista.appendChild(fila);
+  });
+}
+
+if (bitacoraFiltro) bitacoraFiltro.addEventListener("change", fetchBitacora);
+
+
+// ---------- Ajustar los lugares (efectivo, Yape, banco) ----------
+const lugaresAjustes = document.getElementById("lugaresAjustes");
+const lugarNuevoNombre = document.getElementById("lugarNuevoNombre");
+const addLugarBtn = document.getElementById("addLugarBtn");
+
+function pintarLugaresAjustes(lugares) {
+  if (!lugaresAjustes) return;
+  lugaresAjustes.innerHTML = "";
+  (lugares || []).forEach((l) => {
+    const card = document.createElement("div");
+    card.className = "rounded-xl px-3 py-2.5 bg-slate-50 border border-slate-100";
+
+    const top = document.createElement("div");
+    top.className = "flex items-center justify-between gap-2";
+    const nombre = document.createElement("p");
+    nombre.className = "text-sm font-bold text-slate-800 truncate";
+    nombre.textContent = l.label + (l.porDefecto ? " (por defecto)" : "");
+    top.appendChild(nombre);
+
+    if (!l.porDefecto) {
+      const borrar = document.createElement("button");
+      borrar.innerHTML = '<i class="fa-solid fa-trash text-rose-400"></i>';
+      borrar.className = "w-7 h-7 flex items-center justify-center shrink-0";
+      borrar.addEventListener("click", async () => {
+        if (!confirm("¿Borrar " + l.label + "? Lo que estaba ahí vuelve a contar como efectivo.")) return;
+        const res = await fetch("/api/finance/lugares/" + encodeURIComponent(l.id), { method: "DELETE" });
+        const data = await res.json();
+        if (data.error) return mostrarAviso(data.error);
+        await fetchLugares();
+        mostrarAviso("Listo.");
+      });
+      top.appendChild(borrar);
+    }
+    card.appendChild(top);
+
+    // Las palabras que hacen que una anotación caiga acá.
+    const palabras = document.createElement("input");
+    palabras.type = "text";
+    palabras.value = (l.keywords || []).join(", ");
+    palabras.placeholder = l.porDefecto ? "Todo lo que no sea de otro lugar cae acá" : "yape, plin, transferencia";
+    palabras.disabled = l.porDefecto;
+    palabras.className =
+      "w-full mt-2 bg-white rounded-lg px-3 py-2 text-xs border border-slate-200 disabled:opacity-60";
+    palabras.addEventListener("change", async () => {
+      await fetch("/api/finance/lugares/" + encodeURIComponent(l.id), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keywords: palabras.value.split(",").map((p) => p.trim()).filter(Boolean) }),
+      });
+      await fetchLugares();
+      mostrarAviso("Guardado.");
+    });
+    card.appendChild(palabras);
+
+    const saldo = document.createElement("p");
+    saldo.className = "text-[11px] text-slate-400 mt-1.5";
+    saldo.dataset.lugarSaldo = l.id;
+    card.appendChild(saldo);
+
+    lugaresAjustes.appendChild(card);
+  });
+}
+
+if (addLugarBtn) {
+  addLugarBtn.addEventListener("click", async () => {
+    const label = lugarNuevoNombre.value.trim();
+    if (!label) return;
+    const res = await fetch("/api/finance/lugares", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label, keywords: [] }),
+    });
+    const data = await res.json();
+    if (data.error) return mostrarAviso(data.error);
+    lugarNuevoNombre.value = "";
+    await fetchLugares();
+    mostrarAviso("Agregué " + label + ". Ponle las palabras que lo reconocen.");
+  });
+}
+
+// ---------- Gastos hormiga: arrancar en el mes en curso ----------
+let hormigaPreparada = false;
+function prepararHormiga() {
+  if (!hormigaDesde) return;
+  if (!hormigaPreparada) {
+    const hoy = new Date();
+    const y = hoy.getFullYear();
+    const mo = String(hoy.getMonth() + 1).padStart(2, "0");
+    hormigaDesde.value = y + "-" + mo + "-01";
+    hormigaHasta.value = hoy.toISOString().slice(0, 10);
+    hormigaPreparada = true;
+  }
+  fetchHormiga();
+}
+
 // ---------- Hoja generica para editar cualquier fila ----------
 // Deudas, faltantes y custodia se editaban con los cuadritos del
 // navegador (prompt), uno por campo y sin poder cancelar a medias. Esta
@@ -6700,6 +7506,7 @@ async function abrirHojaMovimiento(m, alGuardar) {
     }
   }
   if (!fuentesCache.length) await cargarFuentes();
+  if (!lugaresCache.length) await fetchLugares();
   if (!localesParaSelector.length) {
     try {
       const loc = await (await fetch("/api/finance/locales")).json();

@@ -122,6 +122,17 @@
             </div>
           </section>
 
+          <!-- Dónde está la plata: el total sigue siendo el mismo, pero
+               no todo está en el bolsillo. -->
+          <section id="lugaresCard" class="card fade-in bg-white border border-slate-100 py-3 hidden">
+            <div class="flex items-baseline justify-between gap-2">
+              <p class="eyebrow text-slate-600"><i class="fa-solid fa-wallet"></i> DÓNDE ESTÁ TU PLATA</p>
+              <button id="lugaresVerMas" class="text-[11px] font-bold text-brand-green">Ajustar</button>
+            </div>
+            <div id="lugaresLista" class="mt-2 space-y-1.5"></div>
+            <p id="lugaresNota" class="text-[11px] text-slate-400 mt-2"></p>
+          </section>
+
           <!-- El día de hoy -->
           <div class="grid grid-cols-2 gap-3">
             <section class="card fade-in bg-white border border-slate-100 py-3">
@@ -699,6 +710,20 @@
               </button>
             </div>
           </section>
+          <!-- Dónde está la plata: efectivo, Yape, banco -->
+          <section class="card fade-in bg-white border border-slate-100 py-3">
+            <p class="eyebrow text-brand-green"><i class="fa-solid fa-wallet"></i> DÓNDE ESTÁ TU PLATA</p>
+            <p class="text-xs text-slate-400 mt-1 mb-2">
+              El total sigue siendo el mismo y sirve igual para pagar. Esto solo separa dónde está: en el bolsillo, en Yape, en el banco.
+              Cada lugar reconoce sus palabras: si escribes <b>"80 bum yape"</b>, esa plata queda en Yape y no en efectivo.
+            </p>
+            <div id="lugaresAjustes" class="space-y-2"></div>
+            <div class="grid grid-cols-3 gap-2 mt-3">
+              <input id="lugarNuevoNombre" type="text" placeholder="Banco" class="col-span-2 bg-white rounded-xl px-3 py-2 text-xs border border-slate-200" />
+              <button id="addLugarBtn" class="rounded-xl px-3 py-2 text-xs font-bold bg-brand-green text-white active:scale-95 transition-all">Agregar</button>
+            </div>
+          </section>
+
           <!-- Dónde escucha el bot de esta cuenta -->
           <section id="chatConfigCard" class="card fade-in bg-white border border-slate-100 hidden">
         <p class="eyebrow text-brand-green"><i class="fa-solid fa-comment-dots"></i> DÓNDE ANOTAS TUS REPARTOS</p>
@@ -741,6 +766,84 @@
         </div>
 
         <!-- Tab: Guía -->
+        <!-- Tab: Calendario (el mes visto como mes) -->
+        <div id="financeTabCalendario" class="finance-tab-panel hidden space-y-4">
+          <section>
+            <div class="flex items-center justify-between gap-2">
+              <button id="calAnterior" class="w-9 h-9 rounded-xl flex items-center justify-center bg-slate-100 active:scale-90 transition-all">
+                <i class="fa-solid fa-chevron-left text-slate-500"></i>
+              </button>
+              <p id="calMesTitulo" class="text-sm font-bold text-slate-800">—</p>
+              <button id="calSiguiente" class="w-9 h-9 rounded-xl flex items-center justify-center bg-slate-100 active:scale-90 transition-all">
+                <i class="fa-solid fa-chevron-right text-slate-500"></i>
+              </button>
+            </div>
+            <div class="grid grid-cols-7 gap-1 mt-3 text-center text-[10px] font-bold text-slate-400">
+              <span>D</span><span>L</span><span>M</span><span>M</span><span>J</span><span>V</span><span>S</span>
+            </div>
+            <div id="calGrilla" class="grid grid-cols-7 gap-1 mt-1"></div>
+            <p class="text-[11px] text-slate-400 mt-2">Toca un día para ver todo lo de ese día.</p>
+          </section>
+
+          <section class="card bg-white border border-slate-100 py-3">
+            <p class="eyebrow text-slate-600"><i class="fa-solid fa-calendar-check"></i> ESTE MES</p>
+            <div id="calResumen" class="mt-2 space-y-1 text-xs"></div>
+          </section>
+
+          <section>
+            <p class="eyebrow text-brand-green"><i class="fa-solid fa-hourglass-half"></i> LO QUE VIENE</p>
+            <div id="calPorVenir" class="space-y-1.5 mt-2"></div>
+          </section>
+        </div>
+
+        <!-- Tab: Gastos hormiga (lo chiquito que se repite) -->
+        <div id="financeTabHormiga" class="finance-tab-panel hidden space-y-4">
+          <section class="card bg-white border border-slate-100 py-3">
+            <p class="eyebrow text-brand-red"><i class="fa-solid fa-bug"></i> GASTOS HORMIGA</p>
+            <p class="text-xs text-slate-400 mt-1">Lo chiquito que se repite y no se nota, porque cada uno se ve suelto.</p>
+            <div class="grid grid-cols-2 gap-2 mt-3">
+              <label class="block text-[11px] font-semibold text-slate-400">Desde
+                <input id="hormigaDesde" type="date" class="w-full mt-0.5 bg-white rounded-xl px-3 py-2 text-xs border border-slate-200" />
+              </label>
+              <label class="block text-[11px] font-semibold text-slate-400">Hasta
+                <input id="hormigaHasta" type="date" class="w-full mt-0.5 bg-white rounded-xl px-3 py-2 text-xs border border-slate-200" />
+              </label>
+            </div>
+            <label class="block text-[11px] font-semibold text-slate-400 mt-2">Cuenta como chico hasta
+              <input id="hormigaTope" type="number" step="1" min="1" value="25" class="w-full mt-0.5 bg-white rounded-xl px-3 py-2 text-xs border border-slate-200" />
+            </label>
+            <button id="hormigaVer" class="w-full mt-3 rounded-xl px-4 py-2.5 text-sm font-bold bg-brand-green text-white active:scale-95 transition-all">Ver</button>
+          </section>
+
+          <section id="hormigaTotalCard" class="card border-0 py-4 text-white hidden" style="background: linear-gradient(135deg, #EF4444 0%, #B91C1C 100%)">
+            <p class="text-[10px] font-bold tracking-[0.1em] text-white/75">SE TE FUE EN GASTOS CHICOS</p>
+            <p id="hormigaTotal" class="text-[32px] font-extrabold leading-none mt-1">S/ 0</p>
+            <p id="hormigaContexto" class="text-xs text-white/85 mt-2"></p>
+          </section>
+
+          <div id="hormigaLista" class="space-y-2"></div>
+          <p id="hormigaVacio" class="hidden text-center text-xs text-slate-400 py-6">Todavía no hay nada chico que se repita lo suficiente en ese periodo.</p>
+        </div>
+
+        <!-- Tab: Historial de cambios (quién tocó qué y cuándo) -->
+        <div id="financeTabBitacora" class="finance-tab-panel hidden space-y-4">
+          <section class="card bg-white border border-slate-100 py-3">
+            <p class="eyebrow text-slate-600"><i class="fa-solid fa-clock-rotate-left"></i> HISTORIAL DE CAMBIOS</p>
+            <p class="text-xs text-slate-400 mt-1">Todo lo que cambió y de dónde vino. No se puede editar ni borrar: para eso sirve.</p>
+            <select id="bitacoraFiltro" class="w-full mt-3 bg-white rounded-xl px-3 py-2 text-xs border border-slate-200">
+              <option value="">Todo</option>
+              <option value="movimiento">Ganancias y gastos</option>
+              <option value="caja">Conteos de caja</option>
+              <option value="dia">Cierres de día</option>
+              <option value="deuda">Deudas</option>
+              <option value="custodia">Custodia</option>
+              <option value="faltante">Faltantes</option>
+            </select>
+          </section>
+          <div id="bitacoraLista" class="space-y-1.5"></div>
+          <p id="bitacoraVacio" class="hidden text-center text-xs text-slate-400 py-6">Todavía no hay nada anotado.</p>
+        </div>
+
         <div id="financeTabGuia" class="finance-tab-panel hidden space-y-3"></div>
 
         <!-- Tab: Todo (índice de la app, con buscador) -->
@@ -858,6 +961,12 @@
           <button id="hojaEliminar" class="flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold bg-rose-50 text-rose-600 active:scale-95 transition-all">Eliminar</button>
         </div>
       </div>
+    </div>
+
+    <!-- Sin señal: lo que anotaste queda en el celular hasta que vuelva. -->
+    <div id="sinSenalAviso" class="fixed bottom-20 left-1/2 -translate-x-1/2 z-[65] hidden items-center gap-2 rounded-2xl bg-amber-500 text-white px-4 py-2 shadow-lg max-w-[92vw]">
+      <i class="fa-solid fa-cloud-arrow-up text-sm"></i>
+      <span id="sinSenalTexto" class="text-xs font-semibold"></span>
     </div>
 
     <!-- Aviso flotante: confirma lo que se hizo y, cuando se puede,

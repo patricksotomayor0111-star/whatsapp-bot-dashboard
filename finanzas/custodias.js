@@ -1,5 +1,6 @@
 const { crearAlmacen } = require("./almacenPorUsuario");
 const businessDay = require("./businessDay");
+const bitacora = require("./bitacora");
 
 // Plata de OTRA persona que uno guarda: cuánto dejó, cuánto gastó de eso
 // y cuánto queda en tu poder. No es tuya, así que no entra a la caja.
@@ -130,6 +131,14 @@ function registrar(clave, tipo, monto, descripcion) {
     descripcion: descripcion || "",
   });
   save();
+  bitacora.registrar({
+    que: "custodia",
+    accion: "creo",
+    ref: clave,
+    resumen: tipo === "guardo"
+      ? p.label + " te dejó S/ " + monto + (descripcion ? " · " + descripcion : "")
+      : "Gastaste S/ " + monto + " de la plata de " + p.label + (descripcion ? " · " + descripcion : ""),
+  });
   return p;
 }
 
@@ -173,6 +182,12 @@ function moverMovimiento(claveOrigen, id, claveDestino) {
   origen.movimientos.splice(i, 1);
   destino.movimientos.push(mov);
   save();
+  bitacora.registrar({
+    que: "custodia",
+    accion: "movio",
+    ref: mov.id,
+    resumen: "Pasaste S/ " + mov.monto + " de " + origen.label + " a " + destino.label,
+  });
   return { movimiento: mov, de: origen.label, a: destino.label };
 }
 
@@ -180,6 +195,7 @@ function editMovimiento(clave, indice, cambios) {
   const p = datos().personas[clave];
   if (!p || !p.movimientos[indice]) return null;
   const mov = p.movimientos[indice];
+  const copiaAntes = { ...mov };
 
   if (cambios.tipo !== undefined) mov.tipo = cambios.tipo === "guardo" ? "guardo" : "gasto";
   if (cambios.monto !== undefined) mov.monto = Number(cambios.monto) || 0;
@@ -188,14 +204,30 @@ function editMovimiento(clave, indice, cambios) {
   if (cambios.hora !== undefined) mov.hora = cambios.hora;
 
   save();
+  bitacora.registrar({
+    que: "custodia",
+    accion: "edito",
+    ref: mov.id,
+    resumen: "Corregiste un movimiento de la plata de " + p.label,
+    antes: copiaAntes,
+    despues: mov,
+  });
   return mov;
 }
 
 function removeMovimiento(clave, indice) {
   const p = datos().personas[clave];
   if (!p || !p.movimientos[indice]) return false;
+  const mov = p.movimientos[indice];
   p.movimientos.splice(indice, 1);
   save();
+  bitacora.registrar({
+    que: "custodia",
+    accion: "borro",
+    ref: mov.id,
+    resumen: "Borraste un movimiento de la plata de " + p.label + " · S/ " + mov.monto,
+    antes: mov,
+  });
   return true;
 }
 
