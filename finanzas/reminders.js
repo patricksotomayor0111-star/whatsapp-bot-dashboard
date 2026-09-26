@@ -401,6 +401,14 @@ function marcarPagado(id, info) {
     if (datos().pagosMarcados.length > MAX_PAGOS_MARCADOS) {
       datos().pagosMarcados.splice(0, datos().pagosMarcados.length - MAX_PAGOS_MARCADOS);
     }
+
+    // Si este pendiente esta pagando un prestamo, su saldo baja solo. Se
+    // pide adentro para no armar un require circular al arrancar.
+    try {
+      require("./prestamos").registrarPagoPorRecordatorio(r.id, Number(info.monto) || 0);
+    } catch (err) {
+      console.error("No se pudo descontar del préstamo:", err.message);
+    }
   }
 
   save();

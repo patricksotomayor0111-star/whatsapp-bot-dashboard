@@ -122,6 +122,18 @@
             </div>
           </section>
 
+          <!-- Tu plata de verdad: el total sigue siendo el mismo, pero no
+               todo es tuyo. Hay plata que le guardas a otros y plata que
+               es prestada y hay que devolver. -->
+          <section id="deVerdadCard" class="card fade-in bg-white border border-slate-100 py-3 hidden">
+            <div class="flex items-baseline justify-between gap-2">
+              <p class="eyebrow text-slate-600"><i class="fa-solid fa-scale-balanced"></i> TU PLATA DE VERDAD</p>
+              <button id="deVerdadVerMas" class="text-[11px] font-bold text-brand-green">Lo que debo</button>
+            </div>
+            <div id="deVerdadLista" class="mt-2 space-y-1.5"></div>
+            <p id="deVerdadNota" class="text-[11px] text-slate-400 mt-2"></p>
+          </section>
+
           <!-- Dónde está la plata: el total sigue siendo el mismo, pero
                no todo está en el bolsillo. -->
           <section id="lugaresCard" class="card fade-in bg-white border border-slate-100 py-3 hidden">
@@ -178,6 +190,8 @@
           <div class="grid grid-cols-2 gap-3">
             <section class="card fade-in bg-blue-50 border border-blue-100 py-3">
               <p class="eyebrow text-blue-700"><i class="fa-solid fa-hand-holding-dollar"></i> TE DEBEN</p>
+              <!-- Ojo: esto es lo que te deben A TI. Lo que TÚ debes está
+                   en Registros → Lo que debo. -->
               <p id="statDeudasTotal" class="text-[20px] font-extrabold text-blue-800 mt-1 leading-none">S/ 0</p>
               <p class="text-[10px] text-blue-500/80 mt-0.5">Por cobrar</p>
             </section>
@@ -766,6 +780,61 @@
         </div>
 
         <!-- Tab: Guía -->
+        <!-- Tab: Lo que debo (préstamos y créditos) -->
+        <div id="financeTabPrestamos" class="finance-tab-panel hidden space-y-4">
+          <section id="prestamosResumen" class="card border-0 py-4 text-white hidden" style="background: linear-gradient(135deg, #F59E0B 0%, #B45309 100%)">
+            <p class="text-[10px] font-bold tracking-[0.1em] text-white/75">LO QUE DEBES EN TOTAL</p>
+            <p id="prestamosTotal" class="text-[32px] font-extrabold leading-none mt-1">S/ 0</p>
+            <p id="prestamosContexto" class="text-xs text-white/85 mt-2"></p>
+          </section>
+
+          <!-- El aviso que no se ve en ningún otro lado: si buena parte de
+               lo que entró este mes fue prestado, el mes no se sostuvo con
+               el trabajo. -->
+          <section id="prestamosAlerta" class="card bg-rose-50 border border-rose-200 py-3 hidden">
+            <p class="eyebrow text-rose-700"><i class="fa-solid fa-triangle-exclamation"></i> OJO CON ESTO</p>
+            <p id="prestamosAlertaTexto" class="text-xs text-rose-700 mt-1"></p>
+          </section>
+
+          <p class="text-xs text-slate-400">
+            Escribiendo <b>"400 yape credito"</b> en tu chat, esa plata entra a tu caja igual que siempre
+            <b>y</b> queda anotada acá como deuda tuya. Si te cobran interés, corrige el total a devolver.
+          </p>
+
+          <div id="prestamosList" class="space-y-2"></div>
+          <p id="prestamosEmpty" class="hidden text-center text-xs text-slate-400 py-6">No debes nada. Que dure.</p>
+
+          <details>
+            <summary class="text-xs font-bold text-amber-600 cursor-pointer">+ Anotar un préstamo a mano</summary>
+            <div class="mt-2 space-y-2">
+              <input id="prestamoNuevoLabel" type="text" placeholder="De quién (Yape, BCP, mi tío)" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200" />
+              <input id="prestamoNuevoRecibido" type="number" step="0.01" placeholder="Cuánto te prestaron (S/)" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200" />
+              <input id="prestamoNuevoDevolver" type="number" step="0.01" placeholder="Cuánto devuelves con interés (S/)" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200" />
+              <button id="addPrestamoBtn" class="w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-amber-500 text-white active:scale-95 transition-all">Anotar préstamo</button>
+              <p class="text-[11px] text-slate-400">Esto NO suma a tu caja: se usa para deudas viejas que ya tenías. Lo que entra hoy se anota desde el chat.</p>
+            </div>
+          </details>
+
+          <!-- Antes de pedirlo, no después. -->
+          <section class="card bg-white border border-slate-100 py-3">
+            <p class="eyebrow text-slate-600"><i class="fa-solid fa-calculator"></i> ¿ME CONVIENE SACARLO?</p>
+            <div class="grid grid-cols-3 gap-2 mt-2">
+              <input id="simMonto" type="number" step="0.01" placeholder="S/ 400" class="bg-white rounded-xl px-3 py-2 text-xs border border-slate-200" />
+              <input id="simMeses" type="number" min="1" placeholder="4 meses" class="bg-white rounded-xl px-3 py-2 text-xs border border-slate-200" />
+              <input id="simInteres" type="number" step="0.1" placeholder="10 %" class="bg-white rounded-xl px-3 py-2 text-xs border border-slate-200" />
+            </div>
+            <button id="simBtn" class="w-full mt-2 rounded-xl px-4 py-2.5 text-sm font-bold bg-brand-green text-white active:scale-95 transition-all">Ver qué pasaría</button>
+            <div id="simResultado" class="text-xs mt-2 space-y-1"></div>
+          </section>
+
+          <section class="card bg-white border border-slate-100 py-3">
+            <p class="eyebrow text-slate-600"><i class="fa-solid fa-key"></i> PALABRAS QUE LO DISPARAN</p>
+            <p class="text-xs text-slate-400 mt-1 mb-2">Si una ganancia nombra una de estas, además de sumar a tu caja queda anotada como deuda tuya.</p>
+            <input id="prestamoPalabras" type="text" class="w-full bg-white rounded-xl px-3 py-2 text-xs border border-slate-200" />
+            <p class="text-[11px] text-slate-400 mt-1">Separadas por coma.</p>
+          </section>
+        </div>
+
         <!-- Tab: Calendario (el mes visto como mes) -->
         <div id="financeTabCalendario" class="finance-tab-panel hidden space-y-4">
           <section>
@@ -1028,7 +1097,17 @@
               <option value="6">Sábado</option>
               <option value="0">Domingo</option>
             </select>
-            <input id="newReminderDay" type="number" min="1" max="31" placeholder="Día del mes (1-31)" class="hidden w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-green/40" />
+            <!-- Antes acá había una cajita para escribir un número del 1 al
+                 31. En el celular eso es incómodo y abstracto: no ves en
+                 qué día cae. Ahora se toca el día en una cuadrícula. El
+                 input sigue existiendo, escondido, porque es el que
+                 guarda el valor. -->
+            <input id="newReminderDay" type="number" min="1" max="31" class="hidden" />
+            <div id="newReminderDayGrid" class="hidden">
+              <p class="text-[11px] font-semibold text-slate-400 mb-1">¿Qué día de cada mes?</p>
+              <div id="newReminderDayBotones" class="grid grid-cols-7 gap-1"></div>
+              <p id="newReminderDayHint" class="text-[11px] text-slate-400 mt-1.5"></p>
+            </div>
             <input id="newReminderDate" type="date" class="hidden w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-green/40" />
             <button id="addReminderBtn" class="w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-brand-green text-white active:scale-95 transition-all">Agregar pago</button>
           </div>

@@ -102,7 +102,14 @@ function calcular(hastaPedido) {
   //    la meta de ahorro o su fecha recalcula todo lo demas solo.
   const ahorro = financeGoals.ahorroRequeridoHasta(hasta);
 
-  const necesito = pendientes + programados + ahorro;
+  //    Y lo que hay que DEVOLVER de los prestamos. Ojo: solo el de los
+  //    que NO tienen un pendiente atado. Los que si lo tienen ya estan
+  //    contados arriba, en "pendientes", y sumarlos aca contaria doble
+  //    la misma plata.
+  const prestamos = require("./prestamos");
+  const devolver = prestamos.aDevolverEn(hoyLabel, hasta);
+
+  const necesito = pendientes + programados + ahorro + devolver.total;
   const falta = Math.max(necesito - tengo, 0);
 
   // 3. Repartirlo en los dias que VA A TRABAJAR, no en todos los del
@@ -189,6 +196,7 @@ function calcular(hastaPedido) {
       // No suma ni resta: es plata que le deben, todavia no la tiene.
       porCobrar: { total: r2(porCobrar), items: porCobrarLista },
       ahorro: { total: r2(ahorro) },
+      prestamos: { total: r2(devolver.total), items: devolver.detalle },
       // No suman a la meta; solo para avisarle que los revise.
       atrasados: { total: r2(atrasadosTotal), items: atrasados },
     },

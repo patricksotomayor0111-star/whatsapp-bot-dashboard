@@ -30,6 +30,7 @@ const contexto = require("./contexto");
 const users = require("./users");
 const chatConfig = require("./chatConfig");
 const custodias = require("./custodias");
+const prestamos = require("./prestamos");
 
 // Identificadores propios de la cuenta, para reconocer el chat de
 // "mensajes contigo mismo".
@@ -576,7 +577,19 @@ function handleCashboxEntries(entradas, idsCreados) {
     } else if (entrada.type === "referencia") {
       referenceAccounts.addEntrada(entrada.cuenta, entrada.monto, entrada.descripcion);
     } else {
-      anotarId(cashbox.addGanancia(entrada.monto, entrada.descripcion));
+      const movimientoId = cashbox.addGanancia(entrada.monto, entrada.descripcion);
+      anotarId(movimientoId);
+      // "400 yape credito": la plata entro de verdad y suma en la caja,
+      // pero no la generaste trabajando y hay que devolverla. Sin esto la
+      // app leia un prestamo como si te hubiera ido bien ese dia.
+      if (prestamos.esPrestamo(entrada.descripcion)) {
+        const label = prestamos.nombreDesdeDescripcion(entrada.descripcion, prestamos.getPalabras());
+        const p = prestamos.abrirOSumar({ label, recibido: entrada.monto, movimientoId });
+        avisos.push(
+          "\uD83C\uDFE6 Anoté que le debes S/ " + p.saldo + " a " + p.label + ".\n" +
+            "Si te cobran interés, corrige el total a devolver en el panel (Registros → Lo que debo)."
+        );
+      }
     }
   });
   return avisos;

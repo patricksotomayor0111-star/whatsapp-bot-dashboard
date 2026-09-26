@@ -38,7 +38,8 @@ function fechaDelRecordatorioEnMes(r, y, mo) {
 
 // mes: "YYYY-MM".
 // proyeccionDia(fecha) -> { total } de gastos programados de ese día.
-function armar({ mes, movimientos, recordatorios, proyeccionDia }) {
+// cuotasDia(fecha) -> cuotas de préstamos que caen ese día.
+function armar({ mes, movimientos, recordatorios, proyeccionDia, cuotasDia }) {
   const hoy = businessDay.businessDayLabel();
   const [y, mo] = mes.split("-").map(Number);
   const ultimo = diasEnMes(y, mo);
@@ -75,6 +76,14 @@ function armar({ mes, movimientos, recordatorios, proyeccionDia }) {
         pagos.push({ id: r.id, label: r.label, monto: r.monto || 0 });
       }
     });
+
+    // Las cuotas de préstamo que no cuelgan de un pendiente: las que sí
+    // cuelgan ya salieron arriba como pendiente y saldrían dos veces.
+    if (typeof cuotasDia === "function") {
+      (cuotasDia(fecha) || []).forEach((c) => {
+        pagos.push({ id: c.id, label: c.label, monto: c.monto || 0, esPrestamo: true });
+      });
+    }
 
     // Los gastos de todos los días (almuerzo, gasolina) solo se muestran
     // hacia adelante: para atrás ya está el gasto real, y mostrar los dos

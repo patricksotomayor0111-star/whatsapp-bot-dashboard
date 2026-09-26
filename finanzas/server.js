@@ -35,6 +35,7 @@ const bitacora = require("./bitacora");
 const lugaresDinero = require("./lugaresDinero");
 const gastosHormiga = require("./gastosHormiga");
 const calendario = require("./calendario");
+const prestamos = require("./prestamos");
 const diasLibres = require("./diasLibres");
 const combustible = require("./combustible");
 const fuentesIngreso = require("./fuentesIngreso");
@@ -438,8 +439,111 @@ app.get("/api/finance/calendario", (req, res) => {
       movimientos,
       recordatorios: reminders.getAll(),
       proyeccionDia: (fecha) => scheduledExpenses.getProyeccion(fecha, fecha, movimientos),
+      cuotasDia: (fecha) => prestamos.cuotasDelDia(fecha),
     })
   );
+});
+
+// ---------- Lo que TÚ debes (préstamos) ----------
+// Es lo contrario de /debts, que es lo que te deben a ti. Un crédito entra
+// a la caja como cualquier ganancia (la plata la tienes) pero hay que
+// devolverlo, y eso antes no vivía en ningún lado.
+app.get("/api/finance/prestamos", (req, res) => {
+  const hoy = cashbox.getHoyLabel();
+  const mes = hoy.slice(0, 7);
+  const desdeMes = mes + "-01";
+
+  // Cuánto de lo que entró este mes fue prestado. Si es una parte grande,
+  // el mes no se sostuvo con el trabajo sino con el crédito.
+  const prestadoEsteMes = prestamos.loPrestadoEn(desdeMes, hoy);
+  const entradoEsteMes = cashbox
+    .getMovimientos()
+    .filter((m) => m.tipo === "ganancia" && m.fecha >= desdeMes && m.fecha <= hoy)
+    .reduce((sum, m) => sum + (m.monto || 0), 0);
+
+  res.json({
+    prestamos: prestamos.getAll(),
+    totales: prestamos.getTotales(),
+    palabras: prestamos.getPalabras(),
+    // Para poder atarlos a un pendiente desde el panel.
+    recordatorios: reminders.getAll().map((r) => ({ id: r.id, label: r.label, monto: r.monto })),
+    esteMes: {
+      prestado: prestadoEsteMes,
+      entrado: Math.round(entradoEsteMes * 100) / 100,
+      porcentaje: entradoEsteMes > 0 ? Math.round((prestadoEsteMes / entradoEsteMes) * 100) : 0,
+    },
+    interesesDelAnio: prestamos.interesesDesde(hoy.slice(0, 4) + "-01-01"),
+  });
+});
+
+app.post("/api/finance/prestamos", (req, res) => {
+  try {
+    res.json({ ok: true, prestamo: prestamos.addPrestamo(req.body || {}) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.put("/api/finance/prestamos/:id", (req, res) => {
+  const p = prestamos.editPrestamo(req.params.id, req.body || {});
+  if (!p) return res.status(404).json({ error: "Préstamo no encontrado." });
+  res.json({ ok: true, prestamo: p });
+});
+
+app.delete("/api/finance/prestamos/:id", (req, res) => {
+  if (!prestamos.removePrestamo(req.params.id)) {
+    return res.status(404).json({ error: "Préstamo no encontrado." });
+  }
+  res.json({ ok: true });
+});
+
+// Un pago a mano. El que entra solo al marcar "Ya pagué" en un pendiente
+// no pasa por acá: lo hace reminders directamente.
+app.post("/api/finance/prestamos/:id/pagos", (req, res) => {
+  try {
+    const p = prestamos.registrarPago(req.params.id, req.body || {});
+    if (!p) return res.status(404).json({ error: "Préstamo no encontrado." });
+    res.json({ ok: true, prestamo: p });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete("/api/finance/prestamos/:id/pagos/:pagoId", (req, res) => {
+  const p = prestamos.quitarPago(req.params.id, req.params.pagoId);
+  if (!p) return res.status(404).json({ error: "Pago no encontrado." });
+  res.json({ ok: true, prestamo: p });
+});
+
+// Las palabras que hacen que una ganancia se anote además como préstamo.
+app.put("/api/finance/prestamos-palabras", (req, res) => {
+  res.json({ ok: true, palabras: prestamos.setPalabras(req.body?.palabras) });
+});
+
+// "¿Si saco S/400 a 4 meses, me alcanza igual?" — antes de pedirlo, no
+// después.
+app.get("/api/finance/prestamos-simular", (req, res) => {
+  const sim = prestamos.simular({
+    monto: req.query.monto,
+    meses: req.query.meses,
+    interesPorciento: req.query.interes,
+  });
+  const metas = financeGoals.getGoals(req.query.hasta || "").automaticas;
+  // Lo que entra ahora te deja mejor; la cuota que cae dentro del periodo
+  // te deja peor. Lo honesto es mostrar las dos cosas juntas.
+  const hoy = cashbox.getHoyLabel();
+  const cuotasEnPeriodo = prestamos.ocurrenciasDelDiaEnRango(hoy, metas.hasta, Number(hoy.slice(8, 10)));
+  const devolverEnPeriodo = Math.min(sim.cuota * Math.max(cuotasEnPeriodo, 0), sim.aDevolver);
+  const sobraAhora = metas.tengo + (metas.ritmo?.proyectado || 0) - metas.necesito;
+  const sobraConCredito = sobraAhora + sim.recibes - devolverEnPeriodo;
+
+  res.json({
+    ...sim,
+    hasta: metas.hasta,
+    devolverEnPeriodo: Math.round(devolverEnPeriodo * 100) / 100,
+    sobraAhora: Math.round(sobraAhora * 100) / 100,
+    sobraConCredito: Math.round(sobraConCredito * 100) / 100,
+  });
 });
 
 // ---------- Gastos hormiga ----------
@@ -491,6 +595,19 @@ app.delete("/api/finance/lugares/:id", (req, res) => {
   }
 });
 
+// De lo que tienes en la mano, cuánto es tuyo de verdad: sin la plata
+// que le guardas a otros y sin lo que debes.
+function plataDeVerdad(esperado) {
+  const custodia = custodias.getPersonas().reduce((s, p) => s + (p.saldo || 0), 0);
+  const debes = prestamos.getTotales().debes;
+  return {
+    esperado: Math.round(esperado * 100) / 100,
+    deOtros: Math.round(custodia * 100) / 100,
+    prestado: debes,
+    tuyo: Math.round((esperado - custodia - debes) * 100) / 100,
+  };
+}
+
 app.get("/api/cashbox/today", (req, res) => {
   // "custodia" es el total de plata de OTRAS personas que estás guardando,
   // sumando a todas: antes era solo de Ana, que estaba fija en el código.
@@ -499,7 +616,14 @@ app.get("/api/cashbox/today", (req, res) => {
     (acc, p) => ({ guardado: acc.guardado + p.guardado, gastado: acc.gastado + p.gastado, saldo: acc.saldo + p.saldo }),
     { guardado: 0, gastado: 0, saldo: 0 }
   );
-  res.json({ ...cashbox.getToday(), custodia, personasCustodia: personas.length });
+  const hoy = cashbox.getToday();
+  res.json({
+    ...hoy,
+    custodia,
+    personasCustodia: personas.length,
+    // Cuanto de lo que tienes en la mano es tuyo de verdad.
+    deVerdad: plataDeVerdad(hoy.esperado || 0),
+  });
 });
 
 // Corregir/reconstruir un día completo a mano (para que el Excel cuadre):

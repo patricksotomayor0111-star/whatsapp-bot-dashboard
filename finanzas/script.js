@@ -61,7 +61,8 @@ async function fetchCashboxToday() {
       statAnaGastado.textContent = "-" + formatSoles(data.custodia.gastado);
       statAnaSaldo.textContent = formatSoles(data.custodia.saldo);
     }
-    // La tarjeta de "donde esta tu plata" reparte ESTE numero.
+    // Las dos tarjetas de abajo reparten ESTE numero.
+    pintarPlataDeVerdad(data.deVerdad);
     if (ultimosLugares) pintarLugares(ultimosLugares);
   } catch (err) {
     console.error("No se pudo obtener la caja chica del día:", err);
@@ -796,11 +797,85 @@ async function renderReminders() {
   }
 }
 
+// ---------- Elegir el día del mes tocándolo ----------
+// Para un pago que se repite todos los meses no hay una fecha sola, así
+// que no puede salir el calendario del navegador. Pero escribir "28" en
+// una cajita tampoco dice nada: no ves en qué día cae ni qué pasa en los
+// meses cortos. Esta cuadrícula resuelve las dos cosas.
+const newReminderDayGrid = document.getElementById("newReminderDayGrid");
+const newReminderDayBotones = document.getElementById("newReminderDayBotones");
+const newReminderDayHint = document.getElementById("newReminderDayHint");
+
+const DIAS_ES = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+
+function diasDelMes(y, mo) {
+  return new Date(Date.UTC(y, mo, 0)).getUTCDate();
+}
+
+// En qué fecha cae la próxima vez que toca ese día del mes. Si ya pasó
+// este mes, es el que viene.
+function proximaVezDelDia(dia) {
+  const hoy = new Date();
+  let y = hoy.getFullYear();
+  let mo = hoy.getMonth() + 1;
+  const d = Math.min(dia, diasDelMes(y, mo));
+  if (hoy.getDate() > d) {
+    mo += 1;
+    if (mo > 12) { mo = 1; y += 1; }
+  }
+  const real = Math.min(dia, diasDelMes(y, mo));
+  return new Date(Date.UTC(y, mo - 1, real));
+}
+
+function pintarDiasDelMes() {
+  if (!newReminderDayBotones) return;
+  const elegido = Number(newReminderDay.value) || 0;
+  newReminderDayBotones.innerHTML = "";
+
+  for (let d = 1; d <= 31; d++) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = d;
+    b.className =
+      "rounded-lg py-1.5 text-xs font-semibold border active:scale-90 transition-all " +
+      (d === elegido
+        ? "bg-brand-green text-white border-brand-green"
+        : "bg-white text-slate-600 border-slate-200");
+    b.addEventListener("click", () => {
+      newReminderDay.value = d;
+      pintarDiasDelMes();
+    });
+    newReminderDayBotones.appendChild(b);
+  }
+
+  if (!elegido) {
+    newReminderDayHint.textContent = "Toca el día en que pagas cada mes.";
+    return;
+  }
+
+  const proxima = proximaVezDelDia(elegido);
+  const cae = proxima.getUTCDate();
+  const falta = Math.round((proxima - new Date(new Date().toDateString())) / 86400000);
+  let texto =
+    "El próximo cae el " + DIAS_ES[proxima.getUTCDay()] + " " +
+    String(cae).padStart(2, "0") + "/" + String(proxima.getUTCMonth() + 1).padStart(2, "0") +
+    (falta <= 0 ? " (hoy)" : falta === 1 ? " (mañana)" : " (en " + falta + " días)");
+  // Febrero no tiene 30 ni 31: la app lo corre al último día, pero eso no
+  // se decía en ningún lado.
+  if (elegido > 28) {
+    texto += ". En los meses cortos se paga el último día.";
+  }
+  newReminderDayHint.textContent = texto;
+}
+
 function updateNewReminderFields() {
   const tipo = newReminderTipo.value;
   newReminderWeekday.classList.toggle("hidden", tipo !== "semanal");
-  newReminderDay.classList.toggle("hidden", tipo !== "mensual_dia");
   newReminderDate.classList.toggle("hidden", tipo !== "unica");
+  if (newReminderDayGrid) {
+    newReminderDayGrid.classList.toggle("hidden", tipo !== "mensual_dia");
+    if (tipo === "mensual_dia") pintarDiasDelMes();
+  }
 }
 
 newReminderTipo.addEventListener("change", updateNewReminderFields);
@@ -840,6 +915,7 @@ addReminderBtn.addEventListener("click", async () => {
     newReminderMonto.value = "";
     newReminderDay.value = "";
     newReminderDate.value = "";
+    pintarDiasDelMes();
     renderReminders();
   } catch (err) {
     console.error("No se pudo agregar el recordatorio:", err);
@@ -1074,6 +1150,8 @@ function showFinanceTab(tabId) {
     renderGuia();
   } else if (tabId === "financeTabPrecios") {
     fetchPrices();
+  } else if (tabId === "financeTabPrestamos") {
+    fetchPrestamos();
   } else if (tabId === "financeTabCalendario") {
     fetchCalendario(calMes);
   } else if (tabId === "financeTabHormiga") {
@@ -5575,7 +5653,8 @@ const SECCIONES = [
       ["financeTabMovimientos", "Movimientos"],
       ["financeTabCuentas", "Anotaciones"],
       ["financeTabFaltantes", "Faltantes"],
-      ["financeTabDeudas", "Deudas"],
+      ["financeTabDeudas", "Me deben"],
+      ["financeTabPrestamos", "Lo que debo"],
       ["financeTabAna", "Custodia"],
     ] },
   { id: "analisis", icono: "fa-chart-simple", label: "Analisis",
@@ -5690,6 +5769,7 @@ GUIA.push(
           "Tocar un día que ya pasó te lleva a Movimientos filtrado por ese día, y ahí lo corriges.",
           "Tocar un día que viene te dice qué se paga ese día.",
           "Las flechas de arriba te mueven de mes: sirve para comparar cómo te fue antes.",
+          "En Pendientes, al elegir \"Cada mes (día fijo)\" tocas el día en una cuadrícula y te dice en qué fecha cae el próximo.",
           "Abajo está el resumen del mes: cuánto ganaste, cuántos días trabajaste y tu mejor día.",
         ],
       },
@@ -5798,6 +5878,99 @@ GUIA.push(
     ],
   },
 );
+GUIA.push(
+  {
+    icono: "🏦",
+    titulo: "Lo que debo (créditos y préstamos)",
+    resumen: "La plata prestada entra a tu caja, pero hay que devolverla.",
+    bloques: [
+      {
+        tipo: "texto",
+        texto:
+          "Un crédito de Yape es plata de verdad y sirve para pagar, así que suma a tu caja como " +
+          "cualquier ganancia. Pero no la generaste trabajando y hay que devolverla. Antes la app solo " +
+          "entendía la primera mitad: sacar S/400 se leía como S/400 de sobra, cuando en realidad era " +
+          "una deuda nueva.",
+      },
+      {
+        tipo: "ejemplos",
+        titulo: "Cómo se anota",
+        items: [
+          ["400 yape credito", "Entran S/400 a tu caja Y queda anotado que le debes S/400 a Yape"],
+          ["200 prestamo tio", "Lo mismo, pero la deuda queda a nombre de tu tío"],
+        ],
+      },
+      {
+        tipo: "lista",
+        titulo: "Lo primero que tienes que hacer después",
+        items: [
+          "El bot no sabe cuánto te cobran de interés: anota lo que recibiste.",
+          "Entra a Registros → Lo que debo, toca Editar y pon el total que vas a devolver.",
+          "Si pediste S/400 y devuelves S/440, ese es el número que va ahí.",
+        ],
+      },
+      {
+        tipo: "lista",
+        titulo: "Y esto es lo importante: no se cuenta dos veces",
+        items: [
+          "Si ya tienes el pago anotado en Pendientes, átalo desde Editar → \"¿Con qué pendiente lo pagas?\".",
+          "Desde ahí manda el pendiente: es el que cuenta en tus metas, igual que antes.",
+          "Cada vez que tocas \"Ya pagué\", el saldo del préstamo baja solo por ese monto.",
+          "Si NO lo atas a ningún pendiente, entonces sí cuenta por su cuenta en tus metas.",
+          "Sin pendiente puedes ponerle una cuota y un día del mes, y proyecta solo lo que cae en el periodo.",
+        ],
+      },
+      {
+        tipo: "lista",
+        titulo: "Lo demás que hay ahí",
+        items: [
+          "Arriba, cuánto debes en total y cuánto te costaron los intereses este año.",
+          "Un aviso si buena parte de lo que entró este mes fue prestado: ahí el mes no se sostuvo con el trabajo.",
+          "\"¿Me conviene sacarlo?\": antes de pedirlo te dice cómo quedarías con y sin el crédito.",
+          "Las palabras que lo disparan se cambian ahí mismo, al final de la pantalla.",
+        ],
+      },
+    ],
+  },
+  {
+    icono: "⚖️",
+    titulo: "Tu plata de verdad",
+    resumen: "De lo que tienes en la mano, cuánto es tuyo.",
+    bloques: [
+      {
+        tipo: "texto",
+        texto:
+          "El número verde grande es lo que deberías tener en la mano, y no cambia. Debajo se reparte: " +
+          "cuánto le estás guardando a otras personas, cuánto es prestado y hay que devolver, y lo que " +
+          "queda es tuyo de verdad. Si devolvieras todo lo ajeno hoy, eso es lo que te quedaría.",
+      },
+      {
+        tipo: "lista",
+        titulo: "Para tenerlo en cuenta",
+        items: [
+          "Solo aparece si le guardas plata a alguien o si debes algo. Si no, tu plata es tu plata.",
+          "Puede salir en rojo: eso significa que debes más de lo que tienes.",
+        ],
+      },
+    ],
+  },
+  {
+    icono: "🤝",
+    titulo: "Me deben vs. Lo que debo",
+    resumen: "Son dos pantallas distintas y es fácil confundirlas.",
+    bloques: [
+      {
+        tipo: "lista",
+        titulo: "Cuál es cuál",
+        items: [
+          "Me deben: plata que TE deben a ti. Se anota con \"menos 20 Juan debe\" y no toca tu caja.",
+          "Lo que debo: créditos y préstamos TUYOS. La plata entró a tu caja y hay que devolverla.",
+          "Custodia: plata de otra persona que tú guardas. No es tuya ni se la debes: la tienes.",
+        ],
+      },
+    ],
+  },
+);
 
 // ---------- La pantalla "Todo": el indice de la app ----------
 const DESTINOS = [
@@ -5805,7 +5978,8 @@ const DESTINOS = [
   { icono: "📒", nombre: "Movimientos", que: "Todo lo anotado: corregir, borrar, filtrar y buscar", panel: "financeTabMovimientos" },
   { icono: "🧾", nombre: "Anotaciones", que: "Tus conteos de yape, plin y efectivo", panel: "financeTabCuentas" },
   { icono: "⚠️", nombre: "Faltantes", que: "Lo que se perdió al cuadrar la caja", panel: "financeTabFaltantes" },
-  { icono: "🤝", nombre: "Deudas", que: "Quién te debe y cuánto te han pagado", panel: "financeTabDeudas" },
+  { icono: "🤝", nombre: "Me deben", que: "Quién te debe a ti y cuánto te han pagado", panel: "financeTabDeudas" },
+  { icono: "🏦", nombre: "Lo que debo", que: "Créditos y préstamos tuyos: cuánto falta devolver", panel: "financeTabPrestamos" },
   { icono: "🛡️", nombre: "Custodia", que: "Plata de otras personas que guardas", panel: "financeTabAna" },
   { icono: "📊", nombre: "Gráficos", que: "Qué día rinde más, gasolina, categorías y meses", panel: "financeTabGraficos" },
   { icono: "📅", nombre: "Calendario", que: "El mes entero: qué hiciste cada día y qué te toca pagar", panel: "financeTabCalendario" },
@@ -6731,6 +6905,63 @@ window.addEventListener("load", () => {
 // Por si el navegador no avisa el "online" (pasa en algunos celulares).
 setInterval(vaciarCola, 60000);
 
+// ---------- Tu plata de verdad ----------
+// El número grande de arriba es lo que tienes en la mano. Pero parte es
+// de otros (custodia) y parte es prestada. Esta tarjeta reparte ESE
+// número, no inventa otro: así no hay dos verdades en la misma pantalla.
+const deVerdadCard = document.getElementById("deVerdadCard");
+const deVerdadLista = document.getElementById("deVerdadLista");
+const deVerdadNota = document.getElementById("deVerdadNota");
+const deVerdadVerMas = document.getElementById("deVerdadVerMas");
+
+function pintarPlataDeVerdad(d) {
+  if (!deVerdadCard || !d) return;
+  // Si no le guardas plata a nadie y no debes nada, tu plata es tu plata
+  // y la tarjeta solo estorbaría.
+  if (!d.deOtros && !d.prestado) {
+    deVerdadCard.classList.add("hidden");
+    return;
+  }
+  deVerdadCard.classList.remove("hidden");
+
+  const filas = [["Tienes en la mano", d.esperado, "text-slate-800"]];
+  if (d.deOtros) filas.push(["De otras personas", -d.deOtros, "text-violet-700"]);
+  if (d.prestado) filas.push(["Prestado, hay que devolverlo", -d.prestado, "text-amber-600"]);
+
+  deVerdadLista.innerHTML = "";
+  filas.forEach(([label, monto, clase]) => {
+    const fila = document.createElement("div");
+    fila.className = "flex items-center justify-between gap-2 text-xs";
+    const nombre = document.createElement("span");
+    nombre.className = "text-slate-600 truncate";
+    nombre.textContent = label;
+    const valor = document.createElement("b");
+    valor.className = clase + " shrink-0";
+    valor.textContent = (monto < 0 ? "-" : "") + formatSoles(Math.abs(monto));
+    fila.appendChild(nombre);
+    fila.appendChild(valor);
+    deVerdadLista.appendChild(fila);
+  });
+
+  const total = document.createElement("div");
+  total.className = "flex items-center justify-between gap-2 text-xs pt-1.5 mt-1.5 border-t border-slate-100";
+  total.innerHTML = '<span class="font-bold text-slate-700">Tuyo de verdad</span>';
+  const b = document.createElement("b");
+  b.className = (d.tuyo < 0 ? "text-brand-red" : "text-brand-green") + " shrink-0 text-sm";
+  b.textContent = formatSoles(d.tuyo);
+  total.appendChild(b);
+  deVerdadLista.appendChild(total);
+
+  deVerdadNota.textContent =
+    d.tuyo < 0
+      ? "Si devolvieras todo hoy, quedarías debiendo."
+      : "Si devolvieras todo lo ajeno hoy, te quedaría esto.";
+}
+
+if (deVerdadVerMas) {
+  deVerdadVerMas.addEventListener("click", () => irAPanel("financeTabPrestamos"));
+}
+
 // ---------- Dónde está la plata ----------
 // El total sigue siendo el mismo: esa plata es suya y sirve para pagar.
 // Lo que faltaba era saber cuánto está en el bolsillo y cuánto no.
@@ -6802,6 +7033,377 @@ function pintarLugares(data) {
 
 if (lugaresVerMas) {
   lugaresVerMas.addEventListener("click", () => irAPanel("financeTabAjustes"));
+}
+
+
+// ---------- Lo que TÚ debes ----------
+// Es lo contrario de "Me deben". Un crédito de Yape entra a la caja como
+// cualquier ganancia, pero hay que devolverlo: sin esto la app creía que
+// pedir prestado te dejaba mejor.
+//
+// La regla para no contar dos veces: si el préstamo cuelga de un
+// pendiente, el pendiente es el que cuenta en tus metas y acá solo se
+// lleva el saldo. Si no cuelga de ninguno, acá sí cuenta.
+const prestamosList = document.getElementById("prestamosList");
+const prestamosEmpty = document.getElementById("prestamosEmpty");
+const prestamosResumen = document.getElementById("prestamosResumen");
+const prestamosTotal = document.getElementById("prestamosTotal");
+const prestamosContexto = document.getElementById("prestamosContexto");
+const prestamosAlerta = document.getElementById("prestamosAlerta");
+const prestamosAlertaTexto = document.getElementById("prestamosAlertaTexto");
+const prestamoPalabras = document.getElementById("prestamoPalabras");
+const addPrestamoBtn = document.getElementById("addPrestamoBtn");
+
+let recordatoriosParaPrestamo = [];
+
+async function fetchPrestamos() {
+  if (!prestamosList) return;
+  try {
+    const data = await (await fetch("/api/finance/prestamos")).json();
+    recordatoriosParaPrestamo = data.recordatorios || [];
+    if (document.activeElement !== prestamoPalabras) {
+      prestamoPalabras.value = (data.palabras || []).join(", ");
+    }
+    pintarPrestamos(data);
+  } catch (err) {
+    console.error("No se pudo obtener lo que debes:", err);
+  }
+}
+
+function pintarPrestamos(data) {
+  const lista = data.prestamos || [];
+  const abiertos = lista.filter((p) => !p.saldado);
+  const t = data.totales || {};
+
+  prestamosResumen.classList.toggle("hidden", abiertos.length === 0);
+  prestamosTotal.textContent = formatSoles(t.debes || 0);
+  const partes = [];
+  if (abiertos.length) {
+    partes.push(abiertos.length === 1 ? "1 préstamo abierto" : abiertos.length + " préstamos abiertos");
+  }
+  if (data.interesesDelAnio > 0) {
+    partes.push("Este año los intereses te costaron " + formatSoles(data.interesesDelAnio));
+  }
+  prestamosContexto.textContent = partes.join(" · ");
+
+  // Si buena parte de lo que entró este mes fue prestado, el mes no se
+  // sostuvo con el trabajo. Eso no se ve en ningún otro lado.
+  const em = data.esteMes || {};
+  const mucho = em.porcentaje >= 25 && em.prestado > 0;
+  prestamosAlerta.classList.toggle("hidden", !mucho);
+  if (mucho) {
+    prestamosAlertaTexto.textContent =
+      "Este mes el " + em.porcentaje + "% de lo que entró fue prestado (" +
+      formatSoles(em.prestado) + " de " + formatSoles(em.entrado) +
+      "). Sin eso no te alcanzaba.";
+  }
+
+  prestamosList.innerHTML = "";
+  prestamosEmpty.classList.toggle("hidden", lista.length > 0);
+
+  // Primero los que debes, después los ya pagados.
+  lista
+    .slice()
+    .sort((a, b) => Number(a.saldado) - Number(b.saldado) || b.saldo - a.saldo)
+    .forEach((p) => prestamosList.appendChild(tarjetaPrestamo(p)));
+}
+
+function tarjetaPrestamo(p) {
+  const card = document.createElement("div");
+  card.className = "card py-3 " + (p.saldado ? "bg-slate-50 border border-slate-200 opacity-70" : "bg-white border border-slate-100");
+
+  const top = document.createElement("div");
+  top.className = "flex items-baseline justify-between gap-2";
+  const nombre = document.createElement("p");
+  nombre.className = "text-sm font-bold text-slate-800 truncate";
+  nombre.textContent = p.label;
+  const monto = document.createElement("b");
+  monto.className = (p.saldado ? "text-emerald-600" : "text-amber-600") + " shrink-0";
+  monto.textContent = p.saldado ? "Pagado" : formatSoles(p.saldo);
+  top.appendChild(nombre);
+  top.appendChild(monto);
+  card.appendChild(top);
+
+  const detalle = document.createElement("p");
+  detalle.className = "text-[11px] text-slate-400 mt-0.5";
+  detalle.textContent =
+    "Te prestaron " + formatSoles(p.recibido) + " · devuelves " + formatSoles(p.aDevolver) +
+    (p.interes > 0 ? " (S/ " + p.interes + " de interés)" : " (sin interés)") +
+    " · desde " + fmtFecha(p.fecha);
+  card.appendChild(detalle);
+
+  if (!p.saldado) {
+    const barra = document.createElement("div");
+    barra.className = "w-full h-1.5 rounded-full bg-slate-100 overflow-hidden mt-2";
+    const relleno = document.createElement("div");
+    relleno.className = "h-full bg-amber-400";
+    relleno.style.width = (p.aDevolver > 0 ? Math.min(100, (p.pagado / p.aDevolver) * 100) : 0) + "%";
+    barra.appendChild(relleno);
+    card.appendChild(barra);
+
+    const avance = document.createElement("p");
+    avance.className = "text-[11px] text-slate-400 mt-1";
+    avance.textContent = "Llevas pagado " + formatSoles(p.pagado) + " de " + formatSoles(p.aDevolver);
+    card.appendChild(avance);
+  }
+
+  // De dónde sale el pago: esto es lo que decide si cuenta o no en la meta.
+  const atado = recordatoriosParaPrestamo.find((r) => r.id === p.recordatorioId);
+  const quien = document.createElement("p");
+  quien.className = "text-[11px] mt-1 " + (atado ? "text-emerald-600" : "text-slate-400");
+  quien.textContent = atado
+    ? "Lo pagas con el pendiente “" + atado.label + "”. Se descuenta solo cuando marcas Ya pagué."
+    : p.cuota && p.diaDelMes
+    ? "Sin pendiente: cuenta " + formatSoles(p.cuota) + " cada día " + p.diaDelMes + " en tu meta."
+    : "Sin pendiente ni cuota: cuenta entero en tu meta.";
+  card.appendChild(quien);
+
+  const acciones = document.createElement("div");
+  acciones.className = "flex flex-wrap gap-2 mt-2";
+
+  if (!p.saldado) {
+    const pagar = document.createElement("button");
+    pagar.className = "rounded-lg px-3 py-1.5 text-xs font-bold bg-emerald-50 text-emerald-700 active:scale-95 transition-all";
+    pagar.textContent = "Anotar un pago";
+    pagar.addEventListener("click", () => abrirPagoPrestamo(p));
+    acciones.appendChild(pagar);
+  }
+
+  const editar = document.createElement("button");
+  editar.className = "rounded-lg px-3 py-1.5 text-xs font-semibold bg-slate-100 text-slate-600 active:scale-95 transition-all";
+  editar.textContent = "Editar";
+  editar.addEventListener("click", () => abrirEditarPrestamo(p));
+  acciones.appendChild(editar);
+
+  if ((p.pagos || []).length) {
+    const verPagos = document.createElement("button");
+    verPagos.className = "rounded-lg px-3 py-1.5 text-xs font-semibold bg-slate-100 text-slate-600 active:scale-95 transition-all";
+    verPagos.textContent = "Ver pagos (" + p.pagos.length + ")";
+    const historial = document.createElement("div");
+    historial.className = "hidden mt-2 space-y-1";
+    verPagos.addEventListener("click", () => {
+      historial.classList.toggle("hidden");
+      if (!historial.classList.contains("hidden")) pintarPagosPrestamo(historial, p);
+    });
+    acciones.appendChild(verPagos);
+    card.appendChild(acciones);
+    card.appendChild(historial);
+    return card;
+  }
+
+  card.appendChild(acciones);
+  return card;
+}
+
+function pintarPagosPrestamo(cont, p) {
+  cont.innerHTML = "";
+  p.pagos
+    .slice()
+    .reverse()
+    .forEach((pago) => {
+      const fila = document.createElement("div");
+      fila.className = "flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs bg-slate-50 border border-slate-100";
+      const info = document.createElement("div");
+      info.className = "min-w-0";
+      const l1 = document.createElement("p");
+      l1.className = "font-semibold text-slate-800";
+      l1.textContent = formatSoles(pago.monto);
+      const l2 = document.createElement("p");
+      l2.className = "text-slate-400";
+      l2.textContent =
+        fmtFecha(pago.fecha) + " " + pago.hora +
+        (pago.origen === "pendiente" ? " · desde el pendiente" : " · a mano");
+      info.appendChild(l1);
+      info.appendChild(l2);
+
+      const borrar = document.createElement("button");
+      borrar.innerHTML = '<i class="fa-solid fa-trash text-rose-400"></i>';
+      borrar.className = "w-7 h-7 flex items-center justify-center shrink-0";
+      borrar.addEventListener("click", async () => {
+        if (!confirm("¿Borrar este pago? El saldo vuelve a subir.")) return;
+        await fetch(
+          "/api/finance/prestamos/" + encodeURIComponent(p.id) + "/pagos/" + encodeURIComponent(pago.id),
+          { method: "DELETE" }
+        );
+        await fetchPrestamos();
+        fetchCashboxToday();
+        mostrarAviso("Listo.");
+      });
+
+      fila.appendChild(info);
+      fila.appendChild(borrar);
+      cont.appendChild(fila);
+    });
+}
+
+function abrirPagoPrestamo(p) {
+  abrirHojaSimple({
+    titulo: "Pago a " + p.label,
+    campos: [
+      { id: "monto", etiqueta: "Cuánto pagaste", tipo: "numero", valor: p.cuota || "" },
+      { id: "fecha", etiqueta: "Cuándo", tipo: "fecha", valor: "" },
+      { id: "descripcion", etiqueta: "Nota (opcional)", tipo: "texto", valor: "" },
+    ],
+    alGuardar: async (v) => {
+      if (!Number.isFinite(v.monto) || v.monto <= 0) {
+        mostrarAviso("¿De cuánto fue el pago?");
+        return false;
+      }
+      const res = await fetch("/api/finance/prestamos/" + encodeURIComponent(p.id) + "/pagos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(v),
+      });
+      const data = await res.json();
+      if (data.error) {
+        mostrarAviso(data.error);
+        return false;
+      }
+      await fetchPrestamos();
+      fetchCashboxToday();
+      fetchGoalsAndProgress();
+      mostrarAviso(
+        data.prestamo && data.prestamo.saldado
+          ? "¡Terminaste de pagarle a " + p.label + "!"
+          : "Anotado. Falta " + formatSoles(data.prestamo.saldo) + "."
+      );
+    },
+  });
+}
+
+function abrirEditarPrestamo(p) {
+  const opciones = [{ valor: "", label: "— Ninguno: que cuente en mi meta —" }].concat(
+    recordatoriosParaPrestamo.map((r) => ({ valor: r.id, label: r.label }))
+  );
+  abrirHojaSimple({
+    titulo: "Préstamo de " + p.label,
+    campos: [
+      { id: "label", etiqueta: "De quién", tipo: "texto", valor: p.label },
+      { id: "recibido", etiqueta: "Cuánto te prestaron", tipo: "numero", valor: p.recibido },
+      { id: "aDevolver", etiqueta: "Cuánto devuelves (con interés)", tipo: "numero", valor: p.aDevolver },
+      { id: "fecha", etiqueta: "Desde cuándo", tipo: "fecha", valor: p.fecha },
+      { id: "recordatorioId", etiqueta: "¿Con qué pendiente lo pagas?", tipo: "opciones", valor: p.recordatorioId || "", opciones },
+      { id: "cuota", etiqueta: "Cuota (solo si no tiene pendiente)", tipo: "numero", valor: p.cuota || "" },
+      { id: "diaDelMes", etiqueta: "Qué día del mes", tipo: "numero", valor: p.diaDelMes || "" },
+    ],
+    alGuardar: async (v) => {
+      if (!Number.isFinite(v.aDevolver) || v.aDevolver <= 0) {
+        mostrarAviso("¿Cuánto tienes que devolver?");
+        return false;
+      }
+      await fetch("/api/finance/prestamos/" + encodeURIComponent(p.id), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(v),
+      });
+      await fetchPrestamos();
+      fetchCashboxToday();
+      fetchGoalsAndProgress();
+      mostrarAviso("Guardado.");
+    },
+    alEliminar: async () => {
+      if (!confirm("¿Borrar este préstamo? El movimiento que dejó en tu caja no se toca.")) return;
+      await fetch("/api/finance/prestamos/" + encodeURIComponent(p.id), { method: "DELETE" });
+      await fetchPrestamos();
+      fetchCashboxToday();
+      fetchGoalsAndProgress();
+      mostrarAviso("Borrado.");
+    },
+  });
+}
+
+if (addPrestamoBtn) {
+  addPrestamoBtn.addEventListener("click", async () => {
+    const label = document.getElementById("prestamoNuevoLabel").value.trim();
+    const recibido = parseFloat(document.getElementById("prestamoNuevoRecibido").value);
+    const aDevolverRaw = parseFloat(document.getElementById("prestamoNuevoDevolver").value);
+    if (!label || !Number.isFinite(recibido) || recibido <= 0) {
+      return mostrarAviso("Ponle nombre y cuánto te prestaron.");
+    }
+    const res = await fetch("/api/finance/prestamos", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label, recibido, aDevolver: Number.isFinite(aDevolverRaw) ? aDevolverRaw : recibido }),
+    });
+    const data = await res.json();
+    if (data.error) return mostrarAviso(data.error);
+    document.getElementById("prestamoNuevoLabel").value = "";
+    document.getElementById("prestamoNuevoRecibido").value = "";
+    document.getElementById("prestamoNuevoDevolver").value = "";
+    await fetchPrestamos();
+    fetchCashboxToday();
+    mostrarAviso("Anotado.");
+  });
+}
+
+if (prestamoPalabras) {
+  prestamoPalabras.addEventListener("change", async () => {
+    await fetch("/api/finance/prestamos-palabras", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ palabras: prestamoPalabras.value.split(",").map((p) => p.trim()).filter(Boolean) }),
+    });
+    await fetchPrestamos();
+    mostrarAviso("Guardado.");
+  });
+}
+
+// ---------- ¿Me conviene sacarlo? ----------
+// Antes de pedirlo, no después. Lo honesto es mostrar las dos mitades: lo
+// que entra ahora te deja mejor, la cuota te deja peor.
+const simBtn = document.getElementById("simBtn");
+const simResultado = document.getElementById("simResultado");
+
+if (simBtn) {
+  simBtn.addEventListener("click", async () => {
+    const monto = parseFloat(document.getElementById("simMonto").value);
+    const meses = parseInt(document.getElementById("simMeses").value, 10);
+    const interes = parseFloat(document.getElementById("simInteres").value) || 0;
+    if (!Number.isFinite(monto) || monto <= 0 || !Number.isFinite(meses) || meses <= 0) {
+      simResultado.className = "text-xs mt-2 text-slate-400";
+      simResultado.textContent = "Escribe cuánto quieres sacar y en cuántos meses.";
+      return;
+    }
+    const params = new URLSearchParams({ monto, meses, interes });
+    const d = await (await fetch("/api/finance/prestamos-simular?" + params.toString())).json();
+
+    simResultado.className = "text-xs mt-2 space-y-1";
+    simResultado.innerHTML = "";
+    const filas = [
+      ["Te entran ahora", formatSoles(d.recibes), "text-brand-green"],
+      ["Devuelves en total", formatSoles(d.aDevolver), "text-brand-red"],
+      ["Te cuesta de más", formatSoles(d.interes), "text-brand-red"],
+      ["Cuota por mes", formatSoles(d.cuota), "text-slate-800"],
+    ];
+    filas.forEach(([label, valor, clase]) => {
+      const f = document.createElement("div");
+      f.className = "flex items-center justify-between gap-2";
+      f.innerHTML = '<span class="text-slate-500">' + label + "</span>";
+      const b = document.createElement("b");
+      b.className = clase + " shrink-0";
+      b.textContent = valor;
+      f.appendChild(b);
+      simResultado.appendChild(f);
+    });
+
+    const veredicto = document.createElement("p");
+    const mejora = d.sobraConCredito - d.sobraAhora;
+    veredicto.className =
+      "text-xs font-semibold mt-2 " + (d.sobraConCredito >= 0 ? "text-emerald-600" : "text-brand-red");
+    veredicto.textContent =
+      "Hasta " + fmtFecha(d.hasta) + ": hoy te sobrarían " + formatSoles(d.sobraAhora) +
+      "; con el crédito, " + formatSoles(d.sobraConCredito) +
+      (mejora >= 0 ? "." : ".") +
+      (d.sobraConCredito < 0 ? " Aun con el crédito no te alcanza." : "");
+    simResultado.appendChild(veredicto);
+
+    const nota = document.createElement("p");
+    nota.className = "text-[11px] text-slate-400";
+    nota.textContent =
+      "Ojo: eso es solo hasta esa fecha. Los " + formatSoles(d.aDevolver) +
+      " los terminas de pagar en " + d.meses + (d.meses === 1 ? " mes." : " meses.");
+    simResultado.appendChild(nota);
+  });
 }
 
 // ---------- El mes visto como mes ----------
