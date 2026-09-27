@@ -227,6 +227,63 @@ function palabraSeParece(palabraMensaje, palabraFrase) {
   return editDistanceAcotada(palabraMensaje, palabraFrase, tolerancia) <= tolerancia;
 }
 
+// ---------- Comparación sin espacios ----------
+// El de arriba compara palabra por palabra, así que se le escapaba el truco
+// de jugar con los espacios: "comprde" (pegar "compra de" comiéndose letras),
+// "pendientecompradecliente" (todo junto) o "P E N D I E N T E" (separado).
+// Cambiar letras sueltas ya lo aguantaba; los espacios no.
+//
+// Acá se pega TODO (mensaje y frase) en una sola tira de letras y se busca
+// la frase adentro del mensaje aceptando unas pocas letras de diferencia.
+// Así caen los cuatro trucos de una, y también los que no se inventaron
+// todavía.
+//
+// Solo corre en los grupos de "solo autorizados", donde el bot ignora a todos
+// menos al número autorizado: un falso positivo solo puede venir de esa misma
+// persona, que es justo la que está jugando a esconder el pedido.
+function soloLetras(s) {
+  return normalizeText(String(s || "")).replace(/[^a-z0-9]/g, "");
+}
+
+// Distancia de la frase contra el pedazo que más se le parezca del mensaje:
+// empezar y terminar en cualquier lado del mensaje sale gratis.
+function distanciaComoSubcadena(texto, frase) {
+  const n = texto.length;
+  const m = frase.length;
+  if (m === 0) return 0;
+  let fila = new Array(m + 1);
+  for (let j = 0; j <= m; j++) fila[j] = j;
+  let mejor = fila[m];
+  for (let i = 1; i <= n; i++) {
+    const nueva = new Array(m + 1);
+    nueva[0] = 0; // arrancar en cualquier punto del mensaje no cuesta
+    for (let j = 1; j <= m; j++) {
+      const costo = texto[i - 1] === frase[j - 1] ? 0 : 1;
+      nueva[j] = Math.min(fila[j] + 1, nueva[j - 1] + 1, fila[j - 1] + costo);
+    }
+    if (nueva[m] < mejor) mejor = nueva[m];
+    if (mejor === 0) return 0;
+    fila = nueva;
+  }
+  return mejor;
+}
+
+// Frases muy cortas no entran acá: con 4 o 5 letras, "unas pocas de
+// diferencia" es cualquier cosa.
+const MIN_LETRAS_FRASE_PEGADA = 8;
+const MAX_LETRAS_MENSAJE = 600; // tope de trabajo; nadie esconde un pedido en una parrafada
+
+function pareceLaFrasePegada(text, frase) {
+  const frasePegada = soloLetras(frase);
+  if (frasePegada.length < MIN_LETRAS_FRASE_PEGADA) return false;
+  const textoPegado = soloLetras(text).slice(0, MAX_LETRAS_MENSAJE);
+  if (!textoPegado) return false;
+
+  // Hasta un 15% de letras de diferencia, y nunca más de 4.
+  const tope = Math.min(4, Math.max(1, Math.floor(frasePegada.length * 0.15)));
+  return distanciaComoSubcadena(textoPegado, frasePegada) <= tope;
+}
+
 function matchPorPalabrasFlexible(text, frase) {
   const palabrasFrase = getSignificantWords(frase);
   if (palabrasFrase.length === 0) return null;
@@ -234,8 +291,11 @@ function matchPorPalabrasFlexible(text, frase) {
   if (palabrasMensaje.length === 0) return null;
 
   const estanTodas = palabrasFrase.every((pf) => palabrasMensaje.some((pm) => palabraSeParece(pm, pf)));
-  if (!estanTodas) return null;
-  return { keyword: frase, index: 0, length: 0 };
+  if (estanTodas) return { keyword: frase, index: 0, length: 0 };
+
+  // No estaban todas las palabras: puede ser que hayan movido los espacios.
+  if (pareceLaFrasePegada(text, frase)) return { keyword: frase, index: 0, length: 0 };
+  return null;
 }
 
 // ---------- Detección: qué activa al bot, y por qué ----------
@@ -1988,6 +2048,7 @@ module.exports = {
   evaluarVentanaTiempo,
   esSoloLaClave,
   esFraseInequivoca,
+  pareceLaFrasePegada,
   despacharPedido,
   despacharDatosCliente,
   analizarDeteccion,
