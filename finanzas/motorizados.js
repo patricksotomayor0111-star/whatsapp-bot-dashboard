@@ -11,6 +11,9 @@ const { dataPath } = require("./dataDir");
 // motorizado no tiene sesión, se identifica únicamente por su código.
 
 const DATA_PATH = dataPath("motorizados-data.json");
+// La ruta del día va aparte: son cientos de puntos por motorizado y no hace
+// falta reescribirlos cada vez que cambia algo chico del resto.
+const RUTAS_PATH = dataPath("motorizados-rutas.json");
 
 // Si pasan 8 minutos sin señal se da por apagada la ubicación. En
 // movimiento Traccar Client manda seguido, pero QUIETO (esperando en un
@@ -20,22 +23,37 @@ const DATA_PATH = dataPath("motorizados-data.json");
 const UMBRAL_SIN_SENAL_MS = 8 * 60 * 1000;
 const DIAS_DE_EVENTOS = 14;
 const HORARIO_POR_DEFECTO = { inicio: "17:00", fin: "23:00", dias: [0, 1, 2, 3, 4, 5, 6] };
+// La ruta es solo la del día laboral (de 8 am a 3 am por defecto): al
+// empezar el siguiente se borra. Los km, en cambio, se acumulan siempre.
+const RUTA_POR_DEFECTO = { inicio: "08:00", fin: "03:00" };
+const ACEITE_POR_DEFECTO_KM = 1500;
 
 function cargar() {
   try {
     const d = JSON.parse(fs.readFileSync(DATA_PATH, "utf8"));
     return {
       horario: d.horario || { ...HORARIO_POR_DEFECTO },
+      ruta: d.ruta || { ...RUTA_POR_DEFECTO },
       riders: d.riders || [],
       estado: d.estado || {},
       eventos: d.eventos || {},
     };
   } catch {
-    return { horario: { ...HORARIO_POR_DEFECTO }, riders: [], estado: {}, eventos: {} };
+    return { horario: { ...HORARIO_POR_DEFECTO }, ruta: { ...RUTA_POR_DEFECTO }, riders: [], estado: {}, eventos: {} };
+  }
+}
+
+function cargarRutas() {
+  try {
+    return JSON.parse(fs.readFileSync(RUTAS_PATH, "utf8")) || {};
+  } catch {
+    return {};
   }
 }
 
 const data = cargar();
+// { riderId: { dia: "YYYY-MM-DD", puntos: [[t, lat, lon], ...] } }
+const rutas = cargarRutas();
 
 // Llega un punto por minuto por motorizado: escribir el archivo en cada
 // uno es innecesario, alcanza con juntar los cambios unos segundos.
@@ -46,6 +64,7 @@ function guardar() {
     guardadoPendiente = null;
     try {
       fs.writeFileSync(DATA_PATH, JSON.stringify(data, null, 2));
+      fs.writeFileSync(RUTAS_PATH, JSON.stringify(rutas));
     } catch (err) {
       console.error("No se pudo guardar motorizados:", err.message);
     }
@@ -89,6 +108,123 @@ function enHorario(rider, ms) {
   return (h.dias.includes(dia) && minutos >= ini) || (h.dias.includes(ayer) && minutos < fin);
 }
 
+// ---------- Ruta del día ----------
+
+function enVentanaRuta(ms) {
+  const { minutos } = peru(ms);
+  const ini = aMinutos(data.ruta.inicio);
+  const fin = aMinutos(data.ruta.fin);
+  if (ini === fin) return true;
+  if (ini < fin) return minutos >= ini && minutos < fin;
+  return minutos >= ini || minutos < fin;
+}
+
+// El día laboral empieza a la hora de inicio de la ruta: a las 2 am todavía
+// cuenta como el día que empezó ayer a las 8 am.
+function diaLaboral(ms) {
+  return peru(ms - aMinutos(data.ruta.inicio) * 60000).fecha;
+}
+
+function setRutaConfig(r) {
+  const okHora = (v) => /^([01]\d|2[0-3]):[0-5]\d$/.test(String(v));
+  if (!r || !okHora(r.inicio) || !okHora(r.fin)) throw new Error("Hora inválida (usa HH:MM).");
+  data.ruta = { inicio: r.inicio, fin: r.fin };
+  guardar();
+  return data.ruta;
+}
+
+// Distancia en km entre dos puntos (fórmula de haversine).
+function distanciaKm(a, b) {
+  const rad = (g) => (g * Math.PI) / 180;
+  const dLat = rad(b.lat - a.lat);
+  const dLon = rad(b.lon - a.lon);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLon / 2) ** 2;
+  return 6371 * 2 * Math.asin(Math.sqrt(h));
+}
+
+// Suma los km del punto nuevo. El GPS "tiembla" unos metros aunque el
+// celular esté quieto, y cada tanto da un salto falso de cientos de metros:
+// sumado todo el día eso infla los km. Por eso se mide siempre desde el
+// último punto que SÍ contó (el ancla), y se descarta lo impreciso, lo que
+// no se movió de verdad y lo que iría a una velocidad imposible en moto.
+// Puntos que no sirven ni para km ni para dibujar la ruta: muy imprecisos
+// o a una velocidad imposible en moto desde el punto INMEDIATAMENTE
+// anterior (medirlo contra un punto viejo dejaría pasar saltos falsos
+// después de un rato quieto).
+function puntoDudoso(estado, punto) {
+  if (punto.acc !== null && punto.acc > 50) return true;
+  const prev = estado.ultimo;
+  return !!(prev && punto.t > prev.t && distanciaKm(prev, punto) / ((punto.t - prev.t) / 3600000) > 120);
+}
+
+function sumarKm(rider, estado, punto) {
+  if (rider.contarKm === false || puntoDudoso(estado, punto)) return;
+  const km = (estado.km = estado.km || { total: 0, desdeAceite: 0, hoy: null, ancla: null, aceiteFecha: null });
+  const dia = diaLaboral(punto.t);
+  if (!km.hoy || km.hoy.dia !== dia) km.hoy = { dia, km: 0 };
+  const ancla = km.ancla;
+  if (!ancla) {
+    km.ancla = { lat: punto.lat, lon: punto.lon, t: punto.t };
+    return;
+  }
+  if (punto.t <= ancla.t) return;
+  const d = distanciaKm(ancla, punto);
+  if (d * 1000 < Math.max(30, punto.acc || 0)) return;
+  km.total += d;
+  km.desdeAceite += d;
+  km.hoy.km += d;
+  km.ancla = { lat: punto.lat, lon: punto.lon, t: punto.t };
+}
+
+function guardarEnRuta(rider, estado, punto) {
+  if (rider.guardarRuta === false || !enVentanaRuta(punto.t) || puntoDudoso(estado, punto)) return;
+  const dia = diaLaboral(punto.t);
+  if (!rutas[rider.id] || rutas[rider.id].dia !== dia) rutas[rider.id] = { dia, puntos: [] };
+  rutas[rider.id].puntos.push([punto.t, punto.lat, punto.lon]);
+}
+
+// Borra las rutas de días laborales que ya terminaron.
+function limpiarRutas(ahora) {
+  const hoy = diaLaboral(ahora);
+  let cambio = false;
+  for (const id of Object.keys(rutas)) {
+    if (rutas[id].dia !== hoy || !data.riders.some((r) => r.id === id)) {
+      delete rutas[id];
+      cambio = true;
+    }
+  }
+  return cambio;
+}
+
+function ruta(riderId) {
+  const rider = data.riders.find((r) => r.id === riderId);
+  if (!rider) return null;
+  limpiarRutas(Date.now());
+  const r = rutas[riderId];
+  const puntos = r ? r.puntos.slice().sort((a, b) => a[0] - b[0]) : [];
+  return { dia: diaLaboral(Date.now()), desde: data.ruta.inicio, hasta: data.ruta.fin, puntos };
+}
+
+function aceite(riderId, { accion, km }) {
+  const rider = data.riders.find((r) => r.id === riderId);
+  if (!rider) throw new Error("Motorizado no encontrado.");
+  const estado = (data.estado[riderId] = data.estado[riderId] || { estado: null });
+  const k = (estado.km = estado.km || { total: 0, desdeAceite: 0, hoy: null, ancla: null, aceiteFecha: null });
+  if (accion === "cambiado") {
+    k.desdeAceite = 0;
+    k.aceiteFecha = Date.now();
+    agregarEvento(riderId, { tipo: "aceite", t: Date.now(), bat: null });
+  } else if (accion === "corregir") {
+    const n = Number(km);
+    if (!Number.isFinite(n) || n < 0 || n > 100000) throw new Error("Km inválidos.");
+    k.desdeAceite = n;
+  } else {
+    throw new Error("Acción inválida.");
+  }
+  guardar();
+  return k;
+}
+
 // ---------- Motorizados ----------
 
 function slug(texto) {
@@ -121,7 +257,15 @@ function agregar({ nombre, codigo }) {
   const c = codigo
     ? validarCodigo(codigo)
     : validarCodigo(`${slug(n) || "moto"}-${crypto.randomInt(1000, 10000)}`);
-  const rider = { id: crypto.randomBytes(6).toString("hex"), nombre: n, codigo: c, horario: null };
+  const rider = {
+    id: crypto.randomBytes(6).toString("hex"),
+    nombre: n,
+    codigo: c,
+    horario: null,
+    guardarRuta: true,
+    contarKm: true,
+    aceiteCadaKm: ACEITE_POR_DEFECTO_KM,
+  };
   data.riders.push(rider);
   desconocidos.delete(c);
   guardar();
@@ -140,6 +284,24 @@ function editar(id, cambios) {
   if (cambios.horario !== undefined) {
     rider.horario = cambios.horario === null ? null : validarHorario(cambios.horario);
   }
+  if (cambios.guardarRuta !== undefined) {
+    rider.guardarRuta = cambios.guardarRuta === true;
+    // Apagarla borra lo que ya se había guardado hoy: si no se quiere ver
+    // su ruta, tampoco tiene sentido conservarla.
+    if (!rider.guardarRuta) delete rutas[id];
+  }
+  if (cambios.contarKm !== undefined) {
+    rider.contarKm = cambios.contarKm === true;
+    // Al volver a prenderlo no se suma el tramo que hizo mientras estaba
+    // apagado: se empieza a medir desde el próximo punto.
+    const est = data.estado[id];
+    if (est && est.km) est.km.ancla = null;
+  }
+  if (cambios.aceiteCadaKm !== undefined) {
+    const n = Number(cambios.aceiteCadaKm);
+    if (!Number.isFinite(n) || n < 100 || n > 50000) throw new Error("El intervalo de aceite debe estar entre 100 y 50 000 km.");
+    rider.aceiteCadaKm = Math.round(n);
+  }
   guardar();
   return rider;
 }
@@ -149,6 +311,7 @@ function quitar(id) {
   data.riders = data.riders.filter((r) => r.id !== id);
   delete data.estado[id];
   delete data.eventos[id];
+  delete rutas[id];
   guardar();
   return data.riders.length < antes;
 }
@@ -296,6 +459,8 @@ function registrarPunto(punto, ahora) {
   }
 
   sumarConsumo(estado, punto);
+  sumarKm(rider, estado, punto);
+  guardarEnRuta(rider, estado, punto);
   estado.ultimo = {
     lat: punto.lat,
     lon: punto.lon,
@@ -363,6 +528,7 @@ function revisar() {
       cambio = true;
     }
   }
+  if (limpiarRutas(ahora)) cambio = true;
   if (cambio) guardar();
 }
 
@@ -397,18 +563,35 @@ function resumen() {
       desde: ev ? ev.t : null,
       consumoHora,
       eventosHoy: eventosDelDia(r.id, hoy),
+      guardarRuta: r.guardarRuta !== false,
+      contarKm: r.contarKm !== false,
+      aceiteCadaKm: r.aceiteCadaKm || ACEITE_POR_DEFECTO_KM,
+      km: est.km
+        ? {
+            hoy: est.km.hoy && est.km.hoy.dia === diaLaboral(ahora) ? redondear(est.km.hoy.km) : 0,
+            total: redondear(est.km.total),
+            desdeAceite: redondear(est.km.desdeAceite),
+            aceiteFecha: est.km.aceiteFecha,
+          }
+        : { hoy: 0, total: 0, desdeAceite: 0, aceiteFecha: null },
+      puntosRutaHoy: rutas[r.id] && rutas[r.id].dia === diaLaboral(ahora) ? rutas[r.id].puntos.length : 0,
     };
   });
   return {
     ahora,
     hoy,
     horario: data.horario,
+    ruta: data.ruta,
     umbralMin: UMBRAL_SIN_SENAL_MS / 60000,
     riders,
     desconocidos: [...desconocidos.entries()]
       .filter(([, t]) => ahora - t < 24 * 3600000)
       .map(([codigo, t]) => ({ codigo, t })),
   };
+}
+
+function redondear(km) {
+  return Math.round((km || 0) * 10) / 10;
 }
 
 function eventos(riderId, fecha) {
@@ -426,7 +609,11 @@ module.exports = {
   editar,
   quitar,
   setHorarioGeneral,
+  setRutaConfig,
+  ruta,
+  aceite,
   // Para pruebas.
+  _distanciaKm: distanciaKm,
   _enHorario: enHorario,
   _leerPuntos: leerPuntos,
 };

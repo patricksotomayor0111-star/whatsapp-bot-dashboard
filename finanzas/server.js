@@ -318,6 +318,28 @@ app.get("/api/motorizados/debug", soloDuenoMotorizados, (req, res) => {
   res.json({ recibidos: motorizados.crudos() });
 });
 
+app.get("/api/motorizados/:id/ruta", soloDuenoMotorizados, (req, res) => {
+  const r = motorizados.ruta(req.params.id);
+  if (!r) return res.status(404).json({ error: "Motorizado no encontrado." });
+  res.json(r);
+});
+
+app.post("/api/motorizados/ruta-config", soloDuenoMotorizados, (req, res) => {
+  try {
+    res.json({ ok: true, ruta: motorizados.setRutaConfig(req.body || {}) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/motorizados/:id/aceite", soloDuenoMotorizados, (req, res) => {
+  try {
+    res.json({ ok: true, km: motorizados.aceite(req.params.id, req.body || {}) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 app.get("/api/motorizados/:id/eventos", soloDuenoMotorizados, (req, res) => {
   const lista = motorizados.eventos(req.params.id, req.query.dia);
   if (!lista) return res.status(404).json({ error: "Motorizado no encontrado." });
