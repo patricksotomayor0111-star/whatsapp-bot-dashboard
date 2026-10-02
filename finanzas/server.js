@@ -314,6 +314,10 @@ app.get("/api/motorizados", soloDuenoMotorizados, (req, res) => {
   res.json(motorizados.resumen());
 });
 
+app.get("/api/motorizados/debug", soloDuenoMotorizados, (req, res) => {
+  res.json({ recibidos: motorizados.crudos() });
+});
+
 app.get("/api/motorizados/:id/eventos", soloDuenoMotorizados, (req, res) => {
   const lista = motorizados.eventos(req.params.id, req.query.dia);
   if (!lista) return res.status(404).json({ error: "Motorizado no encontrado." });
