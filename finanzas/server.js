@@ -28,6 +28,7 @@ const combustible = require("./combustible");
 const fuentesIngreso = require("./fuentesIngreso");
 const businessDay = require("./businessDay");
 const marca = require("./marca");
+const motorizados = require("./motorizados");
 
 // Crea la cuenta del dueño y le pasa los datos que hoy están sueltos en el
 // volumen. Se hace al arrancar, antes de atender cualquier pedido.
@@ -45,7 +46,10 @@ app.use(express.json({ limit: "25mb" }));
 // el endpoint para entrar y los archivos que esa pantalla necesita para
 // dibujarse (íconos y manifest): sin esto el panel quedaba público, con la
 // información financiera y el QR de WhatsApp al alcance de cualquiera.
-const RUTAS_PUBLICAS = new Set(["/login", "/api/login", "/manifest.json", "/icon-192.png", "/icon-512.png", "/sw.js"]);
+// "/api/gps" va sin sesión a propósito: la llama el celular del motorizado
+// (Traccar Client), que no tiene cookie. Se identifica por su código, y si
+// el código no está registrado el punto se descarta.
+const RUTAS_PUBLICAS = new Set(["/login", "/api/login", "/manifest.json", "/icon-192.png", "/icon-512.png", "/sw.js", "/api/gps"]);
 
 // La marca se puede LEER sin sesión (la pantalla de entrada la necesita
 // para pintarse), pero escribirla no: eso pasa por el candado y queda
@@ -262,6 +266,70 @@ function servirIcono(nombreArchivo) {
 }
 app.get("/icon-192.png", servirIcono("icon-192.png"));
 app.get("/icon-512.png", servirIcono("icon-512.png"));
+
+// ---------- Motorizados ----------
+// Traccar Client manda por POST (a veces con los datos en la URL, a veces
+// como formulario o JSON según la versión) y algunas versiones por GET.
+// Siempre se contesta 200: si se le contestara error, el celular
+// guardaría el punto y lo reintentaría para siempre.
+app.all("/api/gps", express.urlencoded({ extended: false }), (req, res) => {
+  try {
+    motorizados.recibir(req.query, req.body);
+  } catch (err) {
+    console.error("Punto de GPS inválido:", err.message);
+  }
+  res.status(200).send("OK");
+});
+
+function soloDuenoMotorizados(req, res, next) {
+  if (req.userId !== users.DUENO_ID) {
+    return res.status(403).json({ error: "Solo el dueño puede ver a los motorizados." });
+  }
+  next();
+}
+
+app.get(["/motorizados", "/motorizados.html"], (req, res) => {
+  res.sendFile(path.join(__dirname, "motorizados.html"));
+});
+
+app.get("/api/motorizados", soloDuenoMotorizados, (req, res) => {
+  res.json(motorizados.resumen());
+});
+
+app.get("/api/motorizados/:id/eventos", soloDuenoMotorizados, (req, res) => {
+  const lista = motorizados.eventos(req.params.id, req.query.dia);
+  if (!lista) return res.status(404).json({ error: "Motorizado no encontrado." });
+  res.json({ eventos: lista });
+});
+
+app.post("/api/motorizados", soloDuenoMotorizados, (req, res) => {
+  try {
+    res.json({ ok: true, rider: motorizados.agregar(req.body || {}) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/motorizados/horario", soloDuenoMotorizados, (req, res) => {
+  try {
+    res.json({ ok: true, horario: motorizados.setHorarioGeneral(req.body || {}) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/motorizados/:id", soloDuenoMotorizados, (req, res) => {
+  try {
+    res.json({ ok: true, rider: motorizados.editar(req.params.id, req.body || {}) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete("/api/motorizados/:id", soloDuenoMotorizados, (req, res) => {
+  if (!motorizados.quitar(req.params.id)) return res.status(404).json({ error: "Motorizado no encontrado." });
+  res.json({ ok: true });
+});
 
 // Endpoint mínimo para medir la calidad de conexión real del celular/PC
 // que tiene el panel abierto. No hace nada más que responder rápido.
