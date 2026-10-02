@@ -216,6 +216,7 @@ function leerPuntos(query, body) {
         t: aMs(loc.timestamp),
         bat: nivel === null || nivel < 0 ? null : Math.round(nivel <= 1 ? nivel * 100 : nivel),
         cargando: loc.battery?.is_charging === true,
+        latido: loc.event === "heartbeat" || loc.is_heartbeat === true,
       });
     }
     return puntos;
@@ -257,13 +258,26 @@ function registrarPunto(punto, ahora) {
     if (punto.codigo) desconocidos.set(String(punto.codigo).slice(0, 60), ahora);
     return;
   }
-  if (punto.lat === null || punto.lon === null) return;
+  const estado = (data.estado[rider.id] = data.estado[rider.id] || { estado: null });
+  const ant = estado.ultimo;
+
+  // Con el GPS apagado Traccar Client igual manda un "latido" cada tanto
+  // ("Heartbeat accepted" en sus registros), pero sin ubicación nueva: o
+  // sin coordenadas, o repitiendo la última que tenía. Es la única forma de
+  // saber que apagó la ubicación con el celular prendido, en vez de
+  // esperar minutos de silencio.
+  const sinCoords = punto.lat === null || punto.lon === null;
+  const repiteUltima =
+    ant && !sinCoords && punto.t <= ant.t && Math.abs(punto.lat - ant.lat) < 1e-6 && Math.abs(punto.lon - ant.lon) < 1e-6;
+  if (sinCoords || repiteUltima || (punto.latido && ant && punto.t <= ant.t)) {
+    registrarLatidoSinGps(rider, estado, punto, ahora);
+    return;
+  }
+
   // Fuera de horario no se guarda nada: ni ubicación ni batería. Es su
   // tiempo libre (y la ley de datos personales pide justamente eso).
   if (!enHorario(rider, punto.t)) return;
 
-  const estado = (data.estado[rider.id] = data.estado[rider.id] || { estado: null });
-  const ant = estado.ultimo;
   // Puntos viejos que llegan tarde (el celular los guardó sin internet y
   // los manda después en desorden): no cambian la posición actual.
   if (ant && punto.t <= ant.t) return;
@@ -293,8 +307,33 @@ function registrarPunto(punto, ahora) {
   };
 }
 
+function registrarLatidoSinGps(rider, estado, punto, ahora) {
+  if (!enHorario(rider, ahora) || !estado.ultimo) return;
+  estado.latido = { t: ahora, bat: punto.bat, cargando: punto.cargando };
+  if (estado.estado === "gps_apagado") return;
+  const ev = ultimoEvento(rider.id);
+  if (estado.estado === "sin_senal" && ev?.tipo === "sin_senal") {
+    // Ya se había marcado por silencio: ahora se sabe el motivo.
+    ev.tipo = "gps_apagado";
+  } else if (estado.estado === "activo") {
+    // La hora es la del último punto con GPS: se apagó entre ese momento
+    // y este latido, y esa es la cota más cercana que se tiene.
+    agregarEvento(rider.id, { tipo: "gps_apagado", t: estado.ultimo.t, bat: punto.bat ?? estado.ultimo.bat });
+  } else {
+    return;
+  }
+  estado.estado = "gps_apagado";
+}
+
+// Últimos pedidos crudos que llegaron a /api/gps, solo en memoria: sirven
+// para ver qué manda exactamente cada versión de Traccar Client cuando
+// algo no se marca como se esperaba.
+const crudos = [];
+
 function recibir(query, body) {
   const ahora = Date.now();
+  crudos.push({ t: ahora, query, body: JSON.stringify(body || {}).slice(0, 1500) });
+  if (crudos.length > 40) crudos.shift();
   const puntos = leerPuntos(query || {}, body).sort((a, b) => a.t - b.t);
   puntos.forEach((p) => registrarPunto(p, ahora));
   guardar();
@@ -318,7 +357,7 @@ function revisar() {
       agregarEvento(rider.id, { tipo: "sin_senal", t: estado.ultimo.t, bat: estado.ultimo.bat });
       estado.estado = "sin_senal";
       cambio = true;
-    } else if ((estado.estado === "activo" || estado.estado === "sin_senal") && !dentro) {
+    } else if (["activo", "sin_senal", "gps_apagado"].includes(estado.estado) && !dentro) {
       agregarEvento(rider.id, { tipo: "fin_horario", t: ahora, bat: estado.ultimo.bat });
       estado.estado = "fin_horario";
       cambio = true;
@@ -354,6 +393,7 @@ function resumen() {
       enHorario: enHorario(r, ahora),
       estado: est.estado || null,
       ultimo: est.ultimo || null,
+      latido: est.latido || null,
       desde: ev ? ev.t : null,
       consumoHora,
       eventosHoy: eventosDelDia(r.id, hoy),
@@ -379,6 +419,7 @@ function eventos(riderId, fecha) {
 
 module.exports = {
   recibir,
+  crudos: () => crudos.slice().reverse(),
   resumen,
   eventos,
   agregar,

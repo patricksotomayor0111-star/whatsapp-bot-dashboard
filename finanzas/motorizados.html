@@ -79,7 +79,8 @@ const DIAS = ["D", "L", "M", "M", "J", "V", "S"];
 const COLORES = { activo: "#22C55E", sin_senal: "#EF4444", espera: "#F59E0B", fuera: "#94A3B8" };
 const TEXTO_EVENTO = {
   activo: ["🟢", "Activó su ubicación"],
-  sin_senal: ["🔴", "Dejó de enviar ubicación (GPS apagado, celular apagado o sin internet)"],
+  sin_senal: ["🔴", "Dejó de enviar ubicación (celular apagado o sin internet)"],
+  gps_apagado: ["📍❌", "Apagó la ubicación (el celular sigue prendido)"],
   sin_internet: ["📶", "Se quedó sin internet (el GPS siguió encendido)"],
   reconecto: ["🟢", "Volvió a tener internet"],
   fin_horario: ["⏹️", "Terminó su horario"],
@@ -115,15 +116,18 @@ function estadoVisible(r) {
   if (!r.enHorario) return { clave: "fuera", texto: "Fuera de horario", chip: "bg-slate-100 text-slate-500" };
   if (r.estado === "activo") return { clave: "activo", texto: "Ubicación activa", chip: "bg-emerald-100 text-emerald-700" };
   if (r.estado === "sin_senal") return { clave: "sin_senal", texto: `Sin señal desde las ${hora(r.desde)}`, chip: "bg-rose-100 text-rose-700" };
+  if (r.estado === "gps_apagado") return { clave: "sin_senal", texto: `Apagó la ubicación (${hora(r.desde)})`, chip: "bg-rose-100 text-rose-700" };
   return { clave: "espera", texto: "Aún no activa su ubicación", chip: "bg-amber-100 text-amber-700" };
 }
 
 function bateria(r) {
-  if (!r.ultimo || r.ultimo.bat === null || r.ultimo.bat === undefined) return "";
-  const b = r.ultimo.bat;
-  const icono = r.ultimo.cargando ? "fa-plug-circle-bolt" : b > 60 ? "fa-battery-full" : b > 30 ? "fa-battery-half" : b > 10 ? "fa-battery-quarter" : "fa-battery-empty";
-  const color = b <= 15 && !r.ultimo.cargando ? "text-rose-600" : "text-slate-600";
-  const ultima = r.estado === "activo" ? "" : " (última)";
+  // El latido (GPS apagado, celular prendido) trae la batería más reciente.
+  const fuente = r.latido && r.latido.bat !== null && r.latido.bat !== undefined && (!r.ultimo || r.latido.t > r.ultimo.recibido) ? r.latido : r.ultimo;
+  if (!fuente || fuente.bat === null || fuente.bat === undefined) return "";
+  const b = fuente.bat;
+  const icono = fuente.cargando ? "fa-plug-circle-bolt" : b > 60 ? "fa-battery-full" : b > 30 ? "fa-battery-half" : b > 10 ? "fa-battery-quarter" : "fa-battery-empty";
+  const color = b <= 15 && !fuente.cargando ? "text-rose-600" : "text-slate-600";
+  const ultima = r.estado === "activo" || r.estado === "gps_apagado" ? "" : " (última)";
   return `<span class="${color}"><i class="fa-solid ${icono}"></i> ${b}%${ultima}</span>`;
 }
 
@@ -146,7 +150,10 @@ function render() {
   } else {
     lista.innerHTML = datos.riders.map((r) => {
       const ev = estadoVisible(r);
-      const ultima = r.ultimo ? `Última señal ${hace(r.ultimo.recibido)}` : "Sin datos todavía";
+      // Con el GPS apagado igual llegan latidos: la "última señal" es la
+      // más nueva de las dos, para que se vea que el celular sigue vivo.
+      const senal = Math.max(r.ultimo ? r.ultimo.recibido : 0, r.latido ? r.latido.t : 0);
+      const ultima = senal ? `Última señal ${hace(senal)}` : "Sin datos todavía";
       const consumo = r.consumoHora !== null ? `<span class="text-slate-400">· gasta ~${r.consumoHora}%/h</span>` : "";
       const abierto = abiertos.has(r.id);
       return `
