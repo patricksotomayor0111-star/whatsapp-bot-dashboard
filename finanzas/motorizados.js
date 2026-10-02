@@ -12,10 +12,12 @@ const { dataPath } = require("./dataDir");
 
 const DATA_PATH = dataPath("motorizados-data.json");
 
-// Si pasan 3 minutos sin señal (el celular manda cada 60 s) se da por
-// apagada la ubicación. Menos que eso daba falsas alarmas por un túnel o
-// un semáforo con mala señal.
-const UMBRAL_SIN_SENAL_MS = 3 * 60 * 1000;
+// Si pasan 8 minutos sin señal se da por apagada la ubicación. En
+// movimiento Traccar Client manda seguido, pero QUIETO (esperando en un
+// local, o en su casa) solo sube un punto cada 5-6 minutos aunque el
+// "refresco en reposo" esté en 60 s: los del medio los descarta por no
+// haberse movido. Con 3 minutos, todo motorizado parado salía "sin señal".
+const UMBRAL_SIN_SENAL_MS = 8 * 60 * 1000;
 const DIAS_DE_EVENTOS = 14;
 const HORARIO_POR_DEFECTO = { inicio: "17:00", fin: "23:00", dias: [0, 1, 2, 3, 4, 5, 6] };
 
