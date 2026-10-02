@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Motorizados</title>
+<meta name="theme-color" content="#22C55E" />
+<link rel="icon" href="/icon-192.png" />
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  body { font-family: 'Poppins', sans-serif; -webkit-tap-highlight-color: transparent; }
+  #mapa { height: 320px; z-index: 0; }
+  .pin { width: 34px; height: 34px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 2px 6px rgba(0,0,0,.35);
+         display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 13px; }
+</style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+<div class="mx-auto w-full max-w-[520px] pb-16">
+
+  <header class="sticky top-0 z-30 bg-white/95 backdrop-blur shadow-sm">
+    <div class="flex items-center gap-3 px-4 py-3">
+      <a href="/" class="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center"><i class="fa-solid fa-arrow-left"></i></a>
+      <div class="flex-1">
+        <h1 class="text-base font-bold leading-tight">🛵 Motorizados</h1>
+        <p id="refresco" class="text-[11px] text-slate-400">Cargando…</p>
+      </div>
+      <button id="btnRefrescar" class="w-9 h-9 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center"><i class="fa-solid fa-rotate"></i></button>
+    </div>
+  </header>
+
+  <div id="error" class="hidden mx-4 mt-4 rounded-xl bg-rose-50 text-rose-700 text-sm p-3"></div>
+  <div id="avisoDesconocidos" class="hidden mx-4 mt-4 rounded-xl bg-amber-50 text-amber-800 text-xs p-3"></div>
+
+  <div class="mx-4 mt-4 rounded-2xl overflow-hidden shadow-sm border border-slate-100 bg-white">
+    <div id="mapa"></div>
+  </div>
+
+  <section class="mx-4 mt-4 space-y-3" id="lista"></section>
+
+  <!-- Horario general -->
+  <section class="mx-4 mt-6 rounded-2xl bg-white border border-slate-100 shadow-sm p-4">
+    <p class="text-[11px] font-bold tracking-wider text-emerald-600"><i class="fa-solid fa-clock"></i> HORARIO DE TRABAJO</p>
+    <p class="text-xs text-slate-400 mt-1">Fuera de este horario no se guarda la ubicación de nadie. Si un turno pasa de medianoche (ej. 6:00 pm a 2:00 am) también funciona.</p>
+    <div class="flex items-center gap-2 mt-3">
+      <label class="flex-1 text-xs text-slate-500">Desde<input id="hInicio" type="time" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" /></label>
+      <label class="flex-1 text-xs text-slate-500">Hasta<input id="hFin" type="time" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" /></label>
+    </div>
+    <div id="hDias" class="flex gap-1 mt-3"></div>
+    <button id="guardarHorario" class="mt-3 w-full rounded-xl bg-emerald-500 text-white text-sm font-semibold py-2.5 active:scale-95 transition">Guardar horario</button>
+  </section>
+
+  <!-- Agregar motorizado -->
+  <section class="mx-4 mt-4 rounded-2xl bg-white border border-slate-100 shadow-sm p-4">
+    <p class="text-[11px] font-bold tracking-wider text-blue-600"><i class="fa-solid fa-user-plus"></i> AGREGAR MOTORIZADO</p>
+    <input id="nuevoNombre" type="text" placeholder="Nombre (ej. Juan)" class="mt-3 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm" />
+    <input id="nuevoCodigo" type="text" placeholder="Código (opcional, se genera solo)" class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm" />
+    <button id="agregar" class="mt-3 w-full rounded-xl bg-blue-500 text-white text-sm font-semibold py-2.5 active:scale-95 transition">Agregar</button>
+    <details class="mt-3 text-xs text-slate-500">
+      <summary class="font-semibold cursor-pointer">¿Cómo configuro su celular?</summary>
+      <ol class="list-decimal ml-4 mt-2 space-y-1">
+        <li>Instala <b>Traccar Client</b> (Play Store o App Store).</li>
+        <li>En Ajustes pon <b>URL del servidor</b>: <code id="urlServidor" class="bg-slate-100 px-1 rounded"></code></li>
+        <li><b>Identificador de dispositivo</b>: el código del motorizado (sale en su tarjeta).</li>
+        <li>Precisión <b>Alta</b>, Distancia <b>50</b>, Refresco en reposo <b>60</b>.</li>
+        <li>Ajustes avanzados: Búfer sin conexión <b>sí</b>, Bloqueo de suspensión <b>sí</b>, Detección de parada <b>no</b>. Ponle <b>contraseña</b> para que no lo cambien.</li>
+        <li>En el celular: Ubicación <b>"Permitir todo el tiempo"</b>, Batería <b>"Sin restricciones"</b> y, en Xiaomi/Huawei/Oppo, <b>Inicio automático</b> activado.</li>
+        <li>Activa <b>Seguimiento continuo</b>. Desde ahí ya no tiene que tocar nada.</li>
+      </ol>
+    </details>
+  </section>
+</div>
+
+<script>
+const DIAS = ["D", "L", "M", "M", "J", "V", "S"];
+const COLORES = { activo: "#22C55E", sin_senal: "#EF4444", espera: "#F59E0B", fuera: "#94A3B8" };
+const TEXTO_EVENTO = {
+  activo: ["🟢", "Activó su ubicación"],
+  sin_senal: ["🔴", "Dejó de enviar ubicación (GPS apagado, celular apagado o sin internet)"],
+  sin_internet: ["📶", "Se quedó sin internet (el GPS siguió encendido)"],
+  reconecto: ["🟢", "Volvió a tener internet"],
+  fin_horario: ["⏹️", "Terminó su horario"],
+};
+
+let datos = null;
+let mapa, capa;
+let abiertos = new Set();
+let segundos = 60;
+
+const $ = (id) => document.getElementById(id);
+const hora = (ms) => new Date(ms).toLocaleTimeString("es-PE", { timeZone: "America/Lima", hour: "numeric", minute: "2-digit" });
+const hace = (ms) => {
+  const s = Math.max(0, Math.round((datos.ahora - ms) / 1000));
+  if (s < 60) return `hace ${s} s`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `hace ${m} min`;
+  return `a las ${hora(ms)}`;
+};
+const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+async function api(url, opts = {}) {
+  const res = await fetch(url, { headers: { "Content-Type": "application/json" }, ...opts });
+  if (res.status === 401) { location.href = "/login?ir=/motorizados"; throw new Error("Sesión expirada"); }
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || "Error del servidor");
+  return json;
+}
+
+// Estado que se muestra: lo que diga el servidor, pero visto con el
+// horario (fuera de horario no importa si "sigue activo").
+function estadoVisible(r) {
+  if (!r.enHorario) return { clave: "fuera", texto: "Fuera de horario", chip: "bg-slate-100 text-slate-500" };
+  if (r.estado === "activo") return { clave: "activo", texto: "Ubicación activa", chip: "bg-emerald-100 text-emerald-700" };
+  if (r.estado === "sin_senal") return { clave: "sin_senal", texto: `Sin señal desde las ${hora(r.desde)}`, chip: "bg-rose-100 text-rose-700" };
+  return { clave: "espera", texto: "Aún no activa su ubicación", chip: "bg-amber-100 text-amber-700" };
+}
+
+function bateria(r) {
+  if (!r.ultimo || r.ultimo.bat === null || r.ultimo.bat === undefined) return "";
+  const b = r.ultimo.bat;
+  const icono = r.ultimo.cargando ? "fa-plug-circle-bolt" : b > 60 ? "fa-battery-full" : b > 30 ? "fa-battery-half" : b > 10 ? "fa-battery-quarter" : "fa-battery-empty";
+  const color = b <= 15 && !r.ultimo.cargando ? "text-rose-600" : "text-slate-600";
+  const ultima = r.estado === "activo" ? "" : " (última)";
+  return `<span class="${color}"><i class="fa-solid ${icono}"></i> ${b}%${ultima}</span>`;
+}
+
+function filaEvento(e) {
+  const [ico, txt] = TEXTO_EVENTO[e.tipo] || ["•", e.tipo];
+  const bat = e.bat !== null && e.bat !== undefined ? ` <span class="text-slate-400">· 🔋${e.bat}%</span>` : "";
+  return `<li class="flex gap-2"><span class="w-16 shrink-0 text-slate-500">${hora(e.t)}</span><span>${ico} ${txt}${bat}</span></li>`;
+}
+
+function horarioTexto(h) {
+  const dias = h.dias.length === 7 ? "todos los días" : h.dias.map((d) => DIAS[d]).join(" ");
+  const horas = h.inicio === h.fin ? "todo el día" : `${h.inicio} a ${h.fin}`;
+  return `${horas} · ${dias}`;
+}
+
+function render() {
+  const lista = $("lista");
+  if (!datos.riders.length) {
+    lista.innerHTML = `<div class="rounded-2xl bg-white border border-dashed border-slate-200 p-6 text-center text-sm text-slate-400">Todavía no agregaste motorizados. Hazlo abajo 👇</div>`;
+  } else {
+    lista.innerHTML = datos.riders.map((r) => {
+      const ev = estadoVisible(r);
+      const ultima = r.ultimo ? `Última señal ${hace(r.ultimo.recibido)}` : "Sin datos todavía";
+      const consumo = r.consumoHora !== null ? `<span class="text-slate-400">· gasta ~${r.consumoHora}%/h</span>` : "";
+      const abierto = abiertos.has(r.id);
+      return `
+      <div class="rounded-2xl bg-white border border-slate-100 shadow-sm">
+        <button data-toggle="${r.id}" class="w-full text-left p-4 flex items-center gap-3">
+          <span class="w-3 h-3 rounded-full shrink-0" style="background:${COLORES[ev.clave]}"></span>
+          <span class="flex-1 min-w-0">
+            <span class="block font-semibold">${esc(r.nombre)}</span>
+            <span class="inline-block mt-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${ev.chip}">${ev.texto}</span>
+            <span class="block text-xs text-slate-500 mt-1">${ultima} ${bateria(r) ? "· " + bateria(r) : ""} ${consumo}</span>
+          </span>
+          <i class="fa-solid fa-chevron-${abierto ? "up" : "down"} text-slate-300"></i>
+        </button>
+        <div class="${abierto ? "" : "hidden"} px-4 pb-4 border-t border-slate-100">
+          <div class="flex items-center gap-2 mt-3">
+            <p class="text-xs font-semibold flex-1">Historial</p>
+            <input type="date" data-dia="${r.id}" value="${datos.hoy}" max="${datos.hoy}" class="text-xs rounded-lg border border-slate-200 px-2 py-1" />
+          </div>
+          <ul id="ev-${r.id}" class="mt-2 space-y-1 text-xs">${r.eventosHoy.length ? r.eventosHoy.map(filaEvento).join("") : '<li class="text-slate-400">Sin movimientos hoy.</li>'}</ul>
+          ${r.ultimo ? `<a target="_blank" href="https://www.google.com/maps?q=${r.ultimo.lat},${r.ultimo.lon}" class="inline-block mt-3 text-xs text-blue-600 font-semibold"><i class="fa-solid fa-location-dot"></i> Abrir en Google Maps</a>` : ""}
+          <div class="mt-4 rounded-xl bg-slate-50 p-3 text-xs space-y-2">
+            <p>Código para Traccar Client: <code class="bg-white px-1 rounded font-semibold">${esc(r.codigo)}</code></p>
+            <p>Horario: ${r.horario ? horarioTexto(r.horario) : "el general (" + horarioTexto(datos.horario) + ")"}</p>
+            <div class="flex flex-wrap gap-2">
+              <button data-horario="${r.id}" class="rounded-lg bg-white border border-slate-200 px-2 py-1">Horario propio</button>
+              ${r.horario ? `<button data-general="${r.id}" class="rounded-lg bg-white border border-slate-200 px-2 py-1">Usar el general</button>` : ""}
+              <button data-renombrar="${r.id}" class="rounded-lg bg-white border border-slate-200 px-2 py-1">Cambiar nombre</button>
+              <button data-borrar="${r.id}" class="rounded-lg bg-white border border-rose-200 text-rose-600 px-2 py-1">Eliminar</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    }).join("");
+  }
+
+  const desc = datos.desconocidos || [];
+  $("avisoDesconocidos").classList.toggle("hidden", !desc.length);
+  $("avisoDesconocidos").innerHTML = desc.length
+    ? `⚠️ Están llegando ubicaciones con código${desc.length > 1 ? "s" : ""} que no está${desc.length > 1 ? "n" : ""} registrado${desc.length > 1 ? "s" : ""}: ${desc.map((d) => `<b>${esc(d.codigo)}</b>`).join(", ")}. Agrégalo abajo con ese mismo código o corrígelo en su celular.`
+    : "";
+
+  // Si el mapa no carga (sin conexión al servidor de mapas), la lista y
+  // el horario tienen que seguir funcionando igual.
+  try {
+    renderMapa();
+  } catch (err) {
+    console.error("No se pudo dibujar el mapa:", err);
+  }
+}
+
+function renderMapa() {
+  if (typeof L === "undefined") {
+    $("mapa").innerHTML = '<p class="p-4 text-xs text-slate-400">No se pudo cargar el mapa. Usa "Abrir en Google Maps" en cada motorizado.</p>';
+    $("mapa").style.height = "auto";
+    return;
+  }
+  if (!mapa) {
+    mapa = L.map("mapa", { zoomControl: true }).setView([-12.046, -77.043], 12);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(mapa);
+    capa = L.layerGroup().addTo(mapa);
+  }
+  capa.clearLayers();
+  const puntos = [];
+  datos.riders.forEach((r) => {
+    if (!r.ultimo) return;
+    const ev = estadoVisible(r);
+    const icon = L.divIcon({
+      className: "",
+      html: `<div class="pin" style="background:${COLORES[ev.clave]}">${esc(r.nombre.charAt(0).toUpperCase())}</div>`,
+      iconSize: [34, 34], iconAnchor: [17, 17],
+    });
+    const bat = r.ultimo.bat !== null && r.ultimo.bat !== undefined ? `<br>🔋 ${r.ultimo.bat}%${r.ultimo.cargando ? " (cargando)" : ""}` : "";
+    L.marker([r.ultimo.lat, r.ultimo.lon], { icon })
+      .bindPopup(`<b>${esc(r.nombre)}</b><br>${ev.texto}<br>Ubicación de las ${hora(r.ultimo.t)}${bat}`)
+      .addTo(capa);
+    puntos.push([r.ultimo.lat, r.ultimo.lon]);
+  });
+  if (!renderMapa.encuadrado && puntos.length) {
+    mapa.fitBounds(puntos, { padding: [40, 40], maxZoom: 15 });
+    renderMapa.encuadrado = true;
+  }
+}
+
+function pintarHorario() {
+  $("hInicio").value = datos.horario.inicio;
+  $("hFin").value = datos.horario.fin;
+  $("hDias").innerHTML = DIAS.map((d, i) => {
+    const on = datos.horario.dias.includes(i);
+    return `<button data-dia-h="${i}" class="flex-1 rounded-lg py-2 text-xs font-bold ${on ? "bg-emerald-500 text-white" : "bg-slate-100 text-slate-400"}">${d}</button>`;
+  }).join("");
+}
+
+async function cargar(conHorario) {
+  try {
+    datos = await api("/api/motorizados");
+    $("error").classList.add("hidden");
+    if (conHorario) pintarHorario();
+    render();
+  } catch (err) {
+    $("error").textContent = err.message;
+    $("error").classList.remove("hidden");
+  }
+  segundos = 60;
+}
+
+function pedirHorario(actual) {
+  const inicio = prompt("¿Desde qué hora? (formato 24 h, ej. 17:00)", actual.inicio);
+  if (!inicio) return null;
+  const fin = prompt("¿Hasta qué hora? (ej. 23:00)", actual.fin);
+  if (!fin) return null;
+  const dias = prompt("¿Qué días? Números separados por coma: 0=domingo, 1=lunes … 6=sábado", actual.dias.join(","));
+  if (!dias) return null;
+  return { inicio: inicio.trim(), fin: fin.trim(), dias: dias.split(",").map((d) => Number(d.trim())) };
+}
+
+document.addEventListener("click", async (e) => {
+  const t = e.target.closest("button");
+  if (!t) return;
+  try {
+    if (t.dataset.toggle) {
+      abiertos.has(t.dataset.toggle) ? abiertos.delete(t.dataset.toggle) : abiertos.add(t.dataset.toggle);
+      render();
+    } else if (t.dataset.diaH !== undefined) {
+      const d = Number(t.dataset.diaH);
+      const dias = datos.horario.dias;
+      datos.horario.dias = dias.includes(d) ? dias.filter((x) => x !== d) : [...dias, d];
+      pintarHorario();
+    } else if (t.dataset.horario) {
+      const r = datos.riders.find((x) => x.id === t.dataset.horario);
+      const h = pedirHorario(r.horarioEfectivo);
+      if (h) { await api(`/api/motorizados/${r.id}`, { method: "POST", body: JSON.stringify({ horario: h }) }); await cargar(); }
+    } else if (t.dataset.general) {
+      await api(`/api/motorizados/${t.dataset.general}`, { method: "POST", body: JSON.stringify({ horario: null }) });
+      await cargar();
+    } else if (t.dataset.renombrar) {
+      const r = datos.riders.find((x) => x.id === t.dataset.renombrar);
+      const nombre = prompt("Nuevo nombre", r.nombre);
+      if (nombre) { await api(`/api/motorizados/${r.id}`, { method: "POST", body: JSON.stringify({ nombre }) }); await cargar(); }
+    } else if (t.dataset.borrar) {
+      const r = datos.riders.find((x) => x.id === t.dataset.borrar);
+      if (confirm(`¿Eliminar a ${r.nombre}? Se borra también su historial.`)) {
+        await api(`/api/motorizados/${r.id}`, { method: "DELETE" });
+        await cargar();
+      }
+    }
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
+document.addEventListener("change", async (e) => {
+  const id = e.target.dataset.dia;
+  if (!id) return;
+  try {
+    const { eventos } = await api(`/api/motorizados/${id}/eventos?dia=${e.target.value}`);
+    $("ev-" + id).innerHTML = eventos.length ? eventos.map(filaEvento).join("") : '<li class="text-slate-400">Sin movimientos ese día.</li>';
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
+$("guardarHorario").onclick = async () => {
+  try {
+    await api("/api/motorizados/horario", {
+      method: "POST",
+      body: JSON.stringify({ inicio: $("hInicio").value, fin: $("hFin").value, dias: datos.horario.dias }),
+    });
+    await cargar(true);
+    alert("Horario guardado ✅");
+  } catch (err) {
+    alert(err.message);
+  }
+};
+
+$("agregar").onclick = async () => {
+  try {
+    const { rider } = await api("/api/motorizados", {
+      method: "POST",
+      body: JSON.stringify({ nombre: $("nuevoNombre").value, codigo: $("nuevoCodigo").value.trim() || undefined }),
+    });
+    $("nuevoNombre").value = "";
+    $("nuevoCodigo").value = "";
+    abiertos.add(rider.id);
+    await cargar();
+    alert(`Listo. En el Traccar Client de ${rider.nombre} pon como identificador: ${rider.codigo}`);
+  } catch (err) {
+    alert(err.message);
+  }
+};
+
+$("btnRefrescar").onclick = () => cargar();
+$("urlServidor").textContent = location.origin + "/api/gps";
+
+// Se refresca cada 60 s (lo mismo que tarda el celular en mandar un punto
+// nuevo) y se pausa con la pestaña escondida para no gastar datos.
+setInterval(() => {
+  if (document.hidden || !datos) return;
+  segundos -= 1;
+  $("refresco").textContent = `Se actualiza en ${segundos} s`;
+  if (segundos <= 0) cargar();
+}, 1000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) cargar(); });
+
+cargar(true);
+</script>
+</body>
+</html>
