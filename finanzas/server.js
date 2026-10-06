@@ -62,7 +62,7 @@ app.use(express.json({ limit: "25mb" }));
 // "/api/gps" va sin sesión a propósito: la llama el celular del motorizado
 // (Traccar Client), que no tiene cookie. Se identifica por su código, y si
 // el código no está registrado el punto se descarta.
-const RUTAS_PUBLICAS = new Set(["/login", "/api/login", "/manifest.json", "/icon-192.png", "/icon-512.png", "/sw.js", "/api/gps"]);
+const RUTAS_PUBLICAS = new Set(["/login", "/api/login", "/manifest.json", "/icon-192.png", "/icon-512.png", "/sw.js", "/api/gps", "/api/gps-comando"]);
 
 // La marca se puede LEER sin sesión (la pantalla de entrada la necesita
 // para pintarse), pero escribirla no: eso pasa por el candado y queda
@@ -290,6 +290,14 @@ app.get("/icon-512.png", servirIcono("icon-512.png"));
 // como formulario o JSON según la versión) y algunas versiones por GET.
 // Siempre se contesta 200: si se le contestara error, el celular
 // guardaría el punto y lo reintentaría para siempre.
+// La app del motorizado pregunta aquí si debe encender el GPS. Pública
+// (sin sesión): se identifica por su código, igual que /api/gps.
+app.get("/api/gps-comando", (req, res) => {
+  const c = motorizados.comando(req.query.id || req.query.deviceid);
+  if (!c) return res.status(404).json({ error: "Código no registrado" });
+  res.json(c);
+});
+
 app.all("/api/gps", express.urlencoded({ extended: false }), (req, res) => {
   try {
     motorizados.recibir(req.query, req.body);
@@ -327,6 +335,14 @@ app.get("/api/motorizados/:id/ruta", soloDuenoMotorizados, (req, res) => {
 app.post("/api/motorizados/ruta-config", soloDuenoMotorizados, (req, res) => {
   try {
     res.json({ ok: true, ruta: motorizados.setRutaConfig(req.body || {}) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/motorizados/:id/comando", soloDuenoMotorizados, (req, res) => {
+  try {
+    res.json({ ok: true, ...motorizados.setComando(req.params.id, req.body || {}) });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

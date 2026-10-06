@@ -265,6 +265,11 @@ function agregar({ nombre, codigo }) {
     guardarRuta: true,
     contarKm: true,
     aceiteCadaKm: ACEITE_POR_DEFECTO_KM,
+    // "siempre": el GPS manda todo el turno (Traccar Client, lo de hoy).
+    // "aPedido": el GPS queda apagado y solo se enciende cuando el dueño
+    // toca "Ubicar" o "Seguir" en el panel (app propia, para no gastar
+    // batería ni calentar el celular todo el día).
+    modo: "siempre",
   };
   data.riders.push(rider);
   desconocidos.delete(c);
@@ -302,6 +307,13 @@ function editar(id, cambios) {
     if (!Number.isFinite(n) || n < 100 || n > 50000) throw new Error("El intervalo de aceite debe estar entre 100 y 50 000 km.");
     rider.aceiteCadaKm = Math.round(n);
   }
+  if (cambios.modo !== undefined) {
+    if (!["siempre", "aPedido"].includes(cambios.modo)) throw new Error("Modo inválido.");
+    rider.modo = cambios.modo;
+    // Al cambiar de modo se cierra cualquier seguimiento en curso.
+    const est = data.estado[id];
+    if (est) est.comando = null;
+  }
   guardar();
   return rider;
 }
@@ -320,6 +332,68 @@ function setHorarioGeneral(h) {
   data.horario = validarHorario(h);
   guardar();
   return data.horario;
+}
+
+// ---------- Órdenes "a pedido" ----------
+//
+// El dueño toca en el panel y el servidor guarda hasta qué momento el GPS
+// del motorizado debe estar encendido. La app del motorizado pregunta a
+// /api/gps-comando y, si falta tiempo, enciende el GPS y manda su ubicación
+// cada minuto hasta esa hora; si no, lo deja apagado. Así el GPS solo se
+// prende cuando el dueño lo pide.
+
+function esAPedido(rider) {
+  return (rider.modo || "siempre") === "aPedido";
+}
+
+function ventanaActiva(estado, ahora) {
+  return !!(estado && estado.comando && ahora < estado.comando.hasta);
+}
+
+function setComando(id, { tipo, minutos }) {
+  const rider = data.riders.find((r) => r.id === id);
+  if (!rider) throw new Error("Motorizado no encontrado.");
+  const estado = (data.estado[id] = data.estado[id] || { estado: null });
+  const ahora = Date.now();
+  let hasta;
+  let evTipo;
+  let min;
+  if (tipo === "ubicar") {
+    // 2 minutos: alcanza para que el GPS enganche aunque el primer arranque
+    // sea lento, y que llegue al menos un punto.
+    hasta = ahora + 2 * 60000;
+    evTipo = "pedido_ubicar";
+  } else if (tipo === "seguir") {
+    min = Number(minutos);
+    if (!Number.isFinite(min) || min < 1 || min > 720) throw new Error("Minutos inválidos (1 a 720).");
+    hasta = ahora + min * 60000;
+    evTipo = "pedido_seguir";
+  } else if (tipo === "detener") {
+    hasta = 0;
+    evTipo = "pedido_detener";
+  } else {
+    throw new Error("Acción inválida.");
+  }
+  estado.comando = { hasta, issued: ahora };
+  // El tramo entre un seguimiento y otro no se puede ver, así que no se
+  // suma como una línea recta: se empieza a medir km desde el próximo punto.
+  if (estado.km) estado.km.ancla = null;
+  agregarEvento(id, { tipo: evTipo, t: ahora, bat: null, min });
+  guardar();
+  return { hasta, ahora };
+}
+
+// Lo que lee la app del motorizado (endpoint público, se identifica por
+// código). "hasta" en el futuro = encender el GPS; en el pasado = apagarlo.
+function comando(code) {
+  const rider = data.riders.find((r) => r.codigo === code);
+  if (!rider) return null;
+  const est = data.estado[rider.id];
+  return {
+    modo: rider.modo || "siempre",
+    hasta: est && est.comando ? est.comando.hasta : 0,
+    intervalo: 60,
+  };
 }
 
 // ---------- Eventos (activó / sin señal / sin internet / fin de horario) ----------
@@ -437,9 +511,12 @@ function registrarPunto(punto, ahora) {
     return;
   }
 
-  // Fuera de horario no se guarda nada: ni ubicación ni batería. Es su
-  // tiempo libre (y la ley de datos personales pide justamente eso).
-  if (!enHorario(rider, punto.t)) return;
+  // "siempre": fuera de horario no se guarda nada (su tiempo libre, y la ley
+  // de datos personales pide justamente eso). "aPedido": solo se guarda
+  // mientras hay un seguimiento activo que el dueño pidió (ese pedido queda
+  // registrado); fuera de la ventana no se guarda aunque llegue algo.
+  const permitido = esAPedido(rider) ? ventanaActiva(estado, ahora) : enHorario(rider, punto.t);
+  if (!permitido) return;
 
   // Puntos viejos que llegan tarde (el celular los guardó sin internet y
   // los manda después en desorden): no cambian la posición actual.
@@ -516,6 +593,9 @@ function revisar() {
   for (const rider of data.riders) {
     const estado = data.estado[rider.id];
     if (!estado || !estado.ultimo) continue;
+    // Los de "a pedido" están apagados a propósito casi todo el tiempo: no
+    // se les marca "sin señal". Su estado se calcula en vivo en resumen().
+    if (esAPedido(rider)) continue;
     const dentro = enHorario(rider, ahora);
 
     if (estado.estado === "activo" && dentro && ahora - estado.ultimo.recibido > UMBRAL_SIN_SENAL_MS) {
@@ -550,14 +630,34 @@ function resumen() {
     // Con menos de 20 minutos medidos el número sale muy saltón.
     const consumoHora = bat && bat.ms >= 20 * 60 * 1000 ? Math.round((bat.porcentaje / (bat.ms / 3600000)) * 10) / 10 : null;
     const ev = ultimoEvento(r.id);
+    // Estado que ve el panel. Para "a pedido" se calcula en vivo según la
+    // ventana que el dueño abrió y si está llegando ubicación.
+    let estadoShow = est.estado || null;
+    let seguimiento = null;
+    if (esAPedido(r)) {
+      const cmd = est.comando;
+      const activo = ventanaActiva(est, ahora);
+      seguimiento = { activo, hasta: cmd ? cmd.hasta : 0, desde: cmd ? cmd.issued : 0 };
+      if (!activo) {
+        estadoShow = "reposo";
+      } else if (est.ultimo && ahora - est.ultimo.recibido < 90000) {
+        estadoShow = "pedido_activo";
+      } else if (cmd && ahora - cmd.issued > 180000) {
+        estadoShow = "pedido_sin_respuesta";
+      } else {
+        estadoShow = "pedido_esperando";
+      }
+    }
     return {
       id: r.id,
       nombre: r.nombre,
       codigo: r.codigo,
+      modo: r.modo || "siempre",
+      seguimiento,
       horario: r.horario,
       horarioEfectivo: horarioDe(r),
       enHorario: enHorario(r, ahora),
-      estado: est.estado || null,
+      estado: estadoShow,
       ultimo: est.ultimo || null,
       latido: est.latido || null,
       desde: ev ? ev.t : null,
@@ -612,6 +712,8 @@ module.exports = {
   setRutaConfig,
   ruta,
   aceite,
+  setComando,
+  comando,
   // Para pruebas.
   _distanciaKm: distanciaKm,
   _enHorario: enHorario,
