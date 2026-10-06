@@ -36,6 +36,7 @@ const lugaresDinero = require("./lugaresDinero");
 const gastosHormiga = require("./gastosHormiga");
 const calendario = require("./calendario");
 const prestamos = require("./prestamos");
+const ahorrado = require("./ahorrado");
 const diasLibres = require("./diasLibres");
 const combustible = require("./combustible");
 const fuentesIngreso = require("./fuentesIngreso");
@@ -533,6 +534,31 @@ app.post("/api/prices/:id/remove", (req, res) => {
   const ok = productPrices.remove(req.params.id);
   if (!ok) return res.status(404).json({ error: "Ese precio ya no existe." });
   res.json({ ok: true, precios: productPrices.getAll() });
+});
+
+// ---------- Lo que NO gastaste de lo planeado ----------
+// Los dias que no sales, el almuerzo y la gasolina de ese dia no ocurren.
+// Esa plata no es una ganancia ni es un gasto, asi que no aparecia en
+// ningun lado: simplemente no se gasto y no se veia.
+app.get("/api/finance/ahorrado", (req, res) => {
+  const mes = /^[0-9]{4}-[0-9]{2}$/.test(req.query.mes || "")
+    ? req.query.mes
+    : cashbox.getHoyLabel().slice(0, 7);
+  res.json(ahorrado.delMes(mes, scheduledExpenses.getAll(), cashbox.getMovimientos()));
+});
+
+// El acumulado de un tramo cualquiera, para "desde que empece hasta hoy".
+app.get("/api/finance/ahorrado-rango", (req, res) => {
+  const movimientos = cashbox.getMovimientos();
+  const primera = movimientos.reduce((a, m) => (!a || m.fecha < a ? m.fecha : a), "");
+  res.json(
+    ahorrado.calcular({
+      desde: req.query.desde || primera || cashbox.getHoyLabel(),
+      hasta: req.query.hasta || cashbox.getHoyLabel(),
+      gastos: scheduledExpenses.getAll(),
+      movimientos,
+    })
+  );
 });
 
 // ---------- El mes visto como mes ----------

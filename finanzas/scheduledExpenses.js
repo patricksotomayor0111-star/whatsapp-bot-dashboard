@@ -143,14 +143,45 @@ function normalizar(texto) {
 // Se reconoce por las palabras del nombre del gasto programado, por
 // palabra completa: "Almuerzo" calza con "menos 20 almuerzo" pero no
 // con "almuercero".
+// Singular y plural son la misma palabra. Sin esto, un gasto programado
+// llamado "AlmuerzoS diarios" no reconocía "menos 20 almuerzo": el gasto
+// bajaba la caja pero la proyección seguía pidiendo el almuerzo entero,
+// o sea el mismo gasto contado dos veces. Se quita la "s" final solo si
+// lo que queda sigue siendo una palabra (4 letras o más), para no
+// convertir "gas" en "ga" ni "mes" en "me".
+function raiz(palabra) {
+  const p = String(palabra || "");
+  if (p.length >= 5 && p.endsWith("es")) return p.slice(0, -2);
+  if (p.length >= 5 && p.endsWith("s")) return p.slice(0, -1);
+  return p;
+}
+
+// Las palabras con las que se reconoce un concepto. Compartido con
+// ahorrado.js: los dos TIENEN que decidir igual, porque uno descuenta lo
+// ya gastado y el otro cuenta lo que no se gastó.
+function clavesDe(label) {
+  return normalizar(label)
+    .split(/[^a-z0-9]+/)
+    .filter((p) => p.length >= 3)
+    .map(raiz);
+}
+
+// Por palabra completa (ya con el plural resuelto), no por pedazo: con
+// includes() sobre el texto entero, "Ana pasaje" pasaba por "Compartamos
+// banco Ana" solo por compartir una palabra.
+function describeCoincide(claves, descripcion) {
+  if (!claves.length) return false;
+  const palabras = normalizar(descripcion).split(/[^a-z0-9]+/).filter(Boolean).map(raiz);
+  return claves.some((k) => palabras.includes(k));
+}
+
 function yaGastadoEn(label, movimientos, desde, hasta) {
-  const claves = normalizar(label).split(/[^a-z0-9]+/).filter((p) => p.length >= 3);
+  const claves = clavesDe(label);
   if (!claves.length) return 0;
   return (movimientos || []).reduce((suma, m) => {
     if (m.tipo !== "gasto") return suma;
     if (!m.fecha || m.fecha < desde || m.fecha > hasta) return suma;
-    const palabras = normalizar(m.descripcion).split(/[^a-z0-9]+/).filter(Boolean);
-    return claves.some((k) => palabras.includes(k)) ? suma + (m.monto || 0) : suma;
+    return describeCoincide(claves, m.descripcion) ? suma + (m.monto || 0) : suma;
   }, 0);
 }
 
@@ -204,6 +235,8 @@ function getProyeccionRestoDeMes(movimientos) {
 
 module.exports = {
   SEED_ORIGINAL: SEED,
+  clavesDe,
+  describeCoincide,
   getAll,
   addGasto,
   editGasto,

@@ -144,8 +144,19 @@ function estaPendiente(r, hoyLabel) {
   if (!r.activo) return null;
   const due = ultimaVentanaAbierta(r, hoyLabel);
   if (!due) return null;
+  // Pasado el final ya no se debe nada: dejar de avisar es el punto de
+  // ponerle fecha de término.
+  if (r.fechaFin && due > r.fechaFin) return null;
   if (r.lastPaidCycle && r.lastPaidCycle >= due) return null;
   return due;
+}
+
+// ¿Este pago ya terminó? Se usa para mostrarlo como terminado en vez de
+// como "al día", que haría creer que todavía corre.
+function yaTermino(r, hoyLabel) {
+  if (!r.fechaFin) return false;
+  const proxima = proximaFecha(r, hoyLabel);
+  return !proxima || proxima > r.fechaFin;
 }
 
 function getPendientes() {
@@ -178,6 +189,8 @@ function getAll() {
   return datos()
     .reminders.map((r) => {
       const due = estaPendiente(r, hoy);
+      const prox = proximaFecha(r, hoy);
+      const termino = yaTermino(r, hoy);
       return {
         id: r.id,
         label: r.label,
@@ -185,10 +198,13 @@ function getAll() {
         tipo: r.tipo,
         dia: r.dia ?? null,
         fecha: r.fecha ?? null,
+        fechaFin: r.fechaFin ?? null,
         activo: r.activo !== false,
         pendiente: !!due,
         vence: due || null,
-        proxima: proximaFecha(r, hoy),
+        // Pasado el final no hay próxima: el pago se acabó.
+        proxima: termino ? null : prox,
+        termino,
       };
     })
     .sort(porCercania);
@@ -428,7 +444,7 @@ function setActivo(id, activo) {
   save();
 }
 
-function addReminder({ label, monto, tipo, dia, fecha }) {
+function addReminder({ label, monto, tipo, dia, fecha, fechaFin }) {
   const tiposValidos = ["semanal", "mensual_dia", "mensual_finmes", "unica"];
   if (!label || !tiposValidos.includes(tipo)) throw new Error("Datos de recordatorio inválidos");
   const nuevo = {
@@ -441,6 +457,8 @@ function addReminder({ label, monto, tipo, dia, fecha }) {
   };
   if (tipo === "semanal" || tipo === "mensual_dia") nuevo.dia = Number(dia);
   if (tipo === "unica") nuevo.fecha = fecha;
+  // Hasta cuándo se paga. Vacío = para siempre, como era antes.
+  if (fechaFin) nuevo.fechaFin = fechaFin;
   datos().reminders.push(nuevo);
   save();
   return nuevo.id;
@@ -461,6 +479,11 @@ function editReminder(id, cambios) {
   }
   if (cambios.dia !== undefined) r.dia = Number(cambios.dia);
   if (cambios.fecha !== undefined) r.fecha = cambios.fecha;
+  // Vacío borra el final: vuelve a repetirse sin término.
+  if (cambios.fechaFin !== undefined) {
+    if (cambios.fechaFin) r.fechaFin = cambios.fechaFin;
+    else delete r.fechaFin;
+  }
   if (r.tipo === "unica") delete r.dia;
   else delete r.fecha;
   save();
@@ -552,19 +575,21 @@ function getPagosEnRango(dias) {
 
   datos().reminders.forEach((r) => {
     if (r.activo === false) return;
+    // Un pago con fecha de término no se proyecta mas alla de ella.
+    const tope = r.fechaFin && r.fechaFin < hasta ? r.fechaFin : hasta;
 
     // Lo que ya está vencido y sigue sin pagar, sea de hoy o de antes.
     const vencidoSinPagar = estaPendiente(r, hoy);
-    if (vencidoSinPagar && vencidoSinPagar <= hasta) agregar(r, vencidoSinPagar);
+    if (vencidoSinPagar && vencidoSinPagar <= tope) agregar(r, vencidoSinPagar);
 
     if (r.tipo === "unica") {
-      if (r.fecha && r.fecha >= hoy && r.fecha <= hasta) agregar(r, r.fecha);
+      if (r.fecha && r.fecha >= hoy && r.fecha <= tope) agregar(r, r.fecha);
       return;
     }
 
     // Próximas ocurrencias dentro del rango (sin repetir la ya agregada).
     let cursor = hoy;
-    while (cursor <= hasta) {
+    while (cursor <= tope) {
       let esOcurrencia = false;
       if (r.tipo === "semanal") {
         esOcurrencia = ymdToUtc(cursor).getUTCDay() === r.dia;

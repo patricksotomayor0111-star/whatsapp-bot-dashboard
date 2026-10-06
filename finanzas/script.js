@@ -615,6 +615,7 @@ const newReminderTipo = document.getElementById("newReminderTipo");
 const newReminderWeekday = document.getElementById("newReminderWeekday");
 const newReminderDay = document.getElementById("newReminderDay");
 const newReminderDate = document.getElementById("newReminderDate");
+const newReminderHasta = document.getElementById("newReminderHasta");
 const addReminderBtn = document.getElementById("addReminderBtn");
 
 const DIAS_SEMANA = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
@@ -682,13 +683,17 @@ async function renderReminders() {
     let estado;
     if (!r.activo) estado = "Desactivado";
     else if (pendiente) estado = `⚠️ Pendiente · vence ${fmtFecha(r.vence)}`;
+    else if (r.termino) estado = `Terminado el ${fmtFecha(r.fechaFin)}`;
     else estado = `Al día · próximo ${fmtFecha(r.proxima)}`;
+    // Si tiene final, se dice: es la diferencia entre "esto sigue" y
+    // "esto ya se acabó".
+    if (r.fechaFin && !r.termino) estado += ` · hasta ${fmtFecha(r.fechaFin)}`;
 
     const top = document.createElement("div");
     top.className = "flex items-start justify-between gap-2";
     top.innerHTML = `
       <div class="min-w-0">
-        <p class="text-sm font-semibold text-slate-800 truncate">${r.label} <span class="text-slate-500 font-normal">S/ ${r.monto}</span></p>
+        <p class="text-sm font-semibold text-slate-800 break-words">${r.label} <span class="text-slate-500 font-normal">S/ ${r.monto}</span></p>
         <p class="text-xs ${pendiente ? "text-brand-red font-medium" : "text-slate-400"} mt-0.5">${textoCuando(r)} · ${estado}</p>
       </div>`;
 
@@ -723,6 +728,13 @@ async function renderReminders() {
       });
       acciones.appendChild(btnPay);
     }
+
+    const btnEditar = document.createElement("button");
+    btnEditar.className = "w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 active:scale-90 transition-all";
+    btnEditar.title = "Editar";
+    btnEditar.innerHTML = '<i class="fa-solid fa-pen"></i>';
+    btnEditar.addEventListener("click", () => abrirEditarPendiente(r));
+    acciones.appendChild(btnEditar);
 
     const btnToggle = document.createElement("button");
     btnToggle.className = "w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 active:scale-90 transition-all";
@@ -803,6 +815,7 @@ async function renderReminders() {
 // una cajita tampoco dice nada: no ves en qué día cae ni qué pasa en los
 // meses cortos. Esta cuadrícula resuelve las dos cosas.
 const newReminderDayGrid = document.getElementById("newReminderDayGrid");
+const newReminderHastaCaja = document.getElementById("newReminderHastaCaja");
 const newReminderDayBotones = document.getElementById("newReminderDayBotones");
 const newReminderDayHint = document.getElementById("newReminderDayHint");
 
@@ -868,10 +881,100 @@ function pintarDiasDelMes() {
   newReminderDayHint.textContent = texto;
 }
 
+const DIAS_SEMANA_OPC = [
+  { valor: "1", label: "Lunes" },
+  { valor: "2", label: "Martes" },
+  { valor: "3", label: "Miércoles" },
+  { valor: "4", label: "Jueves" },
+  { valor: "5", label: "Viernes" },
+  { valor: "6", label: "Sábado" },
+  { valor: "0", label: "Domingo" },
+];
+
+const TIPOS_PENDIENTE = [
+  { valor: "semanal", label: "Cada semana" },
+  { valor: "mensual_dia", label: "Cada mes, día fijo" },
+  { valor: "mensual_finmes", label: "Fin de cada mes" },
+  { valor: "unica", label: "Una sola vez" },
+];
+
+function abrirEditarPendiente(r) {
+  const campos = [
+    { id: "label", etiqueta: "Nombre", tipo: "texto", valor: r.label },
+    { id: "monto", etiqueta: "Monto", tipo: "numero", valor: r.monto },
+    { id: "tipo", etiqueta: "Cada cuánto", tipo: "opciones", valor: r.tipo, opciones: TIPOS_PENDIENTE },
+  ];
+
+  if (r.tipo === "semanal") {
+    campos.push({ id: "dia", etiqueta: "Qué día", tipo: "opciones", valor: String(r.dia), opciones: DIAS_SEMANA_OPC });
+  } else if (r.tipo === "mensual_dia") {
+    campos.push({ id: "dia", etiqueta: "Qué día del mes (1 a 31)", tipo: "numero", valor: r.dia });
+  } else if (r.tipo === "unica") {
+    campos.push({ id: "fecha", etiqueta: "Qué día", tipo: "fecha", valor: r.fecha || "" });
+  }
+
+  // Hasta cuándo se paga: una cuota se termina, y antes había que
+  // acordarse de apagarla a mano o te seguía avisando para siempre.
+  if (r.tipo !== "unica") {
+    campos.push({ id: "fechaFin", etiqueta: "Hasta cuándo (vacío = para siempre)", tipo: "fecha", valor: r.fechaFin || "" });
+  }
+
+  abrirHojaSimple({
+    titulo: "Editar " + r.label,
+    campos,
+    alGuardar: async (v) => {
+      if (!String(v.label || "").trim()) {
+        mostrarAviso("Ponle un nombre.");
+        return false;
+      }
+      // Cambiar de tipo deja el día o la fecha del tipo viejo sin
+      // sentido: se manda lo que corresponde y el servidor limpia el resto.
+      const cuerpo = { label: v.label, monto: v.monto, tipo: v.tipo, fechaFin: v.fechaFin || "" };
+      if (v.tipo === "semanal" || v.tipo === "mensual_dia") {
+        const dia = Number(v.dia);
+        if (!dia && dia !== 0) {
+          mostrarAviso("Falta el día. Si cambiaste de cada-semana a cada-mes, elige el día nuevo.");
+          return false;
+        }
+        cuerpo.dia = dia;
+      }
+      if (v.tipo === "unica") {
+        if (!v.fecha) {
+          mostrarAviso("Falta la fecha del pago.");
+          return false;
+        }
+        cuerpo.fecha = v.fecha;
+      }
+
+      const res = await fetch("/api/reminders/" + encodeURIComponent(r.id), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(cuerpo),
+      });
+      const data = await res.json();
+      if (data.error) {
+        mostrarAviso(data.error);
+        return false;
+      }
+      renderReminders();
+      fetchGoalsAndProgress();
+      mostrarAviso("Guardado.");
+    },
+    alEliminar: async () => {
+      if (!confirm('¿Borrar "' + r.label + '"? Se pierde su historial de pagos.')) return;
+      await fetch("/api/reminders/" + encodeURIComponent(r.id), { method: "DELETE" });
+      renderReminders();
+      mostrarAviso("Borrado.");
+    },
+  });
+}
+
 function updateNewReminderFields() {
   const tipo = newReminderTipo.value;
   newReminderWeekday.classList.toggle("hidden", tipo !== "semanal");
   newReminderDate.classList.toggle("hidden", tipo !== "unica");
+  // "Hasta cuándo" solo tiene sentido en los que se repiten.
+  if (newReminderHastaCaja) newReminderHastaCaja.classList.toggle("hidden", tipo === "unica");
   if (newReminderDayGrid) {
     newReminderDayGrid.classList.toggle("hidden", tipo !== "mensual_dia");
     if (tipo === "mensual_dia") pintarDiasDelMes();
@@ -905,6 +1008,7 @@ addReminderBtn.addEventListener("click", async () => {
     }
     body.fecha = newReminderDate.value;
   }
+  if (tipo !== "unica" && newReminderHasta.value) body.fechaFin = newReminderHasta.value;
   try {
     await fetch("/api/reminders", {
       method: "POST",
@@ -915,6 +1019,7 @@ addReminderBtn.addEventListener("click", async () => {
     newReminderMonto.value = "";
     newReminderDay.value = "";
     newReminderDate.value = "";
+    newReminderHasta.value = "";
     pintarDiasDelMes();
     renderReminders();
   } catch (err) {
@@ -1156,6 +1261,8 @@ function showFinanceTab(tabId) {
     fetchCalendario(calMes);
   } else if (tabId === "financeTabHormiga") {
     prepararHormiga();
+  } else if (tabId === "financeTabAhorrado") {
+    fetchAhorrado(ahorradoMes);
   } else if (tabId === "financeTabBitacora") {
     fetchBitacora();
   } else if (tabId === "financeTabAjustes") {
@@ -5663,6 +5770,7 @@ const SECCIONES = [
       ["financeTabGraficos", "Graficos"],
       ["financeTabCalendario", "Calendario"],
       ["financeTabHormiga", "Gastos hormiga"],
+      ["financeTabAhorrado", "Lo que te ahorraste"],
       ["financeTabLocales", "Locales"],
       ["financeTabPresupuesto", "Presupuesto"],
     ] },
@@ -5972,6 +6080,79 @@ GUIA.push(
     ],
   },
 );
+GUIA.push(
+  {
+    icono: "🐷",
+    titulo: "Lo que te ahorraste",
+    resumen: "Lo que tenías planeado gastar y no gastaste.",
+    bloques: [
+      {
+        tipo: "texto",
+        texto:
+          "Está en Análisis → Lo que te ahorraste. Los días que no sales, el almuerzo y la gasolina " +
+          "de ese día no ocurren. Esa plata no es una ganancia (así que no sale en ganancias) ni es " +
+          "un gasto (así que tampoco sale en gastos): simplemente no se gastó, y no se veía en ningún " +
+          "lado. Acá se mira día por día qué tenías planeado y qué gastaste de verdad.",
+      },
+      {
+        tipo: "lista",
+        titulo: "Qué ves ahí",
+        items: [
+          "El total del mes, y de cuánto planeado fue.",
+          "Un calendario: mientras más azul el día, más te ahorraste ese día. Tócalo para ver de qué.",
+          "De qué te ahorraste: cuántos días no gastaste cada cosa.",
+          "Y abajo, el acumulado entre dos fechas cualesquiera.",
+        ],
+      },
+      {
+        tipo: "aviso",
+        texto:
+          "Solo cuenta hacia atrás. Un día que todavía no llegó no te ahorró nada, y contarlo sería " +
+          "inventarse plata.",
+      },
+      {
+        tipo: "lista",
+        titulo: "Qué cuenta y qué no",
+        items: [
+          "Cuentan los gastos programados: los de todos los días y los de cada semana.",
+          "NO cuentan los pagos de Pendientes: si no pagaste la luz no te la ahorraste, la debes.",
+          "Si dos gastos programados comparten una palabra (Almuerzos y Almuerzos diarios), un gasto tuyo lo reconocen los dos y las cuentas salen mal. La app te avisa ahí mismo cuáles son.",
+        ],
+      },
+    ],
+  },
+  {
+    icono: "✏️",
+    titulo: "Cambiar un pago pendiente",
+    resumen: "Nombre, monto, cada cuánto, qué día y hasta cuándo.",
+    bloques: [
+      {
+        tipo: "texto",
+        texto:
+          "En Pendientes, el lápiz de cada pago abre todo para cambiarlo. Antes había que borrarlo y " +
+          "crearlo de nuevo, y se perdía su historial de pagos.",
+      },
+      {
+        tipo: "lista",
+        titulo: "Lo nuevo: hasta cuándo se paga",
+        items: [
+          "Una cuota se termina: Natura en 6 meses, una deuda hasta marzo.",
+          "Le pones la fecha de término y, pasada esa fecha, deja de avisarte solo.",
+          "Mientras tanto la lista te dice \"hasta 31/03\", y al terminar, \"Terminado el 31/03\".",
+          "Vacío = se repite para siempre, como era antes.",
+        ],
+      },
+      {
+        tipo: "lista",
+        titulo: "Para tenerlo en cuenta",
+        items: [
+          "Cambiar de \"cada semana\" a \"cada mes\" te va a pedir el día nuevo: son cosas distintas.",
+          "Un pago terminado deja de contar en tus metas y en el calendario.",
+        ],
+      },
+    ],
+  },
+);
 
 // ---------- La pantalla "Todo": el indice de la app ----------
 const DESTINOS = [
@@ -5985,6 +6166,7 @@ const DESTINOS = [
   { icono: "📊", nombre: "Gráficos", que: "Qué día rinde más, gasolina, categorías y meses", panel: "financeTabGraficos" },
   { icono: "📅", nombre: "Calendario", que: "El mes entero: qué hiciste cada día y qué te toca pagar", panel: "financeTabCalendario" },
   { icono: "🐜", nombre: "Gastos hormiga", que: "Lo chiquito que se repite y no se nota", panel: "financeTabHormiga" },
+  { icono: "🐷", nombre: "Lo que te ahorraste", que: "Lo planeado que no gastaste, día por día", panel: "financeTabAhorrado" },
   { icono: "🕘", nombre: "Historial de cambios", que: "Qué se tocó, cuándo y de dónde vino", panel: "financeTabBitacora" },
   { icono: "🏪", nombre: "Locales", que: "Qué restaurante te deja más", panel: "financeTabLocales" },
   { icono: "💸", nombre: "Presupuesto", que: "Límites por categoría y gastos programados", panel: "financeTabPresupuesto" },
@@ -7640,6 +7822,208 @@ function abrirDiaDelCalendario(d) {
 if (calAnterior) {
   calAnterior.addEventListener("click", () => fetchCalendario(mesVecino(calMes, -1)));
   calSiguiente.addEventListener("click", () => fetchCalendario(mesVecino(calMes, 1)));
+}
+
+
+// ---------- Lo que te ahorraste ----------
+// Los días que no sales, el almuerzo y la gasolina de ese día no ocurren.
+// Esa plata no es ganancia ni gasto, así que no aparecía en ningún lado:
+// simplemente no se gastó y no se veía.
+const ahorradoGrilla = document.getElementById("ahorradoGrilla");
+const ahorradoMesTitulo = document.getElementById("ahorradoMesTitulo");
+const ahorradoTotal = document.getElementById("ahorradoTotal");
+const ahorradoContexto = document.getElementById("ahorradoContexto");
+const ahorradoConceptos = document.getElementById("ahorradoConceptos");
+const ahorradoVacio = document.getElementById("ahorradoVacio");
+const ahorradoAnterior = document.getElementById("ahorradoAnterior");
+const ahorradoSiguiente = document.getElementById("ahorradoSiguiente");
+
+let ahorradoMes = "";
+
+async function fetchAhorrado(mes) {
+  if (!ahorradoGrilla) return;
+  try {
+    const url = "/api/finance/ahorrado" + (mes ? "?mes=" + encodeURIComponent(mes) : "");
+    const data = await (await fetch(url)).json();
+    ahorradoMes = data.mes;
+    pintarAhorrado(data);
+  } catch (err) {
+    console.error("No se pudo calcular lo que te ahorraste:", err);
+  }
+}
+
+function pintarAhorrado(data) {
+  const [y, mo] = data.mes.split("-").map(Number);
+  ahorradoMesTitulo.textContent = MESES_ES[mo - 1] + " " + y;
+  ahorradoTotal.textContent = formatSoles(data.total);
+
+  const partes = [];
+  if (data.planeado > 0) {
+    const pct = Math.round((data.total / data.planeado) * 100);
+    partes.push("De " + formatSoles(data.planeado) + " planeados gastaste " + formatSoles(data.gastado) + " (" + pct + "% sin gastar)");
+  }
+  if (data.diasSinGastar > 0) {
+    partes.push(data.diasSinGastar + (data.diasSinGastar === 1 ? " día sin gastar nada" : " días sin gastar nada"));
+  }
+  ahorradoContexto.textContent = partes.join(" · ") || "Todavía no tienes gastos programados que medir.";
+
+  // El calendario del mes, en azul lo que no se gastó.
+  ahorradoGrilla.innerHTML = "";
+  for (let i = 0; i < data.empiezaEn; i++) ahorradoGrilla.appendChild(document.createElement("div"));
+
+  const maximo = data.dias.reduce((m, d) => (d.ahorro > m ? d.ahorro : m), 0);
+  data.dias.forEach((d) => {
+    const celda = document.createElement("button");
+    const fuerza = maximo > 0 ? d.ahorro / maximo : 0;
+    celda.className =
+      "rounded-lg py-1 px-0.5 text-center active:scale-95 transition-all border " +
+      (d.ahorro > 0 ? "border-sky-200" : "bg-white border-slate-50");
+    if (d.ahorro > 0) {
+      // Cuanto más te ahorraste, más fuerte el azul.
+      celda.style.backgroundColor = "rgba(14, 165, 233, " + (0.12 + fuerza * 0.45).toFixed(2) + ")";
+    }
+
+    const num = document.createElement("p");
+    num.className = "text-[11px] font-bold text-slate-700";
+    num.textContent = d.dia;
+    celda.appendChild(num);
+
+    if (d.ahorro > 0) {
+      const a = document.createElement("p");
+      a.className = "text-[9px] font-semibold text-sky-700 leading-tight";
+      a.textContent = Math.round(d.ahorro);
+      celda.appendChild(a);
+    }
+
+    celda.addEventListener("click", () => {
+      if (d.planeado === 0) return mostrarAviso(fmtFecha(d.fecha) + ": no tenías nada planeado.");
+      if (d.ahorro === 0) {
+        return mostrarAviso(fmtFecha(d.fecha) + ": gastaste todo lo planeado (" + formatSoles(d.planeado) + ").");
+      }
+      const de = d.detalle.map((x) => x.label + " " + formatSoles(x.ahorro)).join(" · ");
+      mostrarAviso(fmtFecha(d.fecha) + ": te ahorraste " + formatSoles(d.ahorro) + (de ? " · " + de : ""));
+    });
+    ahorradoGrilla.appendChild(celda);
+  });
+
+  // Si dos gastos programados comparten una palabra, un gasto real lo
+  // reconocen los dos y las cuentas salen mal en los DOS lados: acá y en
+  // la proyeccion de "lo que tengo que gastar". No se puede adivinar cual
+  // era, asi que se avisa.
+  pintarConflictosAhorro(data.conflictos || []);
+
+  // De qué te ahorraste.
+  ahorradoConceptos.innerHTML = "";
+  ahorradoVacio.classList.toggle("hidden", data.conceptos.length > 0);
+  data.conceptos.forEach((c) => {
+    const card = document.createElement("div");
+    card.className = "card bg-white border border-slate-100 py-3";
+    const top = document.createElement("div");
+    top.className = "flex items-baseline justify-between gap-2";
+    const nombre = document.createElement("p");
+    nombre.className = "text-sm font-bold text-slate-800 truncate";
+    nombre.textContent = c.label;
+    const monto = document.createElement("b");
+    monto.className = "text-sky-600 shrink-0";
+    monto.textContent = formatSoles(c.ahorro);
+    top.appendChild(nombre);
+    top.appendChild(monto);
+
+    const detalle = document.createElement("p");
+    detalle.className = "text-[11px] text-slate-400 mt-0.5";
+    detalle.textContent =
+      c.veces + (c.veces === 1 ? " día" : " días") + " que no lo gastaste, de " + formatSoles(c.planeado) + " planeados";
+
+    const barra = document.createElement("div");
+    barra.className = "w-full h-1.5 rounded-full bg-slate-100 overflow-hidden mt-2";
+    const relleno = document.createElement("div");
+    relleno.className = "h-full bg-sky-400";
+    relleno.style.width = (c.planeado > 0 ? Math.min(100, (c.ahorro / c.planeado) * 100) : 0) + "%";
+    barra.appendChild(relleno);
+
+    card.appendChild(top);
+    card.appendChild(detalle);
+    card.appendChild(barra);
+    ahorradoConceptos.appendChild(card);
+  });
+}
+
+function pintarConflictosAhorro(conflictos) {
+  const caja = document.getElementById("ahorradoConflictos");
+  if (!caja) return;
+  caja.innerHTML = "";
+  caja.classList.toggle("hidden", conflictos.length === 0);
+  if (!conflictos.length) return;
+
+  const titulo = document.createElement("p");
+  titulo.className = "eyebrow text-rose-700";
+  const icono = document.createElement("i");
+  icono.className = "fa-solid fa-triangle-exclamation";
+  titulo.appendChild(icono);
+  titulo.appendChild(document.createTextNode(" GASTOS PROGRAMADOS QUE SE PISAN"));
+  caja.appendChild(titulo);
+
+  const texto = document.createElement("p");
+  texto.className = "text-xs text-rose-700 mt-1";
+  texto.textContent =
+    "Estos comparten una palabra, así que un mismo gasto tuyo lo reconocen todos. " +
+    "Eso descuadra este número y también la meta. Cámbiales el nombre o borra el repetido en Análisis → Presupuesto.";
+  caja.appendChild(texto);
+
+  conflictos.forEach((c) => {
+    const fila = document.createElement("p");
+    fila.className = "text-xs text-rose-800 font-semibold mt-1.5";
+    fila.textContent = c.repetido
+      ? String.fromCharCode(34) + c.cuales[0] + String.fromCharCode(34) + " está dos veces"
+      : c.cuales.join(", ") + " (todos por la palabra " + String.fromCharCode(34) + c.palabra + String.fromCharCode(34) + ")";
+    caja.appendChild(fila);
+  });
+}
+
+if (ahorradoAnterior) {
+  ahorradoAnterior.addEventListener("click", () => fetchAhorrado(mesVecino(ahorradoMes, -1)));
+  ahorradoSiguiente.addEventListener("click", () => fetchAhorrado(mesVecino(ahorradoMes, 1)));
+}
+
+// El acumulado de un tramo cualquiera.
+const ahorradoVerRango = document.getElementById("ahorradoVerRango");
+const ahorradoRangoResultado = document.getElementById("ahorradoRangoResultado");
+
+if (ahorradoVerRango) {
+  ahorradoVerRango.addEventListener("click", async () => {
+    const params = new URLSearchParams();
+    const desde = document.getElementById("ahorradoDesde").value;
+    const hasta = document.getElementById("ahorradoHasta").value;
+    if (desde) params.set("desde", desde);
+    if (hasta) params.set("hasta", hasta);
+    const d = await (await fetch("/api/finance/ahorrado-rango?" + params.toString())).json();
+
+    ahorradoRangoResultado.innerHTML = "";
+    const filas = [
+      ["Tenías planeado", formatSoles(d.planeado), "text-slate-800"],
+      ["Gastaste", formatSoles(d.gastado), "text-brand-red"],
+      ["No gastaste", formatSoles(d.total), "text-sky-600"],
+    ];
+    filas.forEach(([label, valor, clase]) => {
+      const f = document.createElement("div");
+      f.className = "flex items-center justify-between gap-2";
+      f.innerHTML = '<span class="text-slate-500">' + label + "</span>";
+      const b = document.createElement("b");
+      b.className = clase + " shrink-0";
+      b.textContent = valor;
+      f.appendChild(b);
+      ahorradoRangoResultado.appendChild(f);
+    });
+
+    const nota = document.createElement("p");
+    nota.className = "text-[11px] text-slate-400 pt-1";
+    nota.textContent =
+      "Del " + fmtFecha(d.desde) + " al " + fmtFecha(d.hasta) +
+      (d.mejorDia && d.mejorDia.ahorro > 0
+        ? ". El día que más te ahorraste fue el " + fmtFecha(d.mejorDia.fecha) + " (" + formatSoles(d.mejorDia.ahorro) + ")."
+        : ".");
+    ahorradoRangoResultado.appendChild(nota);
+  });
 }
 
 // ---------- Gastos hormiga ----------

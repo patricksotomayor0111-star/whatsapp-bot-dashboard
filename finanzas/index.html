@@ -865,6 +865,64 @@
           </section>
         </div>
 
+        <!-- Tab: Lo que te ahorraste (lo planeado que no gastaste) -->
+        <div id="financeTabAhorrado" class="finance-tab-panel hidden space-y-4">
+          <section id="ahorradoResumen" class="card border-0 py-4 text-white" style="background: linear-gradient(135deg, #0EA5E9 0%, #0369A1 100%)">
+            <p class="text-[10px] font-bold tracking-[0.1em] text-white/75">TE AHORRASTE ESTE MES</p>
+            <p id="ahorradoTotal" class="text-[32px] font-extrabold leading-none mt-1">S/ 0</p>
+            <p id="ahorradoContexto" class="text-xs text-white/85 mt-2"></p>
+          </section>
+
+          <section>
+            <div class="flex items-center justify-between gap-2">
+              <button id="ahorradoAnterior" class="w-9 h-9 rounded-xl flex items-center justify-center bg-slate-100 active:scale-90 transition-all">
+                <i class="fa-solid fa-chevron-left text-slate-500"></i>
+              </button>
+              <p id="ahorradoMesTitulo" class="text-sm font-bold text-slate-800">—</p>
+              <button id="ahorradoSiguiente" class="w-9 h-9 rounded-xl flex items-center justify-center bg-slate-100 active:scale-90 transition-all">
+                <i class="fa-solid fa-chevron-right text-slate-500"></i>
+              </button>
+            </div>
+            <div class="grid grid-cols-7 gap-1 mt-3 text-center text-[10px] font-bold text-slate-400">
+              <span>D</span><span>L</span><span>M</span><span>M</span><span>J</span><span>V</span><span>S</span>
+            </div>
+            <div id="ahorradoGrilla" class="grid grid-cols-7 gap-1 mt-1"></div>
+            <p class="text-[11px] text-slate-400 mt-2">En azul lo que no gastaste ese día de lo que tenías planeado. Toca un día para ver de qué.</p>
+          </section>
+
+          <section id="ahorradoConflictos" class="card bg-rose-50 border border-rose-200 py-3 hidden"></section>
+
+          <section>
+            <p class="eyebrow text-sky-600"><i class="fa-solid fa-piggy-bank"></i> DE QUÉ TE AHORRASTE</p>
+            <div id="ahorradoConceptos" class="space-y-2 mt-2"></div>
+            <p id="ahorradoVacio" class="hidden text-center text-xs text-slate-400 py-6">Este mes gastaste todo lo que tenías planeado.</p>
+          </section>
+
+          <section class="card bg-white border border-slate-100 py-3">
+            <p class="eyebrow text-slate-600"><i class="fa-solid fa-calendar-week"></i> DESDE QUE EMPEZASTE</p>
+            <p class="text-xs text-slate-400 mt-1 mb-2">El acumulado de todo lo que llevas sin gastar de lo planeado.</p>
+            <div class="grid grid-cols-2 gap-2">
+              <label class="block text-[11px] font-semibold text-slate-400">Desde
+                <input id="ahorradoDesde" type="date" class="w-full mt-0.5 bg-white rounded-xl px-3 py-2 text-xs border border-slate-200" />
+              </label>
+              <label class="block text-[11px] font-semibold text-slate-400">Hasta
+                <input id="ahorradoHasta" type="date" class="w-full mt-0.5 bg-white rounded-xl px-3 py-2 text-xs border border-slate-200" />
+              </label>
+            </div>
+            <button id="ahorradoVerRango" class="w-full mt-2 rounded-xl px-4 py-2.5 text-sm font-bold bg-sky-500 text-white active:scale-95 transition-all">Ver el total</button>
+            <div id="ahorradoRangoResultado" class="text-xs mt-2 space-y-1"></div>
+          </section>
+
+          <section class="card bg-amber-50 border border-amber-100 py-3">
+            <p class="eyebrow text-amber-600"><i class="fa-solid fa-circle-info"></i> QUÉ CUENTA ACÁ</p>
+            <p class="text-xs text-slate-500 mt-1">
+              Solo los <b>gastos programados</b> (Análisis → Presupuesto): los de todos los días y los de cada semana.
+              Si un día no saliste y no almorzaste fuera, ese almuerzo no se gastó y cuenta.
+              <b>Los pagos de Pendientes no cuentan</b>: si no pagaste la luz, no te la ahorraste — la debes.
+            </p>
+          </section>
+        </div>
+
         <!-- Tab: Gastos hormiga (lo chiquito que se repite) -->
         <div id="financeTabHormiga" class="finance-tab-panel hidden space-y-4">
           <section class="card bg-white border border-slate-100 py-3">
@@ -1116,6 +1174,14 @@
               <p id="newReminderDayHint" class="text-[11px] text-slate-400 mt-1.5"></p>
             </div>
             <input id="newReminderDate" type="date" class="hidden w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-green/40" />
+            <!-- Hasta cuando se paga: una cuota se termina. Antes se
+                 repetia para siempre y habia que apagarla a mano. -->
+            <div id="newReminderHastaCaja">
+              <label class="block text-[11px] font-semibold text-slate-400">Hasta cuándo (opcional)
+                <input id="newReminderHasta" type="date" class="w-full mt-0.5 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-green/40" />
+              </label>
+              <p class="text-[11px] text-slate-400 mt-1">Vacío = se repite para siempre.</p>
+            </div>
             <button id="addReminderBtn" class="w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-brand-green text-white active:scale-95 transition-all">Agregar pago</button>
           </div>
         </section>
