@@ -5294,6 +5294,7 @@ GUIA.push(
           ["Precios de productos", "Un segundo chat donde anotas precios y después le preguntas cuánto cuesta algo."],
           ["Tareas", "Pendientes que no son plata (botar la basura) y te insisten hasta que los marcas."],
           ["Corregir un día entero", "En Movimientos, en el historial diario, el lápiz corrige las cifras de un día ya cerrado."],
+          ["Entrar a un rubro", "En el desglose, toca una línea de \"De dónde vino\" o \"En qué se fue\" y ves SOLO eso: el total, la comparación y la lista uno por uno. \"Ver todo otra vez\" te saca."],
         ],
       },
     ],
@@ -6095,6 +6096,9 @@ const desgloseBuscar = document.getElementById("desgloseBuscar");
 const desgloseCuerpo = document.getElementById("desgloseCuerpo");
 
 let desgloseConfig = null;
+// El rubro en el que entraste (vacío = estás viendo todo junto).
+let desgloseGrupo = "";
+let desgloseGrupoNombre = "";
 let desglosePeriodo = "mes";
 let desgloseDatos = null; // { movimientos, hoy }
 // id -> nombre legible. Sin esto el desglose mostraba "comida_diaria" y
@@ -6145,6 +6149,10 @@ function filtrarMovimientos(rango) {
   const q = (desgloseBuscar.value || "").trim().toLowerCase();
   return (desgloseDatos.movimientos || []).filter((m) => {
     if (m.tipo !== desgloseConfig.tipo) return false;
+    // Si entraste a un rubro, todo lo de esta pantalla es de ese rubro:
+    // el total de arriba, la comparación y la lista. Si no, no servía de
+    // nada entrar: seguirías viendo las mismas cifras de todo junto.
+    if (desgloseGrupo && claveDeGrupo(m) !== desgloseGrupo) return false;
     if (m.fecha < rango.desde || m.fecha > rango.hasta) return false;
     if (q && !(m.descripcion || "").toLowerCase().includes(q) && !String(m.monto).includes(q)) return false;
     if (desgloseConfig.filtroExtra && !desgloseConfig.filtroExtra(m)) return false;
@@ -6154,10 +6162,18 @@ function filtrarMovimientos(rango) {
 
 // Los gastos se agrupan por categoria y las ganancias por fuente: es la
 // clasificacion que ya trae cada movimiento resuelta desde el servidor.
+// A qué rubro pertenece un movimiento: su categoría si es gasto, su
+// fuente si es ganancia. Antes esto estaba escrito suelto adentro de
+// agruparMovimientos; ahora lo usan también el filtro y el "entrar" a un
+// grupo, y tienen que coincidir siempre.
+function claveDeGrupo(m) {
+  return desgloseConfig.tipo === "gasto" ? m.categoriaEfectiva || "otros" : m.fuenteEfectiva || "sin fuente";
+}
+
 function agruparMovimientos(movs) {
   const porGrupo = new Map();
   movs.forEach((m) => {
-    const clave = desgloseConfig.tipo === "gasto" ? m.categoriaEfectiva || "otros" : m.fuenteEfectiva || "sin fuente";
+    const clave = claveDeGrupo(m);
     const actual = porGrupo.get(clave) || { monto: 0, cantidad: 0 };
     actual.monto += m.monto || 0;
     actual.cantidad += 1;
@@ -6166,6 +6182,8 @@ function agruparMovimientos(movs) {
   const total = movs.reduce((s, m) => s + (m.monto || 0), 0);
   return Array.from(porGrupo.entries())
     .map((par) => ({
+      // La clave viaja junto al nombre: es con lo que se filtra al tocar.
+      clave: par[0],
       nombre: nombresDeGrupo.get(par[0]) || par[0],
       monto: par[1].monto,
       cantidad: par[1].cantidad,
@@ -6229,6 +6247,20 @@ function barraDe(pct, esGasto) {
   return fondo;
 }
 
+function entrarAlGrupo(clave, nombre) {
+  desgloseGrupo = clave;
+  desgloseGrupoNombre = nombre;
+  pintarDesglose();
+  desgloseCuerpo.scrollTop = 0;
+}
+
+function salirDelGrupo() {
+  desgloseGrupo = "";
+  desgloseGrupoNombre = "";
+  pintarDesglose();
+  desgloseCuerpo.scrollTop = 0;
+}
+
 function pintarDesglose() {
   if (!desgloseDatos || !desgloseConfig) return;
   const hoy = desgloseDatos.hoy;
@@ -6246,6 +6278,17 @@ function pintarDesglose() {
 
   desgloseCuerpo.innerHTML = "";
 
+  if (desgloseGrupo) {
+    const volver = document.createElement("button");
+    volver.className =
+      "w-full flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold bg-slate-100 text-slate-600 active:scale-95 transition-all";
+    volver.innerHTML =
+      '<i class="fa-solid fa-arrow-left"></i><span>Ver todo otra vez</span>' +
+      '<span class="ml-auto text-slate-400">' + desgloseGrupoNombre + "</span>";
+    volver.addEventListener("click", salirDelGrupo);
+    desgloseCuerpo.appendChild(volver);
+  }
+
   const cab = document.createElement("section");
   cab.className = "card border-0 py-4 text-white";
   cab.style.background = esGasto
@@ -6253,7 +6296,11 @@ function pintarDesglose() {
     : "linear-gradient(135deg, #22C55E 0%, #15803D 100%)";
   const et = document.createElement("p");
   et.className = "text-[10px] font-bold tracking-[0.1em] text-white/75";
-  et.textContent = esGasto ? "TOTAL GASTADO" : "TOTAL GANADO";
+  et.textContent = desgloseGrupo
+    ? desgloseGrupoNombre.toUpperCase() + " · " + (esGasto ? "GASTADO" : "GANADO")
+    : esGasto
+    ? "TOTAL GASTADO"
+    : "TOTAL GANADO";
   const num = document.createElement("p");
   num.className = "text-[34px] font-extrabold leading-none mt-1 tracking-tight";
   num.textContent = formatSoles(total);
@@ -6296,32 +6343,44 @@ function pintarDesglose() {
     return;
   }
 
-  // En qué se fue / de dónde vino
+  // En qué se fue / de dónde vino. Cada rubro se toca para entrar y ver
+  // solo lo suyo. Si ya entraste a uno, esta lista no aporta nada (sería
+  // una sola barra al 100%), así que no se dibuja.
   const grupos = agruparMovimientos(movs);
-  const secGrupos = document.createElement("section");
-  secGrupos.className = "card bg-white border border-slate-100 py-3";
-  const tg = document.createElement("p");
-  tg.className = "eyebrow text-slate-600 mb-2";
-  tg.textContent = esGasto ? "EN QUÉ SE FUE" : "DE DÓNDE VINO";
-  secGrupos.appendChild(tg);
-  grupos.forEach((g) => {
-    const fila = document.createElement("div");
-    fila.className = "mb-2";
-    const top = document.createElement("div");
-    top.className = "flex items-center justify-between gap-2 text-xs mb-1";
-    const n = document.createElement("span");
-    n.className = "font-semibold text-slate-700 truncate";
-    n.textContent = g.nombre + " (" + g.cantidad + ")";
-    const v = document.createElement("span");
-    v.className = "text-slate-500 shrink-0";
-    v.textContent = formatSoles(g.monto) + " · " + g.pct + "%";
-    top.appendChild(n);
-    top.appendChild(v);
-    fila.appendChild(top);
-    fila.appendChild(barraDe(g.pct, esGasto));
-    secGrupos.appendChild(fila);
-  });
-  desgloseCuerpo.appendChild(secGrupos);
+  if (!desgloseGrupo) {
+    const secGrupos = document.createElement("section");
+    secGrupos.className = "card bg-white border border-slate-100 py-3";
+    const tg = document.createElement("p");
+    tg.className = "eyebrow text-slate-600";
+    tg.textContent = esGasto ? "EN QUÉ SE FUE" : "DE DÓNDE VINO";
+    const sg = document.createElement("p");
+    sg.className = "text-[11px] text-slate-400 mt-0.5 mb-2";
+    sg.textContent = "Toca uno para ver todo lo suyo.";
+    secGrupos.appendChild(tg);
+    secGrupos.appendChild(sg);
+
+    grupos.forEach((g) => {
+      const fila = document.createElement("button");
+      fila.className = "w-full text-left mb-2 rounded-lg px-2 py-1.5 -mx-2 active:scale-[0.98] active:bg-slate-50 transition-all";
+      const top = document.createElement("div");
+      top.className = "flex items-center justify-between gap-2 text-xs mb-1";
+      const n = document.createElement("span");
+      n.className = "font-semibold text-slate-700 truncate";
+      n.textContent = g.nombre + " (" + g.cantidad + ")";
+      const v = document.createElement("span");
+      v.className = "text-slate-500 shrink-0 flex items-center gap-1.5";
+      v.innerHTML =
+        "<span>" + formatSoles(g.monto) + " · " + g.pct + "%</span>" +
+        '<i class="fa-solid fa-chevron-right text-slate-300"></i>';
+      top.appendChild(n);
+      top.appendChild(v);
+      fila.appendChild(top);
+      fila.appendChild(barraDe(g.pct, esGasto));
+      fila.addEventListener("click", () => entrarAlGrupo(g.clave, g.nombre));
+      secGrupos.appendChild(fila);
+    });
+    desgloseCuerpo.appendChild(secGrupos);
+  }
 
   // Este periodo contra el anterior del mismo largo, rubro por rubro.
   // Eligiendo "Mes" queda la comparacion de este mes contra el pasado.
@@ -6541,6 +6600,8 @@ function pintarPeriodos() {
 
 async function abrirDesglose(config) {
   desgloseConfig = config;
+  desgloseGrupo = "";
+  desgloseGrupoNombre = "";
   desglosePeriodo = config.periodo || "mes";
   desgloseTitulo.textContent = config.titulo;
   desgloseBuscar.value = config.texto || "";
