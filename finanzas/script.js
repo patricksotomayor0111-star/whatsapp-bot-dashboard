@@ -5064,6 +5064,23 @@ function pintarMetaEnResumen(data) {
     return;
   }
 
+  // Hoy descansas: no hay meta que cumplir. Lo que falta ya está
+  // repartido entre los días que sí vas a salir, así que pedirte hoy la
+  // meta de un día de trabajo sería pedirte algo que no te propusiste.
+  if (m.hoyEsLibre) {
+    resumenMetaDia.textContent = "Descanso";
+    resumenMetaDia.className = "text-lg font-extrabold text-sky-600 leading-none";
+    resumenMetaBarra.style.width = "100%";
+    resumenMetaBarra.className = "h-full bg-sky-400 transition-all duration-500";
+    resumenMetaTexto.textContent =
+      ganadoHoy > 0
+        ? "Hoy no te toca trabajar, así que los " + formatSoles(ganadoHoy) +
+          " que hiciste son extra: bajan lo que te falta para los días que sí sales."
+        : "Hoy no te toca trabajar. Lo que falta está repartido entre tus " +
+          m.diasHabiles + " días de trabajo, a " + formatSoles(m.diaria) + " cada uno.";
+    return;
+  }
+
   resumenMetaDia.textContent = formatSoles(m.diaria);
   resumenMetaDia.className = "text-lg font-extrabold text-brand-green leading-none";
   const pct = m.diaria > 0 ? Math.min(Math.max(ganadoHoy / m.diaria, 0), 1) : 0;
@@ -5401,6 +5418,7 @@ GUIA.push(
           ["Precios de productos", "Un segundo chat donde anotas precios y después le preguntas cuánto cuesta algo."],
           ["Tareas", "Pendientes que no son plata (botar la basura) y te insisten hasta que los marcas."],
           ["Corregir un día entero", "En Movimientos, en el historial diario, el lápiz corrige las cifras de un día ya cerrado."],
+          ["Días de descanso", "En Metas marcas los días que no sales. Esos días no tienen meta: lo que falta se reparte entre los que sí trabajas. Si igual sales un rato, eso es extra y no te baja el promedio."],
           ["Entrar a un rubro", "En el desglose, toca una línea de \"De dónde vino\" o \"En qué se fue\" y ves SOLO eso: el total, la comparación y la lista uno por uno. \"Ver todo otra vez\" te saca."],
         ],
       },

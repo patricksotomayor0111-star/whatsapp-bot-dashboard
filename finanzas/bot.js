@@ -31,6 +31,7 @@ const users = require("./users");
 const chatConfig = require("./chatConfig");
 const custodias = require("./custodias");
 const prestamos = require("./prestamos");
+const diasLibres = require("./diasLibres");
 
 // Identificadores propios de la cuenta, para reconocer el chat de
 // "mensajes contigo mismo".
@@ -960,13 +961,25 @@ async function checkCashboxSchedule(bot) {
     `🧮 Caja inicial: ${formatSoles(resumenDia.caja)}\n` +
     `💵 Efectivo esperado: ${formatSoles(resumenDia.esperado)}`;
 
-  if (progresoAntes) {
+  const eraDiaLibre = diasLibres.esLibre(hoyLabel);
+
+  if (progresoAntes && eraDiaLibre) {
+    // Lo que haya entrado en su día libre es de más, no una meta cumplida
+    // a medias. Retarlo por descansar el día que decidió descansar es la
+    // forma más rápida de que deje de mirar la app.
+    textoDia +=
+      `\n\n😴 Hoy era tu día de descanso, así que no había meta.` +
+      (resumenDia.ganancias > 0 ? ` Los ${formatSoles(resumenDia.ganancias)} que hiciste son extra.` : "") +
+      `\n📈 Vas en ${formatSoles(progresoAntes.generadoAcumulado + resumenDia.ganancias)} de ${formatSoles(progresoAntes.metaMensualReferencia)} este mes.`;
+  } else if (progresoAntes) {
     const cumplioMeta = resumenDia.ganancias >= progresoAntes.metaHoy;
     textoDia +=
       `\n\n🎯 Meta de producción de hoy: ${formatSoles(progresoAntes.metaHoy)} — ${cumplioMeta ? "cumplida ✅" : "no cumplida ⚠️"}\n` +
       `📈 Vas en ${formatSoles(progresoAntes.generadoAcumulado + resumenDia.ganancias)} de ${formatSoles(progresoAntes.metaMensualReferencia)} este mes.`;
   }
-  if (progresoSiguiente) {
+  if (diasLibres.esLibre(businessDay.addDays(hoyLabel, 1))) {
+    textoDia += `\n🌅 Mañana descansas.`;
+  } else if (progresoSiguiente) {
     textoDia += `\n🌅 Meta de mañana: ${formatSoles(progresoSiguiente.metaHoy)}`;
   }
 
@@ -979,7 +992,7 @@ async function checkCashboxSchedule(bot) {
   // Si hay meta diaria configurada y no se cumplió, avisa por notificación
   // push (aparte del mensaje de WhatsApp de arriba).
   const metaDiaria = financeGoals.getGoals().diaria;
-  if (metaDiaria > 0 && resumenDia.ganancias < metaDiaria) {
+  if (!eraDiaLibre && metaDiaria > 0 && resumenDia.ganancias < metaDiaria) {
     pushSubscriptions
       .notifyAll({
         title: "📉 No llegaste a la meta de hoy",

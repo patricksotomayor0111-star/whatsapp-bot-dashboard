@@ -118,6 +118,10 @@ function calcular(hastaPedido) {
   //    agarra corto. Sin dias libres configurados esto da igual que antes.
   const diasHabiles = diasLibres.contarHabiles(hoyLabel, hasta);
   const diaria = falta / diasHabiles;
+  // Hoy puede ser un día de descanso. En ese caso no hay meta de hoy: lo
+  // que haga sale de más, y lo que falta ya está repartido entre los días
+  // que sí va a trabajar.
+  const hoyEsLibre = diasLibres.esLibre(hoyLabel);
 
   //    Para la semanal: cuantos de esos dias de trabajo caen en lo que
   //    queda de esta semana, sin pasarse de la fecha limite.
@@ -140,12 +144,24 @@ function calcular(hastaPedido) {
   const fuentesIngreso = require("./fuentesIngreso");
   const noEsTrabajo = new Set(fuentesIngreso.idsQueNoSonTrabajo());
 
+  //    Y los dias de DESCANSO quedan fuera del promedio. Si sale un rato
+  //    en su dia libre y hace S/60, ese dia no dice como le va cuando
+  //    trabaja: metido en el promedio lo baja y la app cree que rinde
+  //    menos de lo que rinde. Esa plata sigue contando en "lo que tengo",
+  //    que es donde tiene que contar. Ademas el promedio se multiplica
+  //    por los dias HABILES, asi que tiene que ser el promedio de un dia
+  //    habil o las dos mitades no hablan de lo mismo.
   const porDiaTrabajado = new Map();
   let ingresosNoTrabajo = 0;
+  let ganadoEnDiasLibres = 0;
   cashbox.getMovimientos().forEach((m) => {
     if (m.tipo !== "ganancia") return;
     if (noEsTrabajo.has(fuentesIngreso.resolveFuenteId(m))) {
       ingresosNoTrabajo += m.monto || 0;
+      return;
+    }
+    if (diasLibres.esLibre(m.fecha)) {
+      ganadoEnDiasLibres += m.monto || 0;
       return;
     }
     porDiaTrabajado.set(m.fecha, (porDiaTrabajado.get(m.fecha) || 0) + (m.monto || 0));
@@ -173,6 +189,9 @@ function calcular(hastaPedido) {
     cubierto: falta <= 0,
     diasRestantes,
     diasHabiles,
+    hoyEsLibre,
+    // Lo que entró en días de descanso: es extra, no parte del ritmo.
+    ganadoEnDiasLibres: r2(ganadoEnDiasLibres),
     // Que dias NO trabaja dentro de este periodo, para poder mostrarselos.
     diasLibresEnPeriodo: diasLibres.listarLibres(hoyLabel, hasta),
     diasSemana,
