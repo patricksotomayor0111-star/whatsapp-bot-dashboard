@@ -88,7 +88,7 @@
 
 <script>
 const DIAS = ["D", "L", "M", "M", "J", "V", "S"];
-const COLORES = { activo: "#22C55E", sin_senal: "#EF4444", espera: "#F59E0B", fuera: "#94A3B8" };
+const COLORES = { activo: "#22C55E", sin_senal: "#EF4444", espera: "#F59E0B", fuera: "#94A3B8", reposo: "#94A3B8" };
 const TEXTO_EVENTO = {
   activo: ["🟢", "Activó su ubicación"],
   sin_senal: ["🔴", "Dejó de enviar ubicación (celular apagado o sin internet)"],
@@ -97,6 +97,9 @@ const TEXTO_EVENTO = {
   reconecto: ["🟢", "Volvió a tener internet"],
   fin_horario: ["⏹️", "Terminó su horario"],
   aceite: ["🛢️", "Se registró cambio de aceite"],
+  pedido_ubicar: ["📍", "Pediste ubicar ahora"],
+  pedido_seguir: ["🛰️", "Pediste seguir"],
+  pedido_detener: ["⏹️", "Detuviste el seguimiento"],
 };
 
 let datos = null;
@@ -128,6 +131,12 @@ async function api(url, opts = {}) {
 // Estado que se muestra: lo que diga el servidor, pero visto con el
 // horario (fuera de horario no importa si "sigue activo").
 function estadoVisible(r) {
+  if (r.modo === "aPedido") {
+    if (r.estado === "pedido_activo") return { clave: "activo", texto: "Ubicación activa", chip: "bg-emerald-100 text-emerald-700" };
+    if (r.estado === "pedido_esperando") return { clave: "espera", texto: "Encendiendo GPS…", chip: "bg-amber-100 text-amber-700" };
+    if (r.estado === "pedido_sin_respuesta") return { clave: "sin_senal", texto: "No responde al pedido", chip: "bg-rose-100 text-rose-700" };
+    return { clave: "reposo", texto: "En reposo (a pedido)", chip: "bg-slate-100 text-slate-500" };
+  }
   if (!r.enHorario) return { clave: "fuera", texto: "Fuera de horario", chip: "bg-slate-100 text-slate-500" };
   if (r.estado === "activo") return { clave: "activo", texto: "Ubicación activa", chip: "bg-emerald-100 text-emerald-700" };
   if (r.estado === "sin_senal") return { clave: "sin_senal", texto: `Sin señal desde las ${hora(r.desde)}`, chip: "bg-rose-100 text-rose-700" };
@@ -171,6 +180,32 @@ function interruptor(attr, id, on, texto) {
     <span>${texto}</span>
     <span class="w-10 h-6 rounded-full p-0.5 transition ${on ? "bg-emerald-500" : "bg-slate-300"}"><span class="block w-5 h-5 rounded-full bg-white shadow transition ${on ? "translate-x-4" : ""}"></span></span>
   </button>`;
+}
+
+function seccionPedido(r) {
+  const seg = r.seguimiento;
+  const activo = seg && seg.activo;
+  const aPedido = r.modo === "aPedido";
+  return `<div class="mt-4 rounded-xl bg-sky-50 p-3 text-xs space-y-2">
+    <div class="flex items-center justify-between">
+      <span class="font-semibold">📡 Encendido del GPS</span>
+      <span class="flex rounded-lg overflow-hidden border border-sky-200 text-[11px]">
+        <button data-modo="${r.id}:siempre" class="px-2 py-1 ${!aPedido ? "bg-sky-500 text-white" : "bg-white text-slate-500"}">Siempre</button>
+        <button data-modo="${r.id}:aPedido" class="px-2 py-1 ${aPedido ? "bg-sky-500 text-white" : "bg-white text-slate-500"}">A pedido</button>
+      </span>
+    </div>
+    ${aPedido
+      ? `<p class="${activo ? "text-emerald-700 font-semibold" : "text-slate-500"}">${activo ? `🟢 Siguiendo hasta las ${hora(seg.hasta)}` : "GPS apagado (en reposo)"}</p>
+         <div class="flex flex-wrap gap-2">
+           <button data-ubicar="${r.id}" class="rounded-lg bg-sky-500 text-white font-semibold px-3 py-1.5">📍 Ubicar ahora</button>
+           <button data-seguir="${r.id}:15" class="rounded-lg bg-white border border-sky-300 px-2 py-1.5">Seguir 15 min</button>
+           <button data-seguir="${r.id}:30" class="rounded-lg bg-white border border-sky-300 px-2 py-1.5">30 min</button>
+           <button data-seguir="${r.id}:60" class="rounded-lg bg-white border border-sky-300 px-2 py-1.5">60 min</button>
+           ${activo ? `<button data-detener="${r.id}" class="rounded-lg bg-white border border-rose-200 text-rose-600 px-2 py-1.5">Detener</button>` : ""}
+         </div>
+         <p class="text-[11px] text-slate-400">El GPS se enciende solo cuando tocas aquí y se apaga solo. Necesita la app propia instalada (Traccar Client no obedece estas órdenes).</p>`
+      : '<p class="text-slate-400">El GPS manda todo su horario de trabajo (Traccar Client).</p>'}
+  </div>`;
 }
 
 function seccionRuta(r) {
@@ -242,6 +277,7 @@ function render() {
           </div>
           <ul id="ev-${r.id}" class="mt-2 space-y-1 text-xs">${r.eventosHoy.length ? r.eventosHoy.map(filaEvento).join("") : '<li class="text-slate-400">Sin movimientos hoy.</li>'}</ul>
           ${r.ultimo ? `<a target="_blank" href="https://www.google.com/maps?q=${r.ultimo.lat},${r.ultimo.lon}" class="inline-block mt-3 text-xs text-blue-600 font-semibold"><i class="fa-solid fa-location-dot"></i> Abrir en Google Maps</a>` : ""}
+          ${seccionPedido(r)}
           ${seccionRuta(r)}
           ${seccionKm(r)}
           <div class="mt-4 rounded-xl bg-slate-50 p-3 text-xs space-y-2">
@@ -439,6 +475,22 @@ document.addEventListener("click", async (e) => {
         await api(`/api/motorizados/${r.id}`, { method: "POST", body: JSON.stringify({ aceiteCadaKm: Number(v) }) });
         await cargar();
       }
+    } else if (t.dataset.modo) {
+      const [id, modo] = t.dataset.modo.split(":");
+      const r = datos.riders.find((x) => x.id === id);
+      if ((r.modo === "aPedido") === (modo === "aPedido")) return; // ya está en ese modo
+      await api(`/api/motorizados/${id}`, { method: "POST", body: JSON.stringify({ modo }) });
+      await cargar();
+    } else if (t.dataset.ubicar) {
+      await api(`/api/motorizados/${t.dataset.ubicar}/comando`, { method: "POST", body: JSON.stringify({ tipo: "ubicar" }) });
+      await cargar();
+    } else if (t.dataset.seguir) {
+      const [id, min] = t.dataset.seguir.split(":");
+      await api(`/api/motorizados/${id}/comando`, { method: "POST", body: JSON.stringify({ tipo: "seguir", minutos: Number(min) }) });
+      await cargar();
+    } else if (t.dataset.detener) {
+      await api(`/api/motorizados/${t.dataset.detener}/comando`, { method: "POST", body: JSON.stringify({ tipo: "detener" }) });
+      await cargar();
     } else if (t.dataset.borrar) {
       const r = datos.riders.find((x) => x.id === t.dataset.borrar);
       if (confirm(`¿Eliminar a ${r.nombre}? Se borra también su historial.`)) {
