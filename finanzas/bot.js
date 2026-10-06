@@ -92,6 +92,49 @@ function normalizeText(str) {
   return str.normalize("NFD").replace(COMBINING_MARKS, "").toLowerCase();
 }
 
+// ¿Estas dos palabras están a UN error de distancia? Cuenta como un
+// error: una letra de más, una de menos, una cambiada, o dos letras
+// volteadas (que es el dedazo típico al escribir rápido).
+function aUnErrorDe(palabra, objetivo) {
+  const a = normalizeText(String(palabra || ""));
+  const b = normalizeText(String(objetivo || ""));
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1) return false;
+
+  // Dos letras volteadas: "menso" por "menos".
+  if (a.length === b.length) {
+    const distintas = [];
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) distintas.push(i);
+      if (distintas.length > 2) return false;
+    }
+    if (distintas.length === 1) return true; // una letra cambiada
+    if (distintas.length === 2) {
+      const [i, j] = distintas;
+      return j === i + 1 && a[i] === b[j] && a[j] === b[i];
+    }
+    return false;
+  }
+
+  // Una letra de más o de menos.
+  const corta = a.length < b.length ? a : b;
+  const larga = a.length < b.length ? b : a;
+  let i = 0;
+  let j = 0;
+  let saltos = 0;
+  while (i < corta.length && j < larga.length) {
+    if (corta[i] === larga[j]) {
+      i += 1;
+      j += 1;
+    } else {
+      saltos += 1;
+      if (saltos > 1) return false;
+      j += 1;
+    }
+  }
+  return true;
+}
+
 const CASHBOX_GROUP_NAME = "GANANCIAS";
 // Grupo donde se anotan a mano los precios de productos y se consultan
 // después ("six pack pilsen mas barato"). Igual que el de la caja chica,
@@ -126,7 +169,22 @@ function parseCashboxLine(rawLine) {
     }
   }
 
-  const mMenos = text.match(/^menos\s+(\d+(?:\.\d+)?)\s*(mil)?\s*(.*)$/i);
+  // Antes esto exigía "menos" exacto. Un dedazo —"Menso 48 pizza cena"—
+  // se ignoraba EN SILENCIO: el gasto no quedaba en ningún lado y no
+  // había forma de enterarse hasta que la caja no cuadraba. Ahora se
+  // acepta si está a un error, y se avisa que se corrigió.
+  const mPrimeraPalabra = text.match(/^(\S+)\s+(\d+(?:\.\d+)?)\s*(mil)?\s*(.*)$/i);
+  let mMenos = null;
+  let correccion = null;
+  if (mPrimeraPalabra) {
+    const escrita = mPrimeraPalabra[1];
+    if (normalizeText(escrita) === "menos") {
+      mMenos = [null, mPrimeraPalabra[2], mPrimeraPalabra[3], mPrimeraPalabra[4]];
+    } else if (aUnErrorDe(escrita, "menos")) {
+      mMenos = [null, mPrimeraPalabra[2], mPrimeraPalabra[3], mPrimeraPalabra[4]];
+      correccion = { escribiste: escrita, quisiste: "menos" };
+    }
+  }
   const mMas = mMenos ? null : text.match(/^(\d+(?:\.\d+)?)\s*(mil)?\s*(.*)$/i);
   const montoDe = (m) => parseFloat(m[1]) * (m[2] ? 1000 : 1);
 
@@ -138,13 +196,13 @@ function parseCashboxLine(rawLine) {
     // "Menos X Nombre debe": Nombre te debe X (no resta de la caja).
     if (/\bdebe\b/.test(restoNorm)) {
       const persona = resto.replace(/\bdebe\b/i, "").trim();
-      if (persona) return { type: "deuda_debe", monto, persona, descripcion: resto };
+      if (persona) return { type: "deuda_debe", monto, persona, descripcion: resto, correccion };
     }
 
     // "Menos X falto": diferencia de caja que no cuadró. Sí resta de la
     // caja (como un gasto normal) y además queda en un total aparte.
     if (/\bfalto\b/.test(restoNorm)) {
-      return { type: "faltante", monto, descripcion: resto };
+      return { type: "faltante", monto, descripcion: resto, correccion };
     }
   }
 
@@ -177,7 +235,7 @@ function parseCashboxLine(rawLine) {
   }
 
   // Y al final lo genérico.
-  if (mMenos) return { type: "gasto", monto: montoDe(mMenos), descripcion: mMenos[3].trim() };
+  if (mMenos) return { type: "gasto", monto: montoDe(mMenos), descripcion: mMenos[3].trim(), correccion };
   if (mMas) return { type: "ganancia", monto: montoDe(mMas), descripcion: mMas[3].trim() };
 
   return null;
@@ -541,6 +599,14 @@ function handleCashboxEntries(entradas, idsCreados) {
   const anotarId = (id) => { if (id && Array.isArray(idsCreados)) idsCreados.push(id); };
   const avisos = [];
   entradas.forEach((entrada) => {
+    // Si hubo que corregir un dedazo, se dice. Lo que el bot adivina
+    // nunca puede quedar callado: si adivinó mal, tienes que poder verlo.
+    if (entrada.correccion) {
+      avisos.push(
+        "\u270F\uFE0F Escribiste \"" + entrada.correccion.escribiste + "\" y lo tomé como \"" +
+          entrada.correccion.quisiste + "\".\nSi no era eso, bórralo desde el panel."
+      );
+    }
     if (entrada.type === "gasto") {
       anotarId(cashbox.addGasto(entrada.monto, entrada.descripcion));
       // Si ese gasto corresponde a un pago pendiente, se marca solo: así da
@@ -1285,6 +1351,14 @@ async function procesarMensajes(bot, messages) {
         const idsCreados = [];
         const avisos = handleCashboxEntries(entradas, idsCreados);
         await guardarRecibo(bot, msg, idsCreados);
+        // Un visto bueno en el mensaje, como en el grupo de precios: sin
+        // llenar el chat de respuestas, pero dejando claro qué entró. Si
+        // una línea no tiene palomita, no se anotó.
+        try {
+          await sock.sendMessage(chatId, { react: { text: "\u2705", key: msg.key } });
+        } catch (err) {
+          console.error("No se pudo reaccionar al movimiento anotado:", err.message);
+        }
         for (const aviso of avisos) {
           try {
             await enviarMensaje(bot, chatId, { text: aviso });
@@ -1346,4 +1420,16 @@ function chatsDisponibles(userId) {
   return lista;
 }
 
-module.exports = { startBot, startBotsGuardados, estadoDe, logoutBot, getSock, avisarAlGrupo, chatsDisponibles };
+module.exports = {
+  startBot,
+  startBotsGuardados,
+  estadoDe,
+  logoutBot,
+  getSock,
+  avisarAlGrupo,
+  chatsDisponibles,
+  // Se exponen para poder probarlos sin levantar WhatsApp.
+  parseCashboxLine,
+  parseCashboxMessage,
+  aUnErrorDe,
+};
