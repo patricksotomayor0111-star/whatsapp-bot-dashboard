@@ -40,6 +40,9 @@
     <div id="mapa"></div>
   </div>
 
+  <!-- Control de grupo (a pedido) -->
+  <section id="grupoBox" class="mx-4 mt-4"></section>
+
   <section class="mx-4 mt-4 space-y-3" id="lista"></section>
 
   <!-- Reporte del día -->
@@ -122,6 +125,7 @@ let datos = null;
 let mapa, capa, capaRuta;
 let rutaVisible = null; // id del motorizado cuya ruta está dibujada
 let marcandoCasa = null; // id del motorizado al que se le está marcando la casa
+let seleccion = new Set(); // ids "a pedido" elegidos para el control de grupo
 let abiertos = new Set();
 let segundos = 60;
 
@@ -334,6 +338,7 @@ function render() {
     ? `⚠️ Están llegando ubicaciones con código${desc.length > 1 ? "s" : ""} que no está${desc.length > 1 ? "n" : ""} registrado${desc.length > 1 ? "s" : ""}: ${desc.map((d) => `<b>${esc(d.codigo)}</b>`).join(", ")}. Agrégalo abajo con ese mismo código o corrígelo en su celular.`
     : "";
 
+  pintarGrupo();
   pintarAvisos();
 
   // Si el mapa no carga (sin conexión al servidor de mapas), la lista y
@@ -343,6 +348,47 @@ function render() {
   } catch (err) {
     console.error("No se pudo dibujar el mapa:", err);
   }
+}
+
+// Control de grupo: pedir ubicación a varios "a pedido" a la vez (todos,
+// los que están en horario, o los que marques a mano). A los "siempre" no
+// se les pide nada (ya reportan en su horario), por eso no salen aquí.
+function pintarGrupo() {
+  const box = $("grupoBox");
+  if (!box) return;
+  const aPedido = datos.riders.filter((r) => r.modo === "aPedido");
+  if (!aPedido.length) { box.innerHTML = ""; return; }
+
+  // Limpia de la selección a los que ya no existen o dejaron de ser "a pedido".
+  const validos = new Set(aPedido.map((r) => r.id));
+  [...seleccion].forEach((id) => { if (!validos.has(id)) seleccion.delete(id); });
+
+  const chips = aPedido
+    .map((r) => {
+      const on = seleccion.has(r.id);
+      const etiqueta = on ? "" : r.enHorario ? ' <span class="text-emerald-600">· en horario</span>' : ' <span class="text-slate-400">· fuera</span>';
+      return `<button data-grupo-sel="${r.id}" class="rounded-lg border px-2 py-1 ${on ? "bg-sky-500 text-white border-sky-500" : "bg-white text-slate-600 border-slate-200"}">${on ? "☑️" : "⬜"} ${esc(r.nombre)}${etiqueta}</button>`;
+    })
+    .join("");
+
+  const n = seleccion.size;
+  box.innerHTML = `<div class="rounded-2xl bg-white border border-slate-100 shadow-sm p-4">
+    <p class="text-[11px] font-bold tracking-wider text-sky-600"><i class="fa-solid fa-layer-group"></i> VER A VARIOS (a pedido)</p>
+    <div class="flex gap-2 mt-2 text-xs">
+      <button data-grupo="todos" class="rounded-lg bg-slate-100 px-2 py-1 font-semibold">Todos</button>
+      <button data-grupo="horario" class="rounded-lg bg-slate-100 px-2 py-1 font-semibold">En horario</button>
+      <button data-grupo="ninguno" class="rounded-lg bg-slate-100 px-2 py-1 font-semibold">Ninguno</button>
+    </div>
+    <div class="flex flex-wrap gap-2 mt-3 text-xs">${chips}</div>
+    <div class="flex flex-wrap gap-2 mt-3 ${n ? "" : "opacity-40 pointer-events-none"}">
+      <button data-grupo-accion="ubicar" class="rounded-lg bg-sky-500 text-white font-semibold px-3 py-1.5 text-xs">📍 Ubicar</button>
+      <button data-grupo-accion="seguir:15" class="rounded-lg bg-white border border-sky-300 px-2 py-1.5 text-xs">Seguir 15</button>
+      <button data-grupo-accion="seguir:30" class="rounded-lg bg-white border border-sky-300 px-2 py-1.5 text-xs">30</button>
+      <button data-grupo-accion="seguir:60" class="rounded-lg bg-white border border-sky-300 px-2 py-1.5 text-xs">60 min</button>
+      <button data-grupo-accion="detener" class="rounded-lg bg-white border border-rose-200 text-rose-600 px-2 py-1.5 text-xs">⏹️ Detener</button>
+    </div>
+    <p class="text-[11px] text-slate-400 mt-2">${n ? n + " seleccionado(s)" : "Elige a quiénes quieres ubicar a la vez."}</p>
+  </div>`;
 }
 
 // Interruptores de los avisos por WhatsApp. El general ("whatsapp") los
@@ -639,6 +685,25 @@ document.addEventListener("click", async (e) => {
         await api(`/api/motorizados/${r.id}`, { method: "POST", body: JSON.stringify({ casa: null }) });
         await cargar();
       }
+    } else if (t.dataset.grupo) {
+      const aPedido = datos.riders.filter((x) => x.modo === "aPedido");
+      if (t.dataset.grupo === "todos") aPedido.forEach((x) => seleccion.add(x.id));
+      else if (t.dataset.grupo === "horario") { seleccion.clear(); aPedido.filter((x) => x.enHorario).forEach((x) => seleccion.add(x.id)); }
+      else seleccion.clear();
+      pintarGrupo();
+    } else if (t.dataset.grupoSel) {
+      const id = t.dataset.grupoSel;
+      seleccion.has(id) ? seleccion.delete(id) : seleccion.add(id);
+      pintarGrupo();
+    } else if (t.dataset.grupoAccion) {
+      const ids = [...seleccion];
+      if (!ids.length) return;
+      const [tipo, min] = t.dataset.grupoAccion.split(":");
+      const body = tipo === "seguir" ? { ids, tipo, minutos: Number(min) } : { ids, tipo };
+      const res = await api("/api/motorizados/comando-masivo", { method: "POST", body: JSON.stringify(body) });
+      await cargar();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      alert(tipo === "detener" ? `Detenido en ${res.aplicados} motorizado(s).` : `Pedido enviado a ${res.aplicados} motorizado(s).`);
     }
   } catch (err) {
     alert(err.message);

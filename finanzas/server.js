@@ -409,6 +409,14 @@ app.post("/api/motorizados/avisos", soloDuenoMotorizados, (req, res) => {
   }
 });
 
+app.post("/api/motorizados/comando-masivo", soloDuenoMotorizados, (req, res) => {
+  try {
+    res.json({ ok: true, ...motorizados.setComandoMasivo(req.body || {}) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 app.post("/api/motorizados/:id", soloDuenoMotorizados, (req, res) => {
   try {
     res.json({ ok: true, rider: motorizados.editar(req.params.id, req.body || {}) });
