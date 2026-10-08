@@ -2,7 +2,7 @@ const express = require("express");
 const path = require("path");
 const fsSync = require("fs");
 const { userDataPath } = require("./dataDir");
-const { startBot, startBotsGuardados, estadoDe, logoutBot, getSock, avisarAlGrupo, chatsDisponibles } = require("./bot");
+const { startBot, startBotsGuardados, estadoDe, logoutBot, getSock, avisarAlGrupo, avisarAMisMensajes, chatsDisponibles } = require("./bot");
 const cashbox = require("./cashbox");
 const pushSubscriptions = require("./pushSubscriptions");
 const budgetCategories = require("./budgetCategories");
@@ -47,6 +47,13 @@ const motorizados = require("./motorizados");
 // Crea la cuenta del dueño y le pasa los datos que hoy están sueltos en el
 // volumen. Se hace al arrancar, antes de atender cualquier pedido.
 users.asegurarDueno();
+
+// Los avisos de los motorizados (sin señal, no responde, no entró, parado)
+// le llegan al dueño por WhatsApp, a su chat personal ("Mis propios
+// mensajes"), nunca a un grupo. Si su WhatsApp no está vinculado, el aviso
+// simplemente no se manda.
+motorizados.setNotificador((texto) => avisarAMisMensajes(users.DUENO_ID, texto).catch(() => {}));
+
 require("./limpiarSemillas").limpiar();
 const ExcelJS = require("exceljs");
 
@@ -338,6 +345,10 @@ app.get("/api/motorizados/debug", soloDuenoMotorizados, (req, res) => {
   res.json({ recibidos: motorizados.crudos() });
 });
 
+app.get("/api/motorizados/reporte", soloDuenoMotorizados, (req, res) => {
+  res.json(motorizados.reporteDia(req.query.dia));
+});
+
 app.get("/api/motorizados/:id/ruta", soloDuenoMotorizados, (req, res) => {
   const r = motorizados.ruta(req.params.id);
   if (!r) return res.status(404).json({ error: "Motorizado no encontrado." });
@@ -385,6 +396,14 @@ app.post("/api/motorizados", soloDuenoMotorizados, (req, res) => {
 app.post("/api/motorizados/horario", soloDuenoMotorizados, (req, res) => {
   try {
     res.json({ ok: true, horario: motorizados.setHorarioGeneral(req.body || {}) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/motorizados/avisos", soloDuenoMotorizados, (req, res) => {
+  try {
+    res.json({ ok: true, avisos: motorizados.setAvisos(req.body || {}) });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

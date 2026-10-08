@@ -34,12 +34,30 @@
 
   <div id="error" class="hidden mx-4 mt-4 rounded-xl bg-rose-50 text-rose-700 text-sm p-3"></div>
   <div id="avisoDesconocidos" class="hidden mx-4 mt-4 rounded-xl bg-amber-50 text-amber-800 text-xs p-3"></div>
+  <div id="bannerCasa" class="hidden mx-4 mt-4 rounded-xl bg-indigo-600 text-white text-sm p-3">👆 Toca en el mapa el lugar de su casa. (Vuelve a tocar "Marcar" para cancelar.)</div>
 
   <div class="mx-4 mt-4 rounded-2xl overflow-hidden shadow-sm border border-slate-100 bg-white">
     <div id="mapa"></div>
   </div>
 
   <section class="mx-4 mt-4 space-y-3" id="lista"></section>
+
+  <!-- Reporte del día -->
+  <section class="mx-4 mt-6 rounded-2xl bg-white border border-slate-100 shadow-sm p-4">
+    <div class="flex items-center justify-between gap-2">
+      <p class="text-[11px] font-bold tracking-wider text-indigo-600"><i class="fa-solid fa-chart-column"></i> REPORTE DEL DÍA</p>
+      <input id="repDia" type="date" class="text-xs rounded-lg border border-slate-200 px-2 py-1" />
+    </div>
+    <p class="text-xs text-slate-400 mt-1">A qué hora se conectó (si llegó tarde), cuántas horas trabajó y cuántos cortes de señal tuvo cada uno.</p>
+    <div id="reporteLista" class="mt-3 space-y-2 text-xs"></div>
+  </section>
+
+  <!-- Avisos por WhatsApp -->
+  <section class="mx-4 mt-4 rounded-2xl bg-white border border-slate-100 shadow-sm p-4">
+    <p class="text-[11px] font-bold tracking-wider text-rose-600"><i class="fa-solid fa-bell"></i> AVISOS POR WHATSAPP</p>
+    <p class="text-xs text-slate-400 mt-1">Te llegan a tu WhatsApp, a <b>"Mis propios mensajes"</b> (tu WhatsApp tiene que estar vinculado en el panel). Apaga el de arriba cuando no quieras que te avise de nada.</p>
+    <div id="avisosLista" class="mt-3 space-y-2 text-sm"></div>
+  </section>
 
   <!-- Horario general -->
   <section class="mx-4 mt-6 rounded-2xl bg-white border border-slate-100 shadow-sm p-4">
@@ -74,13 +92,11 @@
     <details class="mt-3 text-xs text-slate-500">
       <summary class="font-semibold cursor-pointer">¿Cómo configuro su celular?</summary>
       <ol class="list-decimal ml-4 mt-2 space-y-1">
-        <li>Instala <b>Traccar Client</b> (Play Store o App Store).</li>
-        <li>En Ajustes pon <b>URL del servidor</b>: <code id="urlServidor" class="bg-slate-100 px-1 rounded"></code></li>
-        <li><b>Identificador de dispositivo</b>: el código del motorizado (sale en su tarjeta).</li>
-        <li>Precisión <b>Alta</b>, Distancia <b>150</b>, Refresco en reposo <b>60</b>.</li>
-        <li>Ajustes avanzados: Búfer sin conexión <b>sí</b>, Bloqueo de suspensión <b>sí</b>, Detección de parada <b>sí</b>. Ponle <b>contraseña</b> para que no lo cambien.</li>
-        <li>En el celular: Ubicación <b>"Permitir todo el tiempo"</b>, Batería <b>"Sin restricciones"</b>, <b>"Pausar actividad si no se usa"</b> apagado y, en Xiaomi, <b>"Abrir ventanas en segundo plano"</b> permitido y el candado en recientes.</li>
-        <li>Activa <b>Seguimiento continuo</b>. Desde ahí ya no tiene que tocar nada.</li>
+        <li>Instala <b>la app Moto GPS</b> en su celular (el mismo instalador sirve para todos).</li>
+        <li>Al abrirla, escribe su <b>código</b> (sale en su tarjeta, aquí abajo) y toca Conectar.</li>
+        <li>Acepta la ubicación en <b>"Permitir todo el tiempo"</b>.</li>
+        <li>En el celular: Batería <b>"Sin restricciones"</b>, <b>"Pausar actividad si no se usa"</b> apagado y, en Xiaomi, <b>"Abrir ventanas en segundo plano"</b> permitido y el candado en recientes.</li>
+        <li>Listo. Desde ahí no tiene que tocar nada más: la app queda conectada sola.</li>
       </ol>
     </details>
   </section>
@@ -105,6 +121,7 @@ const TEXTO_EVENTO = {
 let datos = null;
 let mapa, capa, capaRuta;
 let rutaVisible = null; // id del motorizado cuya ruta está dibujada
+let marcandoCasa = null; // id del motorizado al que se le está marcando la casa
 let abiertos = new Set();
 let segundos = 60;
 
@@ -203,8 +220,8 @@ function seccionPedido(r) {
            <button data-seguir="${r.id}:60" class="rounded-lg bg-white border border-sky-300 px-2 py-1.5">60 min</button>
            ${activo ? `<button data-detener="${r.id}" class="rounded-lg bg-white border border-rose-200 text-rose-600 px-2 py-1.5">Detener</button>` : ""}
          </div>
-         <p class="text-[11px] text-slate-400">El GPS se enciende solo cuando tocas aquí y se apaga solo. Necesita la app propia instalada (Traccar Client no obedece estas órdenes).</p>`
-      : '<p class="text-slate-400">El GPS manda todo su horario de trabajo (Traccar Client).</p>'}
+         <p class="text-[11px] text-slate-400">El GPS se enciende solo cuando tocas aquí y se apaga solo. Necesita la app Moto GPS instalada en su celular.</p>`
+      : '<p class="text-slate-400">El GPS manda todo su horario de trabajo (con la app Moto GPS conectada).</p>'}
   </div>`;
 }
 
@@ -236,6 +253,21 @@ function seccionKm(r) {
          </div>
          <p class="text-[11px] text-slate-400">Es aproximado (±10%) y solo cuenta dentro de su horario de trabajo. Compáralo con el odómetro de la moto de vez en cuando.</p>`
       : '<p class="text-slate-400">No se cuentan sus kilómetros.</p>'}
+  </div>`;
+}
+
+function seccionCasa(r) {
+  const tiene = !!r.casa;
+  const marcando = marcandoCasa === r.id;
+  return `<div class="mt-3 rounded-xl bg-indigo-50 p-3 text-xs space-y-2">
+    <div class="flex items-center justify-between">
+      <span class="font-semibold">🏠 Su casa</span>
+      ${tiene ? `<button data-quitar-casa="${r.id}" class="text-rose-600 font-semibold">Quitar</button>` : ""}
+    </div>
+    <p class="text-slate-500">${tiene
+      ? "Casa marcada. Si está parado cerca de aquí en su horario, el aviso te dice que está en su casa."
+      : "Sin marcar. Marca su casa para saber si se queda ahí cuando debería estar trabajando."}</p>
+    <button data-marcar-casa="${r.id}" class="w-full rounded-lg ${marcando ? "bg-white border border-indigo-300 text-indigo-700" : "bg-indigo-500 text-white"} font-semibold py-2">${marcando ? "Cancelar (toca el mapa)" : tiene ? "Volver a marcar en el mapa" : "📍 Marcar su casa en el mapa"}</button>
   </div>`;
 }
 
@@ -280,8 +312,9 @@ function render() {
           ${seccionPedido(r)}
           ${seccionRuta(r)}
           ${seccionKm(r)}
+          ${seccionCasa(r)}
           <div class="mt-4 rounded-xl bg-slate-50 p-3 text-xs space-y-2">
-            <p>Código para Traccar Client: <code class="bg-white px-1 rounded font-semibold">${esc(r.codigo)}</code></p>
+            <p>Código del motorizado (para la app): <code class="bg-white px-1 rounded font-semibold">${esc(r.codigo)}</code></p>
             <p>Horario: ${r.horario ? horarioTexto(r.horario) : "el general (" + horarioTexto(datos.horario) + ")"}</p>
             <div class="flex flex-wrap gap-2">
               <button data-horario="${r.id}" class="rounded-lg bg-white border border-slate-200 px-2 py-1">Horario propio</button>
@@ -301,12 +334,66 @@ function render() {
     ? `⚠️ Están llegando ubicaciones con código${desc.length > 1 ? "s" : ""} que no está${desc.length > 1 ? "n" : ""} registrado${desc.length > 1 ? "s" : ""}: ${desc.map((d) => `<b>${esc(d.codigo)}</b>`).join(", ")}. Agrégalo abajo con ese mismo código o corrígelo en su celular.`
     : "";
 
+  pintarAvisos();
+
   // Si el mapa no carga (sin conexión al servidor de mapas), la lista y
   // el horario tienen que seguir funcionando igual.
   try {
     renderMapa();
   } catch (err) {
     console.error("No se pudo dibujar el mapa:", err);
+  }
+}
+
+// Interruptores de los avisos por WhatsApp. El general ("whatsapp") los
+// apaga todos de golpe; los de abajo se atenúan cuando está apagado.
+function pintarAvisos() {
+  if (!$("avisosLista") || !datos.avisos) return;
+  const a = datos.avisos;
+  const master = interruptor("data-aviso", "whatsapp", a.whatsapp !== false, "🔔 Avisarme por WhatsApp");
+  const subs = [
+    ["gpsApagado", "🔴 Si apaga el GPS o queda sin señal"],
+    ["noResponde", "⏱️ Si no responde a un pedido"],
+    ["noEntro", "🕐 Si no se conecta a su hora de entrada"],
+    ["parado", "🅿️ Si lleva mucho rato parado"],
+  ]
+    .map(([k, txt]) => interruptor("data-aviso", k, a[k] !== false, txt))
+    .join("");
+  const minBtn = `<div class="flex items-center justify-between rounded-xl bg-white border border-slate-200 px-3 py-2">
+      <span>⏲️ Considerar "parado" después de</span>
+      <button data-paradomin="1" class="rounded-lg bg-slate-100 px-3 py-1 font-semibold">${a.paradoMin} min</button>
+    </div>`;
+  const dim = a.whatsapp === false ? "opacity-40" : "";
+  $("avisosLista").innerHTML = master + `<div class="space-y-2 ${dim}">${subs}${minBtn}</div>`;
+}
+
+// Reporte del día: hora de conexión, horas trabajadas y cortes de señal.
+async function cargarReporte(dia) {
+  const box = $("reporteLista");
+  if (!box) return;
+  try {
+    const rep = await api(`/api/motorizados/reporte${dia ? "?dia=" + encodeURIComponent(dia) : ""}`);
+    if (!rep.riders.length) {
+      box.innerHTML = '<p class="text-slate-400">Todavía no hay motorizados.</p>';
+      return;
+    }
+    box.innerHTML = rep.riders
+      .map((r) => {
+        const h = Math.floor(r.trabajadoMin / 60);
+        const m = r.trabajadoMin % 60;
+        const trabajado = r.trabajadoMin > 0 ? `${h ? h + " h " : ""}${m} min` : "—";
+        const conex = r.conexion ? hora(r.conexion) : '<span class="text-rose-600">no se conectó</span>';
+        const tarde = r.tardeMin !== null && r.tardeMin > 5 ? ` <span class="text-amber-600">(tarde ${r.tardeMin} min)</span>` : "";
+        const cortes = r.cortes ? ` · ${r.cortes} corte${r.cortes > 1 ? "s" : ""} de señal` : "";
+        return `<div class="rounded-xl bg-slate-50 p-3">
+          <b>${esc(r.nombre)}</b><br>
+          🟢 Entró: ${conex}${tarde}<br>
+          ⏱️ Trabajó: <b>${trabajado}</b>${cortes}
+        </div>`;
+      })
+      .join("");
+  } catch (err) {
+    box.innerHTML = `<p class="text-rose-600">${esc(err.message)}</p>`;
   }
 }
 
@@ -321,9 +408,17 @@ function renderMapa() {
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(mapa);
     capa = L.layerGroup().addTo(mapa);
     capaRuta = L.layerGroup().addTo(mapa);
+    mapa.on("click", onMapaClick);
   }
   capa.clearLayers();
   const puntos = [];
+  // Casas marcadas: se dibujan siempre, aunque el motorizado no tenga una
+  // ubicación reciente.
+  datos.riders.forEach((r) => {
+    if (!r.casa) return;
+    const icon = L.divIcon({ className: "", html: '<div style="font-size:20px;line-height:1">🏠</div>', iconSize: [22, 22], iconAnchor: [11, 11] });
+    L.marker([r.casa.lat, r.casa.lon], { icon }).bindPopup(`🏠 Casa de ${esc(r.nombre)}`).addTo(capa);
+  });
   datos.riders.forEach((r) => {
     if (!r.ultimo) return;
     const ev = estadoVisible(r);
@@ -386,6 +481,23 @@ function quitarRuta() {
   render();
 }
 
+// Cuando se está marcando la casa de un motorizado, el siguiente toque en
+// el mapa guarda esa coordenada como su casa.
+async function onMapaClick(e) {
+  if (!marcandoCasa) return;
+  const id = marcandoCasa;
+  const r = datos.riders.find((x) => x.id === id);
+  if (!confirm(`¿Marcar este punto como la casa de ${r ? r.nombre : "este motorizado"}?`)) return;
+  try {
+    await api(`/api/motorizados/${id}`, { method: "POST", body: JSON.stringify({ casa: { lat: e.latlng.lat, lon: e.latlng.lng } }) });
+    marcandoCasa = null;
+    $("bannerCasa").classList.add("hidden");
+    await cargar();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
 function pintarRutaConfig() {
   $("rInicio").value = datos.ruta.inicio;
   $("rFin").value = datos.ruta.fin;
@@ -400,6 +512,12 @@ async function cargar(conHorario) {
       pintarRutaConfig();
     }
     render();
+    // Reporte del día: respeta la fecha elegida (si eligió un día pasado,
+    // no se la pisa con la de hoy en cada refresco).
+    const dia = $("repDia").value || datos.hoy;
+    $("repDia").value = dia;
+    $("repDia").max = datos.hoy;
+    cargarReporte(dia);
     // La ruta abierta se redibuja con cada actualización para que siga
     // creciendo mientras el motorizado avanza.
     if (rutaVisible) mostrarRuta(rutaVisible).catch(() => {});
@@ -497,6 +615,30 @@ document.addEventListener("click", async (e) => {
         await api(`/api/motorizados/${r.id}`, { method: "DELETE" });
         await cargar();
       }
+    } else if (t.dataset.aviso) {
+      const k = t.dataset.aviso;
+      const nuevo = datos.avisos[k] === false; // estaba apagado -> encender, y viceversa
+      const { avisos } = await api("/api/motorizados/avisos", { method: "POST", body: JSON.stringify({ [k]: nuevo }) });
+      datos.avisos = avisos;
+      pintarAvisos();
+    } else if (t.dataset.paradomin) {
+      const v = prompt("¿Cuántos minutos parado para avisarte? (entre 5 y 240)", datos.avisos.paradoMin);
+      if (v !== null && v.trim() !== "") {
+        const { avisos } = await api("/api/motorizados/avisos", { method: "POST", body: JSON.stringify({ paradoMin: Number(v) }) });
+        datos.avisos = avisos;
+        pintarAvisos();
+      }
+    } else if (t.dataset.marcarCasa) {
+      marcandoCasa = marcandoCasa === t.dataset.marcarCasa ? null : t.dataset.marcarCasa;
+      $("bannerCasa").classList.toggle("hidden", !marcandoCasa);
+      render();
+      if (marcandoCasa) window.scrollTo({ top: 0, behavior: "smooth" });
+    } else if (t.dataset.quitarCasa) {
+      const r = datos.riders.find((x) => x.id === t.dataset.quitarCasa);
+      if (confirm(`¿Quitar la casa marcada de ${r.nombre}?`)) {
+        await api(`/api/motorizados/${r.id}`, { method: "POST", body: JSON.stringify({ casa: null }) });
+        await cargar();
+      }
     }
   } catch (err) {
     alert(err.message);
@@ -504,6 +646,10 @@ document.addEventListener("click", async (e) => {
 });
 
 document.addEventListener("change", async (e) => {
+  if (e.target.id === "repDia") {
+    cargarReporte(e.target.value);
+    return;
+  }
   const id = e.target.dataset.dia;
   if (!id) return;
   try {
@@ -537,7 +683,7 @@ $("agregar").onclick = async () => {
     $("nuevoCodigo").value = "";
     abiertos.add(rider.id);
     await cargar();
-    alert(`Listo. En el Traccar Client de ${rider.nombre} pon como identificador: ${rider.codigo}`);
+    alert(`Listo. En la app de ${rider.nombre} escribe este código: ${rider.codigo}`);
   } catch (err) {
     alert(err.message);
   }
@@ -554,7 +700,6 @@ $("guardarRuta").onclick = async () => {
 };
 
 $("btnRefrescar").onclick = () => cargar();
-$("urlServidor").textContent = location.origin + "/api/gps";
 
 // Se refresca cada 60 s (lo mismo que tarda el celular en mandar un punto
 // nuevo) y se pausa con la pestaña escondida para no gastar datos.
