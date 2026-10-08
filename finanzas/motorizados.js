@@ -478,6 +478,28 @@ function setComando(id, { tipo, minutos }) {
   return { hasta, ahora };
 }
 
+// Aplica una orden (ubicar / seguir / detener) a VARIOS motorizados a la
+// vez, para no tener que hacerlo uno por uno. Solo afecta a los "a pedido":
+// a los "siempre" no les cambia nada pedirles (ya reportan en su horario),
+// así que se saltan en silencio.
+function setComandoMasivo({ ids, tipo, minutos }) {
+  if (!Array.isArray(ids) || !ids.length) throw new Error("No se eligió ningún motorizado.");
+  if (tipo === "seguir") {
+    const m = Number(minutos);
+    if (!Number.isFinite(m) || m < 1 || m > 720) throw new Error("Minutos inválidos (1 a 720).");
+  } else if (tipo !== "ubicar" && tipo !== "detener") {
+    throw new Error("Acción inválida.");
+  }
+  let aplicados = 0;
+  for (const id of ids) {
+    const rider = data.riders.find((r) => r.id === id);
+    if (!rider || !esAPedido(rider)) continue;
+    setComando(id, { tipo, minutos });
+    aplicados++;
+  }
+  return { aplicados };
+}
+
 // Guarda el token de avisos (push) que manda la app del motorizado al
 // registrarse. Se guarda por motorizado, identificado por su código.
 function setToken(code, token) {
@@ -983,6 +1005,7 @@ module.exports = {
   ruta,
   aceite,
   setComando,
+  setComandoMasivo,
   comando,
   setToken,
   getAvisos,

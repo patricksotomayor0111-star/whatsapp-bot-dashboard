@@ -160,6 +160,26 @@ app.use((req, res, next) => {
   });
 });
 
+// Las cuentas "solo motorizados" (socios) ven ÚNICAMENTE el panel de
+// motorizados. Se bloquea todo lo demás EN EL SERVIDOR (no solo escondido en
+// la pantalla): aunque escriban otra dirección a mano, no entran a las
+// finanzas. El dueño y las cuentas completas no se ven afectados.
+const PANTALLAS_MOTORIZADOS = new Set(["/motorizados", "/motorizados.html"]);
+app.use((req, res, next) => {
+  if (users.rolDe(req.userId) !== "motorizados") return next();
+  const p = req.path;
+  const permitido =
+    PANTALLAS_MOTORIZADOS.has(p) ||
+    p.startsWith("/api/motorizados") ||
+    p === "/api/sesion" ||
+    p === "/api/logout" ||
+    p === "/api/tutorial-visto";
+  if (permitido) return next();
+  // A la API se le niega; cualquier otra pantalla lo manda al mapa.
+  if (p.startsWith("/api/")) return res.status(403).json({ error: "Tu cuenta solo tiene acceso a los motorizados." });
+  return res.redirect("/motorizados");
+});
+
 // Quién soy: lo usa el panel para saludar y para mostrar la
 // administración de cuentas solo cuando corresponde.
 app.get("/api/sesion", (req, res) => {
@@ -169,6 +189,7 @@ app.get("/api/sesion", (req, res) => {
     usuario: cuenta.usuario,
     nombre: cuenta.nombre,
     esDueno: cuenta.id === users.DUENO_ID,
+    rol: users.rolDe(cuenta.id),
     tutorialVisto: chatConfig.getConfig().tutorialVisto,
   });
 });
@@ -217,6 +238,16 @@ app.post("/api/usuarios/:id/password", soloDueno, (req, res) => {
       return res.status(404).json({ error: "Cuenta no encontrada." });
     }
     res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/usuarios/:id/rol", soloDueno, (req, res) => {
+  try {
+    const rol = users.setRol(req.params.id, req.body?.rol);
+    if (rol === null) return res.status(404).json({ error: "Cuenta no encontrada." });
+    res.json({ ok: true, rol });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -326,9 +357,12 @@ app.all("/api/gps", express.urlencoded({ extended: false }), (req, res) => {
   res.status(200).send("OK");
 });
 
-function soloDuenoMotorizados(req, res, next) {
-  if (req.userId !== users.DUENO_ID) {
-    return res.status(403).json({ error: "Solo el dueño puede ver a los motorizados." });
+function accesoMotorizados(req, res, next) {
+  // El dueño y los socios con rol "motorizados" pueden ver y manejar los
+  // motorizados. Las cuentas completas (de finanzas) no tienen acceso.
+  const rol = users.rolDe(req.userId);
+  if (rol !== "dueno" && rol !== "motorizados") {
+    return res.status(403).json({ error: "No tienes acceso a los motorizados." });
   }
   next();
 }
@@ -337,25 +371,25 @@ app.get(["/motorizados", "/motorizados.html"], (req, res) => {
   res.sendFile(path.join(__dirname, "motorizados.html"));
 });
 
-app.get("/api/motorizados", soloDuenoMotorizados, (req, res) => {
+app.get("/api/motorizados", accesoMotorizados, (req, res) => {
   res.json(motorizados.resumen());
 });
 
-app.get("/api/motorizados/debug", soloDuenoMotorizados, (req, res) => {
+app.get("/api/motorizados/debug", accesoMotorizados, (req, res) => {
   res.json({ recibidos: motorizados.crudos() });
 });
 
-app.get("/api/motorizados/reporte", soloDuenoMotorizados, (req, res) => {
+app.get("/api/motorizados/reporte", accesoMotorizados, (req, res) => {
   res.json(motorizados.reporteDia(req.query.dia));
 });
 
-app.get("/api/motorizados/:id/ruta", soloDuenoMotorizados, (req, res) => {
+app.get("/api/motorizados/:id/ruta", accesoMotorizados, (req, res) => {
   const r = motorizados.ruta(req.params.id);
   if (!r) return res.status(404).json({ error: "Motorizado no encontrado." });
   res.json(r);
 });
 
-app.post("/api/motorizados/ruta-config", soloDuenoMotorizados, (req, res) => {
+app.post("/api/motorizados/ruta-config", accesoMotorizados, (req, res) => {
   try {
     res.json({ ok: true, ruta: motorizados.setRutaConfig(req.body || {}) });
   } catch (err) {
@@ -363,7 +397,7 @@ app.post("/api/motorizados/ruta-config", soloDuenoMotorizados, (req, res) => {
   }
 });
 
-app.post("/api/motorizados/:id/comando", soloDuenoMotorizados, (req, res) => {
+app.post("/api/motorizados/:id/comando", accesoMotorizados, (req, res) => {
   try {
     res.json({ ok: true, ...motorizados.setComando(req.params.id, req.body || {}) });
   } catch (err) {
@@ -371,7 +405,7 @@ app.post("/api/motorizados/:id/comando", soloDuenoMotorizados, (req, res) => {
   }
 });
 
-app.post("/api/motorizados/:id/aceite", soloDuenoMotorizados, (req, res) => {
+app.post("/api/motorizados/:id/aceite", accesoMotorizados, (req, res) => {
   try {
     res.json({ ok: true, km: motorizados.aceite(req.params.id, req.body || {}) });
   } catch (err) {
@@ -379,13 +413,13 @@ app.post("/api/motorizados/:id/aceite", soloDuenoMotorizados, (req, res) => {
   }
 });
 
-app.get("/api/motorizados/:id/eventos", soloDuenoMotorizados, (req, res) => {
+app.get("/api/motorizados/:id/eventos", accesoMotorizados, (req, res) => {
   const lista = motorizados.eventos(req.params.id, req.query.dia);
   if (!lista) return res.status(404).json({ error: "Motorizado no encontrado." });
   res.json({ eventos: lista });
 });
 
-app.post("/api/motorizados", soloDuenoMotorizados, (req, res) => {
+app.post("/api/motorizados", accesoMotorizados, (req, res) => {
   try {
     res.json({ ok: true, rider: motorizados.agregar(req.body || {}) });
   } catch (err) {
@@ -393,7 +427,7 @@ app.post("/api/motorizados", soloDuenoMotorizados, (req, res) => {
   }
 });
 
-app.post("/api/motorizados/horario", soloDuenoMotorizados, (req, res) => {
+app.post("/api/motorizados/horario", accesoMotorizados, (req, res) => {
   try {
     res.json({ ok: true, horario: motorizados.setHorarioGeneral(req.body || {}) });
   } catch (err) {
@@ -401,7 +435,7 @@ app.post("/api/motorizados/horario", soloDuenoMotorizados, (req, res) => {
   }
 });
 
-app.post("/api/motorizados/avisos", soloDuenoMotorizados, (req, res) => {
+app.post("/api/motorizados/avisos", accesoMotorizados, (req, res) => {
   try {
     res.json({ ok: true, avisos: motorizados.setAvisos(req.body || {}) });
   } catch (err) {
@@ -409,7 +443,15 @@ app.post("/api/motorizados/avisos", soloDuenoMotorizados, (req, res) => {
   }
 });
 
-app.post("/api/motorizados/:id", soloDuenoMotorizados, (req, res) => {
+app.post("/api/motorizados/comando-masivo", accesoMotorizados, (req, res) => {
+  try {
+    res.json({ ok: true, ...motorizados.setComandoMasivo(req.body || {}) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/motorizados/:id", accesoMotorizados, (req, res) => {
   try {
     res.json({ ok: true, rider: motorizados.editar(req.params.id, req.body || {}) });
   } catch (err) {
@@ -417,7 +459,7 @@ app.post("/api/motorizados/:id", soloDuenoMotorizados, (req, res) => {
   }
 });
 
-app.delete("/api/motorizados/:id", soloDuenoMotorizados, (req, res) => {
+app.delete("/api/motorizados/:id", accesoMotorizados, (req, res) => {
   if (!motorizados.quitar(req.params.id)) return res.status(404).json({ error: "Motorizado no encontrado." });
   res.json({ ok: true });
 });
