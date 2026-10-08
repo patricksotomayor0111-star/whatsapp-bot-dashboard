@@ -37,9 +37,10 @@ function cargar() {
       riders: d.riders || [],
       estado: d.estado || {},
       eventos: d.eventos || {},
+      tokens: d.tokens || {},
     };
   } catch {
-    return { horario: { ...HORARIO_POR_DEFECTO }, ruta: { ...RUTA_POR_DEFECTO }, riders: [], estado: {}, eventos: {} };
+    return { horario: { ...HORARIO_POR_DEFECTO }, ruta: { ...RUTA_POR_DEFECTO }, riders: [], estado: {}, eventos: {}, tokens: {} };
   }
 }
 
@@ -380,7 +381,45 @@ function setComando(id, { tipo, minutos }) {
   if (estado.km) estado.km.ancla = null;
   agregarEvento(id, { tipo: evTipo, t: ahora, bat: null, min });
   guardar();
+  // Avisa al celular (Firebase/Expo) para que encienda o apague el GPS al
+  // instante, sin esperar a que pregunte. Es lo que hace que "a pedido"
+  // reaccione rápido con el GPS apagado. Si no hay token aún, no pasa nada.
+  enviarPush(rider);
   return { hasta, ahora };
+}
+
+// Guarda el token de avisos (push) que manda la app del motorizado al
+// registrarse. Se guarda por motorizado, identificado por su código.
+function setToken(code, token) {
+  const rider = data.riders.find((r) => r.codigo === code);
+  if (!rider) throw new Error("Código no registrado.");
+  const t = String(token || "");
+  if (!/^Expo(nent)?PushToken\[.+\]$/.test(t)) throw new Error("Token inválido.");
+  data.tokens = data.tokens || {};
+  data.tokens[rider.id] = t;
+  guardar();
+  return true;
+}
+
+// Manda un aviso silencioso (data-only) al celular por el servicio de Expo
+// (que por detrás usa Firebase). El celular lo recibe aunque la app esté
+// cerrada y, con eso, enciende el GPS hasta la hora "hasta". Es "disparar y
+// olvidar": si falla el envío, no rompe la orden, solo no llega el aviso.
+function enviarPush(rider) {
+  const token = data.tokens && data.tokens[rider.id];
+  if (!token) return;
+  const est = data.estado[rider.id] || {};
+  const hasta = est.comando ? est.comando.hasta : 0;
+  fetch("https://exp.host/--/api/v2/push/send", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({
+      to: token,
+      priority: "high",
+      data: { hasta, codigo: rider.codigo },
+      _contentAvailable: true,
+    }),
+  }).catch((err) => console.error("No se pudo enviar push a", rider.codigo, err.message));
 }
 
 // Lo que lee la app del motorizado (endpoint público, se identifica por
@@ -714,6 +753,7 @@ module.exports = {
   aceite,
   setComando,
   comando,
+  setToken,
   // Para pruebas.
   _distanciaKm: distanciaKm,
   _enHorario: enHorario,

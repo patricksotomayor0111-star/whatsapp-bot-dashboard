@@ -63,7 +63,7 @@ app.use(express.json({ limit: "25mb" }));
 // "/api/gps" va sin sesión a propósito: la llama el celular del motorizado
 // (Traccar Client), que no tiene cookie. Se identifica por su código, y si
 // el código no está registrado el punto se descarta.
-const RUTAS_PUBLICAS = new Set(["/login", "/api/login", "/manifest.json", "/icon-192.png", "/icon-512.png", "/sw.js", "/api/gps", "/api/gps-comando"]);
+const RUTAS_PUBLICAS = new Set(["/login", "/api/login", "/manifest.json", "/icon-192.png", "/icon-512.png", "/sw.js", "/api/gps", "/api/gps-comando", "/api/gps-token"]);
 
 // La marca se puede LEER sin sesión (la pantalla de entrada la necesita
 // para pintarse), pero escribirla no: eso pasa por el candado y queda
@@ -297,6 +297,17 @@ app.get("/api/gps-comando", (req, res) => {
   const c = motorizados.comando(req.query.id || req.query.deviceid);
   if (!c) return res.status(404).json({ error: "Código no registrado" });
   res.json(c);
+});
+
+// La app del motorizado registra aquí su token de avisos (push). Público:
+// se identifica por su código.
+app.post("/api/gps-token", (req, res) => {
+  try {
+    motorizados.setToken(req.body?.id || req.body?.codigo, req.body?.token);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 app.all("/api/gps", express.urlencoded({ extended: false }), (req, res) => {
