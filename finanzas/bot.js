@@ -1405,6 +1405,20 @@ async function avisarAlGrupo(userId, texto) {
   return true;
 }
 
+// Aviso directo al chat personal de la cuenta ("Mis propios mensajes"), sin
+// depender de la configuración de la caja. Lo usan los avisos de los
+// motorizados: el dueño pidió que le lleguen a su propio chat y a ningún
+// grupo. Si el WhatsApp no está vinculado o no hay chat propio, no hace
+// nada (devuelve false) y el aviso simplemente no se manda.
+async function avisarAMisMensajes(userId, texto) {
+  const bot = botDe(userId);
+  if (!bot.sock || !bot.connected) return false;
+  const chatId = jidPropio(bot);
+  if (!chatId) return false;
+  await enviarMensaje(bot, chatId, { text: texto });
+  return true;
+}
+
 // Estado del bot de una cuenta, para que el panel muestre su QR y si está
 // conectado. Cada cuenta ve el suyo y nada del de las demás.
 function estadoDe(userId) {
@@ -1440,6 +1454,7 @@ module.exports = {
   logoutBot,
   getSock,
   avisarAlGrupo,
+  avisarAMisMensajes,
   chatsDisponibles,
   // Se exponen para poder probarlos sin levantar WhatsApp.
   parseCashboxLine,
