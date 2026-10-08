@@ -277,7 +277,8 @@ function seccionCasa(r) {
 
 function horarioTexto(h) {
   const dias = h.dias.length === 7 ? "todos los días" : h.dias.map((d) => DIAS[d]).join(" ");
-  const horas = h.inicio === h.fin ? "todo el día" : `${h.inicio} a ${h.fin}`;
+  let horas = h.inicio === h.fin ? "todo el día" : `${h.inicio} a ${h.fin}`;
+  if (h.inicio2 && h.fin2) horas += ` y ${h.inicio2} a ${h.fin2}`;
   return `${horas} · ${dias}`;
 }
 
@@ -575,13 +576,23 @@ async function cargar(conHorario) {
 }
 
 function pedirHorario(actual) {
-  const inicio = prompt("¿Desde qué hora? (formato 24 h, ej. 17:00)", actual.inicio);
+  const inicio = prompt("TURNO 1 — ¿Desde qué hora? (formato 24 h, ej. 09:00)", actual.inicio);
   if (!inicio) return null;
-  const fin = prompt("¿Hasta qué hora? (ej. 23:00)", actual.fin);
+  const fin = prompt("TURNO 1 — ¿Hasta qué hora? (ej. 17:00)", actual.fin);
   if (!fin) return null;
   const dias = prompt("¿Qué días? Números separados por coma: 0=domingo, 1=lunes … 6=sábado", actual.dias.join(","));
   if (!dias) return null;
-  return { inicio: inicio.trim(), fin: fin.trim(), dias: dias.split(",").map((d) => Number(d.trim())) };
+  const h = { inicio: inicio.trim(), fin: fin.trim(), dias: dias.split(",").map((d) => Number(d.trim())) };
+  // Segundo turno OPCIONAL (para quienes trabajan en dos tramos).
+  const inicio2 = prompt("¿Tiene un SEGUNDO turno? Hora de inicio (ej. 19:00).\nDéjalo VACÍO si solo tiene un turno.", actual.inicio2 || "");
+  if (inicio2 && inicio2.trim()) {
+    const fin2 = prompt("TURNO 2 — ¿Hasta qué hora? (ej. 22:00)", actual.fin2 || "");
+    if (fin2 && fin2.trim()) {
+      h.inicio2 = inicio2.trim();
+      h.fin2 = fin2.trim();
+    }
+  }
+  return h;
 }
 
 document.addEventListener("click", async (e) => {

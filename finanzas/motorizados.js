@@ -155,31 +155,62 @@ function validarHorario(h) {
   if (!h || !okHora(h.inicio) || !okHora(h.fin)) throw new Error("Hora inválida (usa HH:MM).");
   const dias = Array.isArray(h.dias) ? [...new Set(h.dias.map(Number).filter((n) => n >= 0 && n <= 6))] : [];
   if (!dias.length) throw new Error("Elige al menos un día.");
-  return { inicio: h.inicio, fin: h.fin, dias: dias.sort() };
+  const out = { inicio: h.inicio, fin: h.fin, dias: dias.sort() };
+  // Segundo turno opcional: para quienes trabajan en dos tramos con un hueco
+  // en medio (ej. 9:00-17:00 y 19:00-22:00). Mismos días que el primero.
+  const tiene2 =
+    (h.inicio2 !== undefined && h.inicio2 !== null && h.inicio2 !== "") ||
+    (h.fin2 !== undefined && h.fin2 !== null && h.fin2 !== "");
+  if (tiene2) {
+    if (!okHora(h.inicio2) || !okHora(h.fin2)) throw new Error("Hora del segundo turno inválida (usa HH:MM).");
+    if (h.inicio2 === h.fin2) throw new Error("El segundo turno no puede empezar y terminar a la misma hora.");
+    out.inicio2 = h.inicio2;
+    out.fin2 = h.fin2;
+  }
+  return out;
 }
 
 function horarioDe(rider) {
   return rider.horario || data.horario;
 }
 
-// Los días marcados son los días en que EMPIEZA el turno: un turno de
-// 6pm a 2am del viernes sigue valiendo el sábado a la 1am.
+// ¿La hora cae dentro de UNA ventana (inicio-fin)? Los días marcados son los
+// días en que EMPIEZA el turno: un turno de 6pm a 2am del viernes sigue
+// valiendo el sábado a la 1am.
+function enVentana(dias, inicio, fin, dia, minutos) {
+  const ini = aMinutos(inicio);
+  const finM = aMinutos(fin);
+  if (ini === finM) return dias.includes(dia);
+  if (ini < finM) return dias.includes(dia) && minutos >= ini && minutos < finM;
+  const ayer = (dia + 6) % 7;
+  return (dias.includes(dia) && minutos >= ini) || (dias.includes(ayer) && minutos < finM);
+}
+
 function enHorario(rider, ms) {
   const h = horarioDe(rider);
   const { dia, minutos } = peru(ms);
-  const ini = aMinutos(h.inicio);
-  const fin = aMinutos(h.fin);
-  if (ini === fin) return h.dias.includes(dia);
-  if (ini < fin) return h.dias.includes(dia) && minutos >= ini && minutos < fin;
-  const ayer = (dia + 6) % 7;
-  return (h.dias.includes(dia) && minutos >= ini) || (h.dias.includes(ayer) && minutos < fin);
+  if (enVentana(h.dias, h.inicio, h.fin, dia, minutos)) return true;
+  // Segundo turno (si lo tiene): trabaja también en ese tramo.
+  if (h.inicio2 && h.fin2 && enVentana(h.dias, h.inicio2, h.fin2, dia, minutos)) return true;
+  return false;
 }
 
 // Minutos transcurridos desde la hora de entrada del motorizado (maneja
 // turnos que cruzan medianoche). Sirve para "llegó tarde" y "no se conectó".
 function minutosDesdeInicio(rider, ms) {
-  const { minutos } = peru(ms);
-  let d = minutos - aMinutos(horarioDe(rider).inicio);
+  const h = horarioDe(rider);
+  const { dia, minutos } = peru(ms);
+  // Si está en el segundo turno (y no en el primero), mide desde el inicio
+  // de ese turno; así "tarde" / "no entró" salen bien con dos tramos.
+  let inicio = h.inicio;
+  if (
+    h.inicio2 && h.fin2 &&
+    enVentana(h.dias, h.inicio2, h.fin2, dia, minutos) &&
+    !enVentana(h.dias, h.inicio, h.fin, dia, minutos)
+  ) {
+    inicio = h.inicio2;
+  }
+  let d = minutos - aMinutos(inicio);
   if (d < 0) d += 1440;
   return d;
 }
