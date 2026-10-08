@@ -428,11 +428,18 @@ function comando(code) {
   const rider = data.riders.find((r) => r.codigo === code);
   if (!rider) return null;
   const est = data.estado[rider.id];
-  return {
-    modo: rider.modo || "siempre",
-    hasta: est && est.comando ? est.comando.hasta : 0,
-    intervalo: 60,
-  };
+  const ahora = Date.now();
+  let hasta = 0;
+  if (esAPedido(rider)) {
+    // A pedido: envía solo mientras dure la ventana que abrió el dueño.
+    hasta = est && est.comando ? est.comando.hasta : 0;
+  } else if (enHorario(rider, ahora)) {
+    // Siempre: envía durante todo su horario. Se devuelve una hora "hasta"
+    // rodante (5 min) que la app va renovando cada vez que pregunta; al
+    // terminar el horario deja de renovarse y la app deja de enviar.
+    hasta = ahora + 5 * 60000;
+  }
+  return { modo: rider.modo || "siempre", hasta, intervalo: 60 };
 }
 
 // ---------- Eventos (activó / sin señal / sin internet / fin de horario) ----------
