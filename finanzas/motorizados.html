@@ -23,7 +23,7 @@
 
   <header class="sticky top-0 z-30 bg-white/95 backdrop-blur shadow-sm">
     <div class="flex items-center gap-3 px-4 py-3">
-      <a href="/" class="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center"><i class="fa-solid fa-arrow-left"></i></a>
+      <a id="backHome" href="/" class="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center"><i class="fa-solid fa-arrow-left"></i></a>
       <div class="flex-1">
         <h1 class="text-base font-bold leading-tight">🛵 Motorizados</h1>
         <p id="refresco" class="text-[11px] text-slate-400">Cargando…</p>
@@ -775,6 +775,13 @@ setInterval(() => {
   if (segundos <= 0) cargar();
 }, 1000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) cargar(); });
+
+// Un socio "solo motorizados" no tiene finanzas a dónde volver: se le
+// esconde la flecha de "atrás" para que no quede dando vueltas.
+fetch("/api/sesion")
+  .then((r) => r.json())
+  .then((s) => { if (s && s.rol === "motorizados") { const b = $("backHome"); if (b) b.style.display = "none"; } })
+  .catch(() => {});
 
 cargar(true);
 </script>

@@ -82,6 +82,7 @@ function getAll() {
     usuario: u.usuario,
     nombre: u.nombre,
     esDueno: u.id === DUENO_ID,
+    rol: u.id === DUENO_ID ? "dueno" : normalizarRol(u.rol),
     activo: u.activo !== false,
     creado: u.creado,
   }));
@@ -96,7 +97,16 @@ function slugify(texto) {
     .replace(/^_+|_+$/g, "");
 }
 
-function addUsuario({ usuario, nombre, password }) {
+// Rol de una cuenta:
+//   "completo"    -> cuenta normal: su propia caja, metas, deudas, etc.
+//   "motorizados" -> socio que SOLO ve el panel de motorizados (ni ve ni
+//                    puede entrar a las finanzas de nadie).
+// El dueño es siempre "dueno" (ve todo).
+function normalizarRol(rol) {
+  return rol === "motorizados" ? "motorizados" : "completo";
+}
+
+function addUsuario({ usuario, nombre, password, rol }) {
   const clave = slugify(usuario);
   if (!clave) throw new Error("El usuario no puede estar vacío.");
   if (String(password || "").length < 6) throw new Error("La contraseña debe tener al menos 6 caracteres.");
@@ -107,6 +117,7 @@ function addUsuario({ usuario, nombre, password }) {
     id: clave,
     usuario: clave,
     nombre: String(nombre || usuario).trim(),
+    rol: normalizarRol(rol),
     salt,
     hash,
     activo: true,
@@ -114,7 +125,23 @@ function addUsuario({ usuario, nombre, password }) {
   };
   data.usuarios.push(nuevo);
   save();
-  return { id: nuevo.id, usuario: nuevo.usuario, nombre: nuevo.nombre };
+  return { id: nuevo.id, usuario: nuevo.usuario, nombre: nuevo.nombre, rol: nuevo.rol };
+}
+
+// Rol efectivo de una cuenta (el dueño siempre es "dueno").
+function rolDe(id) {
+  if (id === DUENO_ID) return "dueno";
+  const u = getById(id);
+  return u ? normalizarRol(u.rol) : "completo";
+}
+
+function setRol(id, rol) {
+  if (id === DUENO_ID) throw new Error("No se puede cambiar el rol del dueño.");
+  const u = getById(id);
+  if (!u) return null;
+  u.rol = normalizarRol(rol);
+  save();
+  return u.rol;
 }
 
 function cambiarPassword(id, password) {
@@ -195,4 +222,6 @@ module.exports = {
   setActivo,
   removeUsuario,
   passwordCorrecta,
+  rolDe,
+  setRol,
 };
