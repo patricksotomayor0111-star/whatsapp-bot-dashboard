@@ -126,6 +126,8 @@ let mapa, capa, capaRuta;
 let rutaVisible = null; // id del motorizado cuya ruta está dibujada
 let marcandoCasa = null; // id del motorizado al que se le está marcando la casa
 let seleccion = new Set(); // ids "a pedido" elegidos para el control de grupo
+let histExpandido = new Set(); // ids con el historial desplegado ("ver todo el día")
+let evShow = {}; // eventos que se están mostrando por motorizado (hoy o fecha elegida)
 let abiertos = new Set();
 let segundos = 60;
 
@@ -180,6 +182,25 @@ function filaEvento(e) {
   const [ico, txt] = TEXTO_EVENTO[e.tipo] || ["•", e.tipo];
   const bat = e.bat !== null && e.bat !== undefined ? ` <span class="text-slate-400">· 🔋${e.bat}%</span>` : "";
   return `<li class="flex gap-2"><span class="w-16 shrink-0 text-slate-500">${hora(e.t)}</span><span>${ico} ${txt}${bat}</span></li>`;
+}
+
+// Historial contraído: por defecto solo los últimos movimientos, con un
+// botón para desplegar el día completo (y volver a contraer).
+const HIST_LIMITE = 4;
+function htmlEventos(eventos, id) {
+  if (!eventos || !eventos.length) return '<li class="text-slate-400">Sin movimientos.</li>';
+  if (eventos.length <= HIST_LIMITE) return eventos.map(filaEvento).join("");
+  const exp = histExpandido.has(id);
+  const lista = exp ? eventos : eventos.slice(-HIST_LIMITE);
+  const btn = exp
+    ? `<li><button data-ver-hist="${id}" class="mt-1 text-blue-600 font-semibold">▴ Ver menos</button></li>`
+    : `<li><button data-ver-hist="${id}" class="mt-1 text-blue-600 font-semibold">Ver todo el día (${eventos.length}) ▾</button></li>`;
+  return lista.map(filaEvento).join("") + btn;
+}
+
+function pintarEventos(id) {
+  const el = document.getElementById("ev-" + id);
+  if (el) el.innerHTML = htmlEventos(evShow[id], id);
 }
 
 function aceitePct(r) {
@@ -289,6 +310,7 @@ function render() {
   } else {
     lista.innerHTML = datos.riders.map((r) => {
       const ev = estadoVisible(r);
+      evShow[r.id] = r.eventosHoy; // lo que muestra el historial hoy (para el "ver todo")
       // Con el GPS apagado igual llegan latidos: la "última señal" es la
       // más nueva de las dos, para que se vea que el celular sigue vivo.
       const senal = Math.max(r.ultimo ? r.ultimo.recibido : 0, r.latido ? r.latido.t : 0);
@@ -312,7 +334,7 @@ function render() {
             <p class="text-xs font-semibold flex-1">Historial</p>
             <input type="date" data-dia="${r.id}" value="${datos.hoy}" max="${datos.hoy}" class="text-xs rounded-lg border border-slate-200 px-2 py-1" />
           </div>
-          <ul id="ev-${r.id}" class="mt-2 space-y-1 text-xs">${r.eventosHoy.length ? r.eventosHoy.map(filaEvento).join("") : '<li class="text-slate-400">Sin movimientos hoy.</li>'}</ul>
+          <ul id="ev-${r.id}" class="mt-2 space-y-1 text-xs">${htmlEventos(r.eventosHoy, r.id)}</ul>
           ${r.ultimo ? `<a target="_blank" href="https://www.google.com/maps?q=${r.ultimo.lat},${r.ultimo.lon}" class="inline-block mt-3 text-xs text-blue-600 font-semibold"><i class="fa-solid fa-location-dot"></i> Abrir en Google Maps</a>` : ""}
           ${seccionPedido(r)}
           ${seccionRuta(r)}
@@ -715,6 +737,10 @@ document.addEventListener("click", async (e) => {
       await cargar();
       window.scrollTo({ top: 0, behavior: "smooth" });
       alert(tipo === "detener" ? `Detenido en ${res.aplicados} motorizado(s).` : `Pedido enviado a ${res.aplicados} motorizado(s).`);
+    } else if (t.dataset.verHist) {
+      const id = t.dataset.verHist;
+      histExpandido.has(id) ? histExpandido.delete(id) : histExpandido.add(id);
+      pintarEventos(id);
     }
   } catch (err) {
     alert(err.message);
@@ -730,7 +756,9 @@ document.addEventListener("change", async (e) => {
   if (!id) return;
   try {
     const { eventos } = await api(`/api/motorizados/${id}/eventos?dia=${e.target.value}`);
-    $("ev-" + id).innerHTML = eventos.length ? eventos.map(filaEvento).join("") : '<li class="text-slate-400">Sin movimientos ese día.</li>';
+    evShow[id] = eventos;
+    histExpandido.delete(id); // al cambiar de día, arranca contraído
+    pintarEventos(id);
   } catch (err) {
     alert(err.message);
   }
