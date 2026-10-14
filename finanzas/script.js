@@ -44,10 +44,13 @@ function formatSoles(n) {
   return "S/ " + Number(n || 0).toLocaleString("es-PE", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
 
+let esperadoActual = 0;
+
 async function fetchCashboxToday() {
   try {
     const res = await fetch("/api/cashbox/today");
     const data = await res.json();
+    esperadoActual = data.esperado || 0;
     statGanancias.textContent = formatSoles(data.ganancias);
     statGastos.textContent = "-" + formatSoles(data.gastos);
     statTotal.textContent = formatSoles(data.total);
@@ -58,6 +61,9 @@ async function fetchCashboxToday() {
       statAnaGastado.textContent = "-" + formatSoles(data.custodia.gastado);
       statAnaSaldo.textContent = formatSoles(data.custodia.saldo);
     }
+    // Las dos tarjetas de abajo reparten ESTE numero.
+    pintarPlataDeVerdad(data.deVerdad);
+    if (ultimosLugares) pintarLugares(ultimosLugares);
   } catch (err) {
     console.error("No se pudo obtener la caja chica del día:", err);
   }
@@ -449,6 +455,7 @@ const cuentasList = document.getElementById("cuentasList");
 const cuentaNuevoNombre = document.getElementById("cuentaNuevoNombre");
 const cuentaNuevoUsuario = document.getElementById("cuentaNuevoUsuario");
 const cuentaNuevoPassword = document.getElementById("cuentaNuevoPassword");
+const cuentaNuevoRol = document.getElementById("cuentaNuevoRol");
 const addCuentaBtn = document.getElementById("addCuentaBtn");
 const sesionActual = document.getElementById("sesionActual");
 const salirPanelBtn = document.getElementById("salirPanelBtn");
@@ -491,7 +498,8 @@ async function renderCuentas() {
     nombre.textContent = u.nombre + (u.esDueno ? " 👑" : "");
     const detalle = document.createElement("p");
     detalle.className = "text-xs text-slate-400 mt-0.5";
-    detalle.textContent = `entra como "${u.usuario}"${u.activo ? "" : " · desactivada"}`;
+    const rolTxt = u.esDueno ? "" : u.rol === "motorizados" ? " · 🛵 solo motorizados" : " · 💰 cuenta completa";
+    detalle.textContent = `entra como "${u.usuario}"${rolTxt}${u.activo ? "" : " · desactivada"}`;
     info.appendChild(nombre);
     info.appendChild(detalle);
     top.appendChild(info);
@@ -519,6 +527,26 @@ async function renderCuentas() {
     acciones.appendChild(btnClave);
 
     if (!u.esDueno) {
+      const btnRol = document.createElement("button");
+      btnRol.className = "w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 active:scale-90 transition-all";
+      btnRol.title = u.rol === "motorizados" ? "Cambiar a cuenta completa" : "Cambiar a solo motorizados";
+      btnRol.innerHTML = u.rol === "motorizados" ? '<i class="fa-solid fa-motorcycle"></i>' : '<i class="fa-solid fa-wallet"></i>';
+      btnRol.addEventListener("click", async () => {
+        const nuevoRol = u.rol === "motorizados" ? "completo" : "motorizados";
+        const msg =
+          nuevoRol === "motorizados"
+            ? `¿Cambiar a ${u.nombre} a "solo motorizados"? Dejará de ver finanzas y solo verá los motorizados.`
+            : `¿Cambiar a ${u.nombre} a "cuenta completa"? Tendrá su propio panel de finanzas.`;
+        if (!confirm(msg)) return;
+        await fetch(`/api/usuarios/${encodeURIComponent(u.id)}/rol`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rol: nuevoRol }),
+        });
+        renderCuentas();
+      });
+      acciones.appendChild(btnRol);
+
       const btnActivo = document.createElement("button");
       btnActivo.className = "w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 active:scale-90 transition-all";
       btnActivo.title = u.activo ? "Desactivar" : "Activar";
@@ -562,7 +590,7 @@ addCuentaBtn.addEventListener("click", async () => {
   const res = await fetch("/api/usuarios", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ nombre, usuario, password }),
+    body: JSON.stringify({ nombre, usuario, password, rol: cuentaNuevoRol ? cuentaNuevoRol.value : "completo" }),
   });
   const data = await res.json();
   if (!data.ok) {
@@ -573,6 +601,7 @@ addCuentaBtn.addEventListener("click", async () => {
   cuentaNuevoNombre.value = "";
   cuentaNuevoUsuario.value = "";
   cuentaNuevoPassword.value = "";
+  if (cuentaNuevoRol) cuentaNuevoRol.value = "completo";
   renderCuentas();
 });
 
@@ -609,6 +638,7 @@ const newReminderTipo = document.getElementById("newReminderTipo");
 const newReminderWeekday = document.getElementById("newReminderWeekday");
 const newReminderDay = document.getElementById("newReminderDay");
 const newReminderDate = document.getElementById("newReminderDate");
+const newReminderHasta = document.getElementById("newReminderHasta");
 const addReminderBtn = document.getElementById("addReminderBtn");
 
 const DIAS_SEMANA = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
@@ -676,13 +706,17 @@ async function renderReminders() {
     let estado;
     if (!r.activo) estado = "Desactivado";
     else if (pendiente) estado = `⚠️ Pendiente · vence ${fmtFecha(r.vence)}`;
+    else if (r.termino) estado = `Terminado el ${fmtFecha(r.fechaFin)}`;
     else estado = `Al día · próximo ${fmtFecha(r.proxima)}`;
+    // Si tiene final, se dice: es la diferencia entre "esto sigue" y
+    // "esto ya se acabó".
+    if (r.fechaFin && !r.termino) estado += ` · hasta ${fmtFecha(r.fechaFin)}`;
 
     const top = document.createElement("div");
     top.className = "flex items-start justify-between gap-2";
     top.innerHTML = `
       <div class="min-w-0">
-        <p class="text-sm font-semibold text-slate-800 truncate">${r.label} <span class="text-slate-500 font-normal">S/ ${r.monto}</span></p>
+        <p class="text-sm font-semibold text-slate-800 break-words">${r.label} <span class="text-slate-500 font-normal">S/ ${r.monto}</span></p>
         <p class="text-xs ${pendiente ? "text-brand-red font-medium" : "text-slate-400"} mt-0.5">${textoCuando(r)} · ${estado}</p>
       </div>`;
 
@@ -717,6 +751,13 @@ async function renderReminders() {
       });
       acciones.appendChild(btnPay);
     }
+
+    const btnEditar = document.createElement("button");
+    btnEditar.className = "w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 active:scale-90 transition-all";
+    btnEditar.title = "Editar";
+    btnEditar.innerHTML = '<i class="fa-solid fa-pen"></i>';
+    btnEditar.addEventListener("click", () => abrirEditarPendiente(r));
+    acciones.appendChild(btnEditar);
 
     const btnToggle = document.createElement("button");
     btnToggle.className = "w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 active:scale-90 transition-all";
@@ -791,11 +832,176 @@ async function renderReminders() {
   }
 }
 
+// ---------- Elegir el día del mes tocándolo ----------
+// Para un pago que se repite todos los meses no hay una fecha sola, así
+// que no puede salir el calendario del navegador. Pero escribir "28" en
+// una cajita tampoco dice nada: no ves en qué día cae ni qué pasa en los
+// meses cortos. Esta cuadrícula resuelve las dos cosas.
+const newReminderDayGrid = document.getElementById("newReminderDayGrid");
+const newReminderHastaCaja = document.getElementById("newReminderHastaCaja");
+const newReminderDayBotones = document.getElementById("newReminderDayBotones");
+const newReminderDayHint = document.getElementById("newReminderDayHint");
+
+const DIAS_ES = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+
+function diasDelMes(y, mo) {
+  return new Date(Date.UTC(y, mo, 0)).getUTCDate();
+}
+
+// En qué fecha cae la próxima vez que toca ese día del mes. Si ya pasó
+// este mes, es el que viene.
+function proximaVezDelDia(dia) {
+  const hoy = new Date();
+  let y = hoy.getFullYear();
+  let mo = hoy.getMonth() + 1;
+  const d = Math.min(dia, diasDelMes(y, mo));
+  if (hoy.getDate() > d) {
+    mo += 1;
+    if (mo > 12) { mo = 1; y += 1; }
+  }
+  const real = Math.min(dia, diasDelMes(y, mo));
+  return new Date(Date.UTC(y, mo - 1, real));
+}
+
+function pintarDiasDelMes() {
+  if (!newReminderDayBotones) return;
+  const elegido = Number(newReminderDay.value) || 0;
+  newReminderDayBotones.innerHTML = "";
+
+  for (let d = 1; d <= 31; d++) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = d;
+    b.className =
+      "rounded-lg py-1.5 text-xs font-semibold border active:scale-90 transition-all " +
+      (d === elegido
+        ? "bg-brand-green text-white border-brand-green"
+        : "bg-white text-slate-600 border-slate-200");
+    b.addEventListener("click", () => {
+      newReminderDay.value = d;
+      pintarDiasDelMes();
+    });
+    newReminderDayBotones.appendChild(b);
+  }
+
+  if (!elegido) {
+    newReminderDayHint.textContent = "Toca el día en que pagas cada mes.";
+    return;
+  }
+
+  const proxima = proximaVezDelDia(elegido);
+  const cae = proxima.getUTCDate();
+  const falta = Math.round((proxima - new Date(new Date().toDateString())) / 86400000);
+  let texto =
+    "El próximo cae el " + DIAS_ES[proxima.getUTCDay()] + " " +
+    String(cae).padStart(2, "0") + "/" + String(proxima.getUTCMonth() + 1).padStart(2, "0") +
+    (falta <= 0 ? " (hoy)" : falta === 1 ? " (mañana)" : " (en " + falta + " días)");
+  // Febrero no tiene 30 ni 31: la app lo corre al último día, pero eso no
+  // se decía en ningún lado.
+  if (elegido > 28) {
+    texto += ". En los meses cortos se paga el último día.";
+  }
+  newReminderDayHint.textContent = texto;
+}
+
+const DIAS_SEMANA_OPC = [
+  { valor: "1", label: "Lunes" },
+  { valor: "2", label: "Martes" },
+  { valor: "3", label: "Miércoles" },
+  { valor: "4", label: "Jueves" },
+  { valor: "5", label: "Viernes" },
+  { valor: "6", label: "Sábado" },
+  { valor: "0", label: "Domingo" },
+];
+
+const TIPOS_PENDIENTE = [
+  { valor: "semanal", label: "Cada semana" },
+  { valor: "mensual_dia", label: "Cada mes, día fijo" },
+  { valor: "mensual_finmes", label: "Fin de cada mes" },
+  { valor: "unica", label: "Una sola vez" },
+];
+
+function abrirEditarPendiente(r) {
+  const campos = [
+    { id: "label", etiqueta: "Nombre", tipo: "texto", valor: r.label },
+    { id: "monto", etiqueta: "Monto", tipo: "numero", valor: r.monto },
+    { id: "tipo", etiqueta: "Cada cuánto", tipo: "opciones", valor: r.tipo, opciones: TIPOS_PENDIENTE },
+  ];
+
+  if (r.tipo === "semanal") {
+    campos.push({ id: "dia", etiqueta: "Qué día", tipo: "opciones", valor: String(r.dia), opciones: DIAS_SEMANA_OPC });
+  } else if (r.tipo === "mensual_dia") {
+    campos.push({ id: "dia", etiqueta: "Qué día del mes (1 a 31)", tipo: "numero", valor: r.dia });
+  } else if (r.tipo === "unica") {
+    campos.push({ id: "fecha", etiqueta: "Qué día", tipo: "fecha", valor: r.fecha || "" });
+  }
+
+  // Hasta cuándo se paga: una cuota se termina, y antes había que
+  // acordarse de apagarla a mano o te seguía avisando para siempre.
+  if (r.tipo !== "unica") {
+    campos.push({ id: "fechaFin", etiqueta: "Hasta cuándo (vacío = para siempre)", tipo: "fecha", valor: r.fechaFin || "" });
+  }
+
+  abrirHojaSimple({
+    titulo: "Editar " + r.label,
+    campos,
+    alGuardar: async (v) => {
+      if (!String(v.label || "").trim()) {
+        mostrarAviso("Ponle un nombre.");
+        return false;
+      }
+      // Cambiar de tipo deja el día o la fecha del tipo viejo sin
+      // sentido: se manda lo que corresponde y el servidor limpia el resto.
+      const cuerpo = { label: v.label, monto: v.monto, tipo: v.tipo, fechaFin: v.fechaFin || "" };
+      if (v.tipo === "semanal" || v.tipo === "mensual_dia") {
+        const dia = Number(v.dia);
+        if (!dia && dia !== 0) {
+          mostrarAviso("Falta el día. Si cambiaste de cada-semana a cada-mes, elige el día nuevo.");
+          return false;
+        }
+        cuerpo.dia = dia;
+      }
+      if (v.tipo === "unica") {
+        if (!v.fecha) {
+          mostrarAviso("Falta la fecha del pago.");
+          return false;
+        }
+        cuerpo.fecha = v.fecha;
+      }
+
+      const res = await fetch("/api/reminders/" + encodeURIComponent(r.id), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(cuerpo),
+      });
+      const data = await res.json();
+      if (data.error) {
+        mostrarAviso(data.error);
+        return false;
+      }
+      renderReminders();
+      fetchGoalsAndProgress();
+      mostrarAviso("Guardado.");
+    },
+    alEliminar: async () => {
+      if (!confirm('¿Borrar "' + r.label + '"? Se pierde su historial de pagos.')) return;
+      await fetch("/api/reminders/" + encodeURIComponent(r.id), { method: "DELETE" });
+      renderReminders();
+      mostrarAviso("Borrado.");
+    },
+  });
+}
+
 function updateNewReminderFields() {
   const tipo = newReminderTipo.value;
   newReminderWeekday.classList.toggle("hidden", tipo !== "semanal");
-  newReminderDay.classList.toggle("hidden", tipo !== "mensual_dia");
   newReminderDate.classList.toggle("hidden", tipo !== "unica");
+  // "Hasta cuándo" solo tiene sentido en los que se repiten.
+  if (newReminderHastaCaja) newReminderHastaCaja.classList.toggle("hidden", tipo === "unica");
+  if (newReminderDayGrid) {
+    newReminderDayGrid.classList.toggle("hidden", tipo !== "mensual_dia");
+    if (tipo === "mensual_dia") pintarDiasDelMes();
+  }
 }
 
 newReminderTipo.addEventListener("change", updateNewReminderFields);
@@ -825,6 +1031,7 @@ addReminderBtn.addEventListener("click", async () => {
     }
     body.fecha = newReminderDate.value;
   }
+  if (tipo !== "unica" && newReminderHasta.value) body.fechaFin = newReminderHasta.value;
   try {
     await fetch("/api/reminders", {
       method: "POST",
@@ -835,6 +1042,8 @@ addReminderBtn.addEventListener("click", async () => {
     newReminderMonto.value = "";
     newReminderDay.value = "";
     newReminderDate.value = "";
+    newReminderHasta.value = "";
+    pintarDiasDelMes();
     renderReminders();
   } catch (err) {
     console.error("No se pudo agregar el recordatorio:", err);
@@ -1038,6 +1247,7 @@ function showFinanceTab(tabId) {
     fetchCashboxToday();
     fetchFinanceSummaryExtras();
     fetchGoalsAndProgress();
+    fetchLugares();
   } else if (tabId === "financeTabMovimientos") {
     fetchDailyHistory();
     fetchMovimientos();
@@ -1068,6 +1278,18 @@ function showFinanceTab(tabId) {
     renderGuia();
   } else if (tabId === "financeTabPrecios") {
     fetchPrices();
+  } else if (tabId === "financeTabPrestamos") {
+    fetchPrestamos();
+  } else if (tabId === "financeTabCalendario") {
+    fetchCalendario(calMes);
+  } else if (tabId === "financeTabHormiga") {
+    prepararHormiga();
+  } else if (tabId === "financeTabAhorrado") {
+    fetchAhorrado(ahorradoMes);
+  } else if (tabId === "financeTabBitacora") {
+    fetchBitacora();
+  } else if (tabId === "financeTabAjustes") {
+    fetchLugares();
   }
 }
 
@@ -1293,6 +1515,208 @@ function tipoLabel(tipo) {
   return tipo;
 }
 
+// ---------- Deslizar una fila ----------
+// En el celular, tocar un lapicito de 7 milimetros con el dedo es
+// dificil. Deslizando la fila a la izquierda se borra y a la derecha se
+// abre para editar; los botones siguen ahi para quien prefiera tocarlos.
+//
+// Solo se toma el gesto cuando es mas horizontal que vertical, si no
+// secuestraria el scroll de la pagina.
+const DESLIZ_MINIMO = 70;
+
+function habilitarDeslizar(fila, { alBorrar, alEditar }) {
+  let x0 = 0;
+  let y0 = 0;
+  let horizontal = null;
+
+  fila.addEventListener(
+    "touchstart",
+    (e) => {
+      if (e.touches.length !== 1) return;
+      x0 = e.touches[0].clientX;
+      y0 = e.touches[0].clientY;
+      horizontal = null;
+      fila.style.transition = "";
+    },
+    { passive: true }
+  );
+
+  fila.addEventListener(
+    "touchmove",
+    (e) => {
+      if (e.touches.length !== 1) return;
+      const dx = e.touches[0].clientX - x0;
+      const dy = e.touches[0].clientY - y0;
+      if (horizontal === null) {
+        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+        horizontal = Math.abs(dx) > Math.abs(dy);
+      }
+      if (!horizontal) return;
+      fila.style.transform = "translateX(" + dx + "px)";
+      fila.style.opacity = String(Math.max(0.35, 1 - Math.abs(dx) / 260));
+    },
+    { passive: true }
+  );
+
+  fila.addEventListener("touchend", (e) => {
+    const suelto = (e.changedTouches && e.changedTouches[0]) || null;
+    const dx = suelto ? suelto.clientX - x0 : 0;
+    fila.style.transition = "transform .18s ease, opacity .18s ease";
+    fila.style.transform = "";
+    fila.style.opacity = "";
+    if (!horizontal) return;
+    if (dx <= -DESLIZ_MINIMO && typeof alBorrar === "function") alBorrar();
+    else if (dx >= DESLIZ_MINIMO && typeof alEditar === "function") alEditar();
+  });
+}
+
+async function refrescarPorMovimiento() {
+  await fetchMovimientos();
+  await fetchCashboxToday();
+  await fetchDailyHistory();
+  fetchGoalsAndProgress();
+}
+
+// ---------- Varios movimientos de una sola vez ----------
+// Corregir 20 gastos mal clasificados era abrir 20 veces la misma
+// pantalla. Con "Seleccionar" aparecen las casillas: se marcan los que
+// haga falta y se los mueve de categoria/fuente o se los borra de una.
+const movSeleccionBtn = document.getElementById("movSeleccionBtn");
+const movSeleccionBarra = document.getElementById("movSeleccionBarra");
+const movSeleccionCuenta = document.getElementById("movSeleccionCuenta");
+const movSeleccionTodos = document.getElementById("movSeleccionTodos");
+const movSeleccionMover = document.getElementById("movSeleccionMover");
+const movSeleccionBorrar = document.getElementById("movSeleccionBorrar");
+
+let modoSeleccion = false;
+let seleccionados = new Set();
+// Lo ultimo que se vio en pantalla, para "Todos" y para saber si lo
+// marcado son gastos o ganancias.
+let movimientosVisibles = [];
+
+function pintarBarraSeleccion() {
+  if (!movSeleccionBarra) return;
+  movSeleccionBarra.classList.toggle("hidden", !modoSeleccion);
+  movSeleccionBarra.classList.toggle("flex", modoSeleccion);
+  movSeleccionBtn.innerHTML = modoSeleccion
+    ? '<i class="fa-solid fa-xmark"></i> Listo'
+    : '<i class="fa-solid fa-check-double"></i> Seleccionar';
+  const n = seleccionados.size;
+  movSeleccionCuenta.textContent = n === 1 ? "1 marcado" : n + " marcados";
+  movSeleccionMover.disabled = n === 0;
+  movSeleccionBorrar.disabled = n === 0;
+  movSeleccionMover.style.opacity = n === 0 ? "0.4" : "";
+  movSeleccionBorrar.style.opacity = n === 0 ? "0.4" : "";
+  const todosMarcados = movimientosVisibles.length > 0 && n === movimientosVisibles.length;
+  movSeleccionTodos.textContent = todosMarcados ? "Ninguno" : "Todos";
+}
+
+function salirDeSeleccion() {
+  modoSeleccion = false;
+  seleccionados.clear();
+  renderMovimientos();
+}
+
+// A donde se mueve lo marcado depende de que se marco: los gastos van a
+// una categoria y las ganancias a una fuente. Mezclar las dos cosas no
+// tiene un destino unico, asi que se avisa.
+async function moverSeleccionados() {
+  const marcados = movimientosVisibles.filter((m) => seleccionados.has(m.id));
+  if (marcados.length === 0) return;
+
+  const tipos = new Set(marcados.map((m) => m.tipo));
+  if (tipos.size > 1) {
+    mostrarAviso("Marcaste gastos y ganancias juntos: muévelos por separado.");
+    return;
+  }
+  const tipo = marcados[0].tipo;
+  if (tipo === "caja") {
+    mostrarAviso("Un conteo de caja no se mueve de categoría.");
+    return;
+  }
+
+  if (tipo === "ganancia" && !fuentesCache.length) await cargarFuentes();
+  const lista = tipo === "gasto" ? categoriasParaSelector : fuentesCache;
+  if (!lista.length) {
+    mostrarAviso("Todavía no tienes a dónde moverlos.");
+    return;
+  }
+
+  abrirHojaSimple({
+    titulo: "Mover " + marcados.length + (marcados.length === 1 ? " movimiento" : " movimientos"),
+    campos: [
+      {
+        id: "destino",
+        etiqueta: tipo === "gasto" ? "Categoría" : "De dónde vino",
+        tipo: "opciones",
+        valor: lista[0].id,
+        opciones: lista.map((c) => ({ valor: c.id, label: c.label })),
+      },
+    ],
+    alGuardar: async (v) => {
+      const cambios = tipo === "gasto" ? { categoriaId: v.destino } : { fuenteId: v.destino };
+      const res = await fetch("/api/finance/movements/lote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: marcados.map((m) => m.id), accion: "editar", cambios }),
+      });
+      const data = await res.json();
+      seleccionados.clear();
+      modoSeleccion = false;
+      await refrescarPorMovimiento();
+      mostrarAviso("Moví " + (data.tocados || 0) + ".");
+    },
+  });
+}
+
+// Borrar en lote, con vuelta atras: el servidor devuelve copia de lo que
+// borro y el aviso ofrece devolverlo por unos segundos.
+async function borrarSeleccionados() {
+  const ids = movimientosVisibles.filter((m) => seleccionados.has(m.id)).map((m) => m.id);
+  if (ids.length === 0) return;
+  if (!confirm("¿Eliminar " + ids.length + (ids.length === 1 ? " movimiento?" : " movimientos?"))) return;
+
+  const res = await fetch("/api/finance/movements/lote", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids, accion: "borrar" }),
+  });
+  const data = await res.json();
+  const borrados = data.borrados || [];
+
+  seleccionados.clear();
+  modoSeleccion = false;
+  await refrescarPorMovimiento();
+
+  mostrarAviso("Eliminé " + borrados.length + ".", {
+    label: "Deshacer",
+    hacer: async () => {
+      await fetch("/api/finance/movements/lote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accion: "restaurar", movimientos: borrados }),
+      });
+      await refrescarPorMovimiento();
+      mostrarAviso("Los devolví.");
+    },
+  });
+}
+
+if (movSeleccionBtn) {
+  movSeleccionBtn.addEventListener("click", () => {
+    modoSeleccion = !modoSeleccion;
+    if (!modoSeleccion) seleccionados.clear();
+    renderMovimientos();
+  });
+  movSeleccionTodos.addEventListener("click", () => {
+    const todosMarcados = movimientosVisibles.length > 0 && seleccionados.size === movimientosVisibles.length;
+    seleccionados = todosMarcados ? new Set() : new Set(movimientosVisibles.map((m) => m.id));
+    renderMovimientos();
+  });
+  movSeleccionMover.addEventListener("click", moverSeleccionados);
+  movSeleccionBorrar.addEventListener("click", borrarSeleccionados);
+}
+
 function renderMovimientos() {
   const desde = movFiltroDesde.value;
   const hasta = movFiltroHasta.value;
@@ -1314,6 +1738,16 @@ function renderMovimientos() {
     return true;
   });
 
+  // Lo que quedo en pantalla es lo que "Todos" marca, y de ahi sale si
+  // lo marcado son gastos o ganancias.
+  movimientosVisibles = filtrados;
+  // Si un movimiento dejo de verse (cambio el filtro, lo borro el bot),
+  // no puede quedar marcado a escondidas.
+  seleccionados.forEach((id) => {
+    if (!filtrados.some((m) => m.id === id)) seleccionados.delete(id);
+  });
+  pintarBarraSeleccion();
+
   movimientosList.innerHTML = "";
   if (filtrados.length === 0) {
     movimientosEmpty.classList.remove("hidden");
@@ -1330,6 +1764,39 @@ function renderMovimientos() {
 
       const top = document.createElement("div");
       top.className = "flex items-center justify-between gap-2";
+
+      // En modo seleccion la fila entera es la casilla: tocar cualquier
+      // parte marca y desmarca.
+      if (modoSeleccion) {
+        const casilla = document.createElement("input");
+        casilla.type = "checkbox";
+        casilla.className = "w-4 h-4 shrink-0 accent-emerald-500";
+        casilla.checked = seleccionados.has(m.id);
+
+        const pintarMarcado = (marcado) => {
+          row.className =
+            "rounded-lg px-3 py-2 text-xs border " +
+            (marcado ? "bg-emerald-50 border-emerald-300" : "bg-white border-slate-100");
+        };
+        pintarMarcado(casilla.checked);
+
+        const alternar = () => {
+          if (casilla.checked) seleccionados.add(m.id);
+          else seleccionados.delete(m.id);
+          pintarMarcado(casilla.checked);
+          pintarBarraSeleccion();
+        };
+        casilla.addEventListener("click", (e) => e.stopPropagation());
+        casilla.addEventListener("change", alternar);
+        top.appendChild(casilla);
+
+        // Toda la fila marca y desmarca: apuntarle a la casilla con el
+        // dedo es innecesariamente fino.
+        row.addEventListener("click", () => {
+          casilla.checked = !casilla.checked;
+          alternar();
+        });
+      }
 
       const info = document.createElement("div");
       info.className = "min-w-0";
@@ -1349,32 +1816,24 @@ function renderMovimientos() {
         const verBoleta = document.createElement("button");
         verBoleta.className = "text-xs text-blue-600 font-semibold mt-1";
         verBoleta.innerHTML = '<i class="fa-solid fa-receipt"></i> Ver boleta';
-        verBoleta.addEventListener("click", () => abrirRecibo(m.id));
+        verBoleta.addEventListener("click", (e) => {
+          e.stopPropagation();
+          abrirRecibo(m.id);
+        });
         info.appendChild(verBoleta);
       }
 
       const acciones = document.createElement("div");
       acciones.className = "flex items-center gap-1 shrink-0";
 
-      const editBtn = document.createElement("button");
-      editBtn.innerHTML = '<i class="fa-solid fa-pen text-slate-400"></i>';
-      editBtn.className = "w-7 h-7 flex items-center justify-center";
-      editBtn.addEventListener("click", async () => {
-        await abrirHojaMovimiento(m, async () => {
-          await fetchMovimientos();
-          fetchCashboxToday();
-          fetchGoalsAndProgress();
-        });
-      });
+      const editarEste = async () => {
+        await abrirHojaMovimiento(m, refrescarPorMovimiento);
+      };
 
-      const delBtn = document.createElement("button");
-      delBtn.innerHTML = '<i class="fa-solid fa-trash text-rose-400"></i>';
-      delBtn.className = "w-7 h-7 flex items-center justify-center";
-      delBtn.addEventListener("click", async () => {
+      const borrarEste = async () => {
         const copia = { ...m };
         await fetch(`/api/finance/movements/${m.id}`, { method: "DELETE" });
-        await fetchMovimientos();
-        fetchCashboxToday();
+        await refrescarPorMovimiento();
         // Sin preguntar, pero con vuelta atras: mas rapido y mas seguro
         // que un "¿seguro?" que uno acepta sin leer.
         mostrarAviso("Movimiento eliminado.", {
@@ -1389,13 +1848,31 @@ function renderMovimientos() {
                 descripcion: copia.descripcion,
                 fecha: copia.fecha,
                 hora: copia.hora,
+                categoriaId: copia.categoriaId,
+                fuenteId: copia.fuenteId,
+                localId: copia.localId,
               }),
             });
-            await fetchMovimientos();
-            fetchCashboxToday();
+            await refrescarPorMovimiento();
             mostrarAviso("Lo devolví.");
           },
         });
+      };
+
+      const editBtn = document.createElement("button");
+      editBtn.innerHTML = '<i class="fa-solid fa-pen text-slate-400"></i>';
+      editBtn.className = "w-7 h-7 flex items-center justify-center";
+      editBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        editarEste();
+      });
+
+      const delBtn = document.createElement("button");
+      delBtn.innerHTML = '<i class="fa-solid fa-trash text-rose-400"></i>';
+      delBtn.className = "w-7 h-7 flex items-center justify-center";
+      delBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        borrarEste();
       });
 
       acciones.appendChild(editBtn);
@@ -1404,7 +1881,13 @@ function renderMovimientos() {
       top.appendChild(acciones);
       row.appendChild(top);
 
-      if (m.tipo === "ganancia" && fuentesCache.length) {
+      // Deslizar: a la izquierda borra, a la derecha edita. En modo
+      // seleccion no, que ahi el gesto es marcar.
+      if (!modoSeleccion) {
+        habilitarDeslizar(row, { alBorrar: borrarEste, alEditar: editarEste });
+      }
+
+      if (m.tipo === "ganancia" && fuentesCache.length && !modoSeleccion) {
         const selectFuente = crearSelectorFuente(
           m.fuenteEfectiva || fuentesCache[0].id,
           m.id,
@@ -1415,7 +1898,7 @@ function renderMovimientos() {
         row.appendChild(selectFuente);
       }
 
-      if (m.tipo === "gasto") {
+      if (m.tipo === "gasto" && !modoSeleccion) {
         const selectCategoria = crearSelectorCategoria(
           m.categoriaEfectiva || "otros",
           m.id,
@@ -1451,21 +1934,31 @@ addMovimientoBtn.addEventListener("click", async () => {
   const tipo = movNuevoTipo.value;
   const monto = parseFloat(movNuevoMonto.value);
   if (!Number.isFinite(monto) || monto <= 0) return;
-  await fetch("/api/finance/movements", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      tipo,
-      monto,
-      descripcion: movNuevoDescripcion.value.trim(),
-      fecha: movNuevoFecha.value || undefined,
-    }),
-  });
+  const descripcion = movNuevoDescripcion.value.trim();
+  // Si estas sin senal no se pierde: queda esperando en el celular y sale
+  // solo cuando vuelve.
+  const r = await mandarOGuardar(
+    "/api/finance/movements",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tipo,
+        monto,
+        descripcion,
+        fecha: movNuevoFecha.value || undefined,
+      }),
+    },
+    (tipo === "ganancia" ? "Ganancia" : "Gasto") + " de S/ " + monto + (descripcion ? " · " + descripcion : "")
+  );
   movNuevoMonto.value = "";
   movNuevoDescripcion.value = "";
   movNuevoFecha.value = "";
-  await fetchMovimientos();
-  fetchCashboxToday();
+  if (r.enCola) {
+    mostrarAviso("Sin señal: lo guardé en el celular y lo mando apenas vuelva.");
+    return;
+  }
+  await refrescarPorMovimiento();
 });
 
 // ---------- Finanzas: Deudas (por persona, no tocan caja) ----------
@@ -1525,20 +2018,46 @@ function renderDebtMovimientos(container, persona) {
         const editBtn = document.createElement("button");
         editBtn.innerHTML = '<i class="fa-solid fa-pen text-slate-400"></i>';
         editBtn.className = "w-7 h-7 flex items-center justify-center";
-        editBtn.addEventListener("click", async () => {
-          const nuevoMontoStr = prompt("Nuevo monto:", m.monto);
-          if (nuevoMontoStr === null) return;
-          const nuevoMonto = parseFloat(nuevoMontoStr);
-          if (!Number.isFinite(nuevoMonto) || nuevoMonto <= 0) return;
-          const nuevaDescripcion = prompt("Nueva descripción:", m.descripcion || "");
-          if (nuevaDescripcion === null) return;
-          await fetch(`/api/finance/debts/${encodeURIComponent(persona)}/movements/${m.index}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ monto: nuevoMonto, descripcion: nuevaDescripcion }),
+        editBtn.addEventListener("click", () => {
+          abrirHojaSimple({
+            titulo: "Editar movimiento de " + persona,
+            campos: [
+              {
+                id: "tipo",
+                etiqueta: "Qué es",
+                tipo: "opciones",
+                valor: m.tipo,
+                opciones: [
+                  { valor: "debe", label: "Te quedó debiendo" },
+                  { valor: "pago", label: "Te pagó" },
+                ],
+              },
+              { id: "monto", etiqueta: "Monto", tipo: "numero", valor: m.monto },
+              { id: "descripcion", etiqueta: "Descripción", tipo: "texto", valor: m.descripcion || "" },
+              { id: "fecha", etiqueta: "Fecha", tipo: "fecha", valor: m.fecha || "" },
+              { id: "hora", etiqueta: "Hora", tipo: "hora", valor: (m.hora || "").slice(0, 5) },
+            ],
+            alGuardar: async (v) => {
+              if (!Number.isFinite(v.monto) || v.monto <= 0) {
+                mostrarAviso("El monto tiene que ser mayor que cero.");
+                return false;
+              }
+              await fetch(`/api/finance/debts/${encodeURIComponent(persona)}/movements/${refDeMov(m)}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(v),
+              });
+              await renderDebtMovimientos(container, persona)();
+              await fetchDebts();
+              mostrarAviso("Guardado.");
+            },
+            alEliminar: async () => {
+              await fetch(`/api/finance/debts/${encodeURIComponent(persona)}/movements/${refDeMov(m)}`, { method: "DELETE" });
+              await renderDebtMovimientos(container, persona)();
+              await fetchDebts();
+              mostrarAviso("Movimiento eliminado.");
+            },
           });
-          await renderDebtMovimientos(container, persona)();
-          await fetchDebts();
         });
 
         const delBtn = document.createElement("button");
@@ -1546,7 +2065,7 @@ function renderDebtMovimientos(container, persona) {
         delBtn.className = "w-7 h-7 flex items-center justify-center";
         delBtn.addEventListener("click", async () => {
           if (!confirm("¿Eliminar este movimiento?")) return;
-          await fetch(`/api/finance/debts/${encodeURIComponent(persona)}/movements/${m.index}`, { method: "DELETE" });
+          await fetch(`/api/finance/debts/${encodeURIComponent(persona)}/movements/${refDeMov(m)}`, { method: "DELETE" });
           await renderDebtMovimientos(container, persona)();
           await fetchDebts();
         });
@@ -1663,6 +2182,9 @@ async function fetchDebts() {
     const res = await fetch("/api/finance/debts");
     const data = await res.json();
     renderDebts(data.deudas || []);
+    // El total de arriba sale de la misma lista: si no se refresca, queda
+    // mostrando el numero viejo despues de corregir un movimiento.
+    await fetchFinanceSummaryExtras();
   } catch (err) {
     console.error("No se pudo obtener las deudas:", err);
   }
@@ -1959,17 +2481,38 @@ function renderShortfalls(total, movimientos) {
       const editBtn = document.createElement("button");
       editBtn.innerHTML = '<i class="fa-solid fa-pen text-slate-400"></i>';
       editBtn.className = "w-7 h-7 flex items-center justify-center";
-      editBtn.addEventListener("click", async () => {
-        const nuevoMontoStr = prompt("Nuevo monto:", m.monto);
-        if (nuevoMontoStr === null) return;
-        const nuevoMonto = parseFloat(nuevoMontoStr);
-        if (!Number.isFinite(nuevoMonto) || nuevoMonto <= 0) return;
-        await fetch(`/api/finance/shortfalls/${m.index}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ monto: nuevoMonto }),
+      editBtn.addEventListener("click", () => {
+        abrirHojaSimple({
+          titulo: "Editar faltante",
+          campos: [
+            { id: "monto", etiqueta: "Monto", tipo: "numero", valor: m.monto },
+            { id: "descripcion", etiqueta: "Descripción", tipo: "texto", valor: m.descripcion || "" },
+            { id: "fecha", etiqueta: "Fecha", tipo: "fecha", valor: m.fecha || "" },
+            { id: "hora", etiqueta: "Hora", tipo: "hora", valor: (m.hora || "").slice(0, 5) },
+          ],
+          alGuardar: async (v) => {
+            if (!Number.isFinite(v.monto) || v.monto <= 0) {
+              mostrarAviso("El monto tiene que ser mayor que cero.");
+              return false;
+            }
+            await fetch(`/api/finance/shortfalls/${refDeMov(m)}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(v),
+            });
+            await fetchShortfalls();
+            await fetchCashboxToday();
+            await fetchFinanceSummaryExtras();
+            mostrarAviso("Guardado.");
+          },
+          alEliminar: async () => {
+            await fetch(`/api/finance/shortfalls/${refDeMov(m)}`, { method: "DELETE" });
+            await fetchShortfalls();
+            await fetchCashboxToday();
+            await fetchFinanceSummaryExtras();
+            mostrarAviso("Faltante eliminado.");
+          },
         });
-        await fetchShortfalls();
       });
 
       const delBtn = document.createElement("button");
@@ -1977,8 +2520,10 @@ function renderShortfalls(total, movimientos) {
       delBtn.className = "w-7 h-7 flex items-center justify-center";
       delBtn.addEventListener("click", async () => {
         if (!confirm("¿Eliminar este faltante?")) return;
-        await fetch(`/api/finance/shortfalls/${m.index}`, { method: "DELETE" });
+        await fetch(`/api/finance/shortfalls/${refDeMov(m)}`, { method: "DELETE" });
         await fetchShortfalls();
+        await fetchCashboxToday();
+        await fetchFinanceSummaryExtras();
       });
 
       acciones.appendChild(editBtn);
@@ -3557,17 +4102,74 @@ function renderMovimientosCustodia(container, clave) {
         const editBtn = document.createElement("button");
         editBtn.innerHTML = '<i class="fa-solid fa-pen text-slate-400"></i>';
         editBtn.className = "w-7 h-7 flex items-center justify-center";
-        editBtn.addEventListener("click", async () => {
-          const nuevoMonto = prompt("Nuevo monto:", m.monto);
-          if (nuevoMonto === null) return;
-          const monto = parseFloat(nuevoMonto);
-          if (!Number.isFinite(monto) || monto <= 0) return;
-          await fetch(`/api/finance/custodias/${encodeURIComponent(clave)}/movements/${m.index}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ monto }),
+        editBtn.addEventListener("click", () => {
+          const campos = [
+            {
+              id: "tipo",
+              etiqueta: "Qué es",
+              tipo: "opciones",
+              valor: m.tipo,
+              opciones: [
+                { valor: "guardo", label: "Te dejó plata" },
+                { valor: "gasto", label: "Gastaste de su plata" },
+              ],
+            },
+            { id: "monto", etiqueta: "Monto", tipo: "numero", valor: m.monto },
+            { id: "descripcion", etiqueta: "Descripción", tipo: "texto", valor: m.descripcion || "" },
+            { id: "fecha", etiqueta: "Fecha", tipo: "fecha", valor: m.fecha || "" },
+            { id: "hora", etiqueta: "Hora", tipo: "hora", valor: (m.hora || "").slice(0, 5) },
+          ];
+          // Si hay más de una persona, se puede pasar el movimiento a otra
+          // sin borrarlo y volver a anotarlo.
+          if (custodiasCache.length > 1) {
+            campos.push({
+              id: "destino",
+              etiqueta: "De quién es",
+              tipo: "opciones",
+              valor: clave,
+              opciones: custodiasCache.map((p) => ({ valor: p.clave, label: p.label })),
+            });
+          }
+
+          abrirHojaSimple({
+            titulo: "Editar movimiento",
+            campos,
+            alGuardar: async (v) => {
+              if (!Number.isFinite(v.monto) || v.monto <= 0) {
+                mostrarAviso("El monto tiene que ser mayor que cero.");
+                return false;
+              }
+              const destino = v.destino;
+              delete v.destino;
+              await fetch(`/api/finance/custodias/${encodeURIComponent(clave)}/movements/${refDeMov(m)}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(v),
+              });
+              // El movimiento se mueve DESPUÉS de corregirlo, así los
+              // cambios viajan con él a la otra persona.
+              if (destino && destino !== clave) {
+                await fetch(
+                  `/api/finance/custodias/${encodeURIComponent(clave)}/movements/${refDeMov(m)}/mover`,
+                  {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ destino }),
+                  }
+                );
+              }
+              await fetchCustodias();
+              const nombreDestino = (custodiasCache.find((p) => p.clave === destino) || {}).label;
+              mostrarAviso(destino && destino !== clave ? "Se lo pasé a " + nombreDestino + "." : "Guardado.");
+            },
+            alEliminar: async () => {
+              await fetch(`/api/finance/custodias/${encodeURIComponent(clave)}/movements/${refDeMov(m)}`, {
+                method: "DELETE",
+              });
+              await fetchCustodias();
+              mostrarAviso("Movimiento eliminado.");
+            },
           });
-          await fetchCustodias();
         });
 
         const delBtn = document.createElement("button");
@@ -3575,7 +4177,7 @@ function renderMovimientosCustodia(container, clave) {
         delBtn.className = "w-7 h-7 flex items-center justify-center";
         delBtn.addEventListener("click", async () => {
           if (!confirm("¿Eliminar este movimiento?")) return;
-          await fetch(`/api/finance/custodias/${encodeURIComponent(clave)}/movements/${m.index}`, { method: "DELETE" });
+          await fetch(`/api/finance/custodias/${encodeURIComponent(clave)}/movements/${refDeMov(m)}`, { method: "DELETE" });
           await fetchCustodias();
         });
 
@@ -3588,7 +4190,10 @@ function renderMovimientosCustodia(container, clave) {
   };
 }
 
+let custodiasCache = [];
+
 function renderCustodias(personas) {
+  custodiasCache = personas || [];
   custodiasList.innerHTML = "";
   custodiasEmpty.classList.toggle("hidden", personas.length > 0);
 
@@ -4482,6 +5087,23 @@ function pintarMetaEnResumen(data) {
     return;
   }
 
+  // Hoy descansas: no hay meta que cumplir. Lo que falta ya está
+  // repartido entre los días que sí vas a salir, así que pedirte hoy la
+  // meta de un día de trabajo sería pedirte algo que no te propusiste.
+  if (m.hoyEsLibre) {
+    resumenMetaDia.textContent = "Descanso";
+    resumenMetaDia.className = "text-lg font-extrabold text-sky-600 leading-none";
+    resumenMetaBarra.style.width = "100%";
+    resumenMetaBarra.className = "h-full bg-sky-400 transition-all duration-500";
+    resumenMetaTexto.textContent =
+      ganadoHoy > 0
+        ? "Hoy no te toca trabajar, así que los " + formatSoles(ganadoHoy) +
+          " que hiciste son extra: bajan lo que te falta para los días que sí sales."
+        : "Hoy no te toca trabajar. Lo que falta está repartido entre tus " +
+          m.diasHabiles + " días de trabajo, a " + formatSoles(m.diaria) + " cada uno.";
+    return;
+  }
+
   resumenMetaDia.textContent = formatSoles(m.diaria);
   resumenMetaDia.className = "text-lg font-extrabold text-brand-green leading-none";
   const pct = m.diaria > 0 ? Math.min(Math.max(ganadoHoy / m.diaria, 0), 1) : 0;
@@ -4819,6 +5441,8 @@ GUIA.push(
           ["Precios de productos", "Un segundo chat donde anotas precios y después le preguntas cuánto cuesta algo."],
           ["Tareas", "Pendientes que no son plata (botar la basura) y te insisten hasta que los marcas."],
           ["Corregir un día entero", "En Movimientos, en el historial diario, el lápiz corrige las cifras de un día ya cerrado."],
+          ["Días de descanso", "En Metas marcas los días que no sales. Esos días no tienen meta: lo que falta se reparte entre los que sí trabajas. Si igual sales un rato, eso es extra y no te baja el promedio."],
+          ["Entrar a un rubro", "En el desglose, toca una línea de \"De dónde vino\" o \"En qué se fue\" y ves SOLO eso: el total, la comparación y la lista uno por uno. \"Ver todo otra vez\" te saca."],
         ],
       },
     ],
@@ -5178,12 +5802,16 @@ const SECCIONES = [
       ["financeTabMovimientos", "Movimientos"],
       ["financeTabCuentas", "Anotaciones"],
       ["financeTabFaltantes", "Faltantes"],
-      ["financeTabDeudas", "Deudas"],
+      ["financeTabDeudas", "Me deben"],
+      ["financeTabPrestamos", "Lo que debo"],
       ["financeTabAna", "Custodia"],
     ] },
   { id: "analisis", icono: "fa-chart-simple", label: "Analisis",
     paneles: [
       ["financeTabGraficos", "Graficos"],
+      ["financeTabCalendario", "Calendario"],
+      ["financeTabHormiga", "Gastos hormiga"],
+      ["financeTabAhorrado", "Lo que te ahorraste"],
       ["financeTabLocales", "Locales"],
       ["financeTabPresupuesto", "Presupuesto"],
     ] },
@@ -5195,6 +5823,7 @@ const SECCIONES = [
       ["financeTabPrecios", "Precios"],
       ["financeTabConsultas", "Consultas"],
       ["financeTabAjustes", "Ajustes"],
+      ["financeTabBitacora", "Historial de cambios"],
       ["financeTabGuia", "Guia"],
     ] },
 ];
@@ -5270,6 +5899,301 @@ function pintarSubTabs(seccion, panelActivo) {
     subTabs.appendChild(b);
   });
 }
+GUIA.push(
+  {
+    icono: "📅",
+    titulo: "El calendario del mes",
+    resumen: "El mes entero de un vistazo, no como lista.",
+    bloques: [
+      {
+        tipo: "texto",
+        texto:
+          "Está en Análisis → Calendario. Cada día que ya pasó muestra en verde lo que ganaste " +
+          "y en rojo lo que gastaste. Los días que vienen muestran en naranja lo que te toca pagar. " +
+          "El punto naranja marca los días con un pago con nombre (Junta, Natura, Luz).",
+      },
+      {
+        tipo: "lista",
+        titulo: "Qué puedes hacer",
+        items: [
+          "Tocar un día que ya pasó te lleva a Movimientos filtrado por ese día, y ahí lo corriges.",
+          "Tocar un día que viene te dice qué se paga ese día.",
+          "Las flechas de arriba te mueven de mes: sirve para comparar cómo te fue antes.",
+          "En Pendientes, al elegir \"Cada mes (día fijo)\" tocas el día en una cuadrícula y te dice en qué fecha cae el próximo.",
+          "Abajo está el resumen del mes: cuánto ganaste, cuántos días trabajaste y tu mejor día.",
+        ],
+      },
+    ],
+  },
+  {
+    icono: "💳",
+    titulo: "Dónde está tu plata",
+    resumen: "Separar lo que está en el bolsillo de lo que está en Yape o el banco.",
+    bloques: [
+      {
+        tipo: "texto",
+        texto:
+          "La app siempre dio por hecho que todo era efectivo, así que el efectivo esperado contaba " +
+          "plata que no tenías en la mano. El total no cambia — esa plata es tuya y sirve igual para " +
+          "pagar — pero ahora ves cuánto está en cada lado.",
+      },
+      {
+        tipo: "ejemplos",
+        titulo: "Cómo se anota",
+        items: [
+          ["80 bum yape", "La palabra yape hace que esa ganancia quede en Yape, no en efectivo"],
+          ["menos 30 recarga plin", "Lo mismo del lado de los gastos"],
+        ],
+      },
+      {
+        tipo: "lista",
+        titulo: "Para tenerlo en cuenta",
+        items: [
+          "Los lugares y sus palabras se editan en Ajustes → Dónde está tu plata.",
+          "El efectivo es el lugar por defecto: todo lo que no nombre otro lugar cae ahí.",
+          "Puedes cambiar el lugar de un movimiento ya anotado desde el lápiz, abajo del todo.",
+          "Si una palabra está en Anotaciones (cuentas configuradas), eso manda: esa frase queda como nota y no cuenta.",
+        ],
+      },
+    ],
+  },
+  {
+    icono: "🐜",
+    titulo: "Gastos hormiga",
+    resumen: "Lo chiquito que se repite y suma más de lo que parece.",
+    bloques: [
+      {
+        tipo: "texto",
+        texto:
+          "Está en Análisis → Gastos hormiga. Junta los gastos chicos por lo que son (almuerzo, " +
+          "gasolina, pasaje) y los muestra sumados. Treinta almuerzos de S/6 se ven como S/180, " +
+          "que es lo que de verdad son.",
+      },
+      {
+        tipo: "lista",
+        titulo: "Cómo se usa",
+        items: [
+          "Eliges desde qué fecha hasta qué fecha quieres mirar.",
+          "\"Cuenta como chico hasta\" decide qué es un gasto chico: por defecto S/25.",
+          "Solo aparece lo que se repitió 4 veces o más; algo suelto no es un gasto hormiga.",
+          "\"Ver estos gastos\" te lleva a Movimientos con esos gastos filtrados.",
+        ],
+      },
+    ],
+  },
+  {
+    icono: "🕘",
+    titulo: "Historial de cambios",
+    resumen: "Para cuando algo no cuadra y quieres saber por qué.",
+    bloques: [
+      {
+        tipo: "texto",
+        texto:
+          "Está en Más → Historial de cambios. Cada vez que algo cambia queda una línea: qué fue, " +
+          "a qué hora, y de dónde vino (del panel, por WhatsApp, o algo que la app hizo sola). " +
+          "Si corregiste un movimiento, dice exactamente qué cambió: \"monto: 50 → 80\".",
+      },
+      {
+        tipo: "lista",
+        titulo: "Para tenerlo en cuenta",
+        items: [
+          "No se puede editar ni borrar. Si se pudiera, dejaría de servir para lo único que sirve.",
+          "También anota los cierres de día y los conteos de caja, con cuánto sobraba o faltaba.",
+          "El selector de arriba filtra por tipo: solo deudas, solo custodia, solo conteos.",
+        ],
+      },
+    ],
+  },
+  {
+    icono: "📶",
+    titulo: "Anotar sin señal",
+    resumen: "Si no hay internet, lo que anotes no se pierde.",
+    bloques: [
+      {
+        tipo: "texto",
+        texto:
+          "Antes, si estabas en una zona sin señal, la pantalla abría pero lo que anotabas se perdía. " +
+          "Ahora queda guardado en tu celular y sale solo apenas vuelve la señal. Mientras tanto ves " +
+          "un aviso naranja abajo que dice cuántas cosas están esperando.",
+      },
+      {
+        tipo: "lista",
+        titulo: "Para tenerlo en cuenta",
+        items: [
+          "Vale para anotar cosas nuevas desde el panel.",
+          "Corregir y borrar sí necesitan señal: hacerlo a ciegas podría pisar algo que no viste.",
+          "Si cierras la app no pasa nada: lo pendiente sigue guardado y se manda cuando la abras.",
+        ],
+      },
+    ],
+  },
+);
+GUIA.push(
+  {
+    icono: "🏦",
+    titulo: "Lo que debo (créditos y préstamos)",
+    resumen: "La plata prestada entra a tu caja, pero hay que devolverla.",
+    bloques: [
+      {
+        tipo: "texto",
+        texto:
+          "Un crédito de Yape es plata de verdad y sirve para pagar, así que suma a tu caja como " +
+          "cualquier ganancia. Pero no la generaste trabajando y hay que devolverla. Antes la app solo " +
+          "entendía la primera mitad: sacar S/400 se leía como S/400 de sobra, cuando en realidad era " +
+          "una deuda nueva.",
+      },
+      {
+        tipo: "ejemplos",
+        titulo: "Cómo se anota",
+        items: [
+          ["400 yape credito", "Entran S/400 a tu caja Y queda anotado que le debes S/400 a Yape"],
+          ["200 prestamo tio", "Lo mismo, pero la deuda queda a nombre de tu tío"],
+        ],
+      },
+      {
+        tipo: "lista",
+        titulo: "Lo primero que tienes que hacer después",
+        items: [
+          "El bot no sabe cuánto te cobran de interés: anota lo que recibiste.",
+          "Entra a Registros → Lo que debo, toca Editar y pon el total que vas a devolver.",
+          "Si pediste S/400 y devuelves S/440, ese es el número que va ahí.",
+        ],
+      },
+      {
+        tipo: "lista",
+        titulo: "Y esto es lo importante: no se cuenta dos veces",
+        items: [
+          "Si ya tienes el pago anotado en Pendientes, átalo desde Editar → \"¿Con qué pendiente lo pagas?\".",
+          "Desde ahí manda el pendiente: es el que cuenta en tus metas, igual que antes.",
+          "Cada vez que tocas \"Ya pagué\", el saldo del préstamo baja solo por ese monto.",
+          "Si NO lo atas a ningún pendiente, entonces sí cuenta por su cuenta en tus metas.",
+          "Sin pendiente puedes ponerle una cuota y un día del mes, y proyecta solo lo que cae en el periodo.",
+        ],
+      },
+      {
+        tipo: "lista",
+        titulo: "Lo demás que hay ahí",
+        items: [
+          "Arriba, cuánto debes en total y cuánto te costaron los intereses este año.",
+          "Un aviso si buena parte de lo que entró este mes fue prestado: ahí el mes no se sostuvo con el trabajo.",
+          "\"¿Me conviene sacarlo?\": antes de pedirlo te dice cómo quedarías con y sin el crédito.",
+          "Las palabras que lo disparan se cambian ahí mismo, al final de la pantalla.",
+        ],
+      },
+    ],
+  },
+  {
+    icono: "⚖️",
+    titulo: "Tu plata de verdad",
+    resumen: "De lo que tienes en la mano, cuánto es tuyo.",
+    bloques: [
+      {
+        tipo: "texto",
+        texto:
+          "El número verde grande es lo que deberías tener en la mano, y no cambia. Debajo se reparte: " +
+          "cuánto le estás guardando a otras personas, cuánto es prestado y hay que devolver, y lo que " +
+          "queda es tuyo de verdad. Si devolvieras todo lo ajeno hoy, eso es lo que te quedaría.",
+      },
+      {
+        tipo: "lista",
+        titulo: "Para tenerlo en cuenta",
+        items: [
+          "Solo aparece si le guardas plata a alguien o si debes algo. Si no, tu plata es tu plata.",
+          "Puede salir en rojo: eso significa que debes más de lo que tienes.",
+        ],
+      },
+    ],
+  },
+  {
+    icono: "🤝",
+    titulo: "Me deben vs. Lo que debo",
+    resumen: "Son dos pantallas distintas y es fácil confundirlas.",
+    bloques: [
+      {
+        tipo: "lista",
+        titulo: "Cuál es cuál",
+        items: [
+          "Me deben: plata que TE deben a ti. Se anota con \"menos 20 Juan debe\" y no toca tu caja.",
+          "Lo que debo: créditos y préstamos TUYOS. La plata entró a tu caja y hay que devolverla.",
+          "Custodia: plata de otra persona que tú guardas. No es tuya ni se la debes: la tienes.",
+        ],
+      },
+    ],
+  },
+);
+GUIA.push(
+  {
+    icono: "🐷",
+    titulo: "Lo que te ahorraste",
+    resumen: "Lo que tenías planeado gastar y no gastaste.",
+    bloques: [
+      {
+        tipo: "texto",
+        texto:
+          "Está en Análisis → Lo que te ahorraste. Los días que no sales, el almuerzo y la gasolina " +
+          "de ese día no ocurren. Esa plata no es una ganancia (así que no sale en ganancias) ni es " +
+          "un gasto (así que tampoco sale en gastos): simplemente no se gastó, y no se veía en ningún " +
+          "lado. Acá se mira día por día qué tenías planeado y qué gastaste de verdad.",
+      },
+      {
+        tipo: "lista",
+        titulo: "Qué ves ahí",
+        items: [
+          "El total del mes, y de cuánto planeado fue.",
+          "Un calendario: mientras más azul el día, más te ahorraste ese día. Tócalo para ver de qué.",
+          "De qué te ahorraste: cuántos días no gastaste cada cosa.",
+          "Y abajo, el acumulado entre dos fechas cualesquiera.",
+        ],
+      },
+      {
+        tipo: "aviso",
+        texto:
+          "Solo cuenta hacia atrás. Un día que todavía no llegó no te ahorró nada, y contarlo sería " +
+          "inventarse plata.",
+      },
+      {
+        tipo: "lista",
+        titulo: "Qué cuenta y qué no",
+        items: [
+          "Cuentan los gastos programados: los de todos los días y los de cada semana.",
+          "NO cuentan los pagos de Pendientes: si no pagaste la luz no te la ahorraste, la debes.",
+          "Si dos gastos programados comparten una palabra (Almuerzos y Almuerzos diarios), un gasto tuyo lo reconocen los dos y las cuentas salen mal. La app te avisa ahí mismo cuáles son.",
+        ],
+      },
+    ],
+  },
+  {
+    icono: "✏️",
+    titulo: "Cambiar un pago pendiente",
+    resumen: "Nombre, monto, cada cuánto, qué día y hasta cuándo.",
+    bloques: [
+      {
+        tipo: "texto",
+        texto:
+          "En Pendientes, el lápiz de cada pago abre todo para cambiarlo. Antes había que borrarlo y " +
+          "crearlo de nuevo, y se perdía su historial de pagos.",
+      },
+      {
+        tipo: "lista",
+        titulo: "Lo nuevo: hasta cuándo se paga",
+        items: [
+          "Una cuota se termina: Natura en 6 meses, una deuda hasta marzo.",
+          "Le pones la fecha de término y, pasada esa fecha, deja de avisarte solo.",
+          "Mientras tanto la lista te dice \"hasta 31/03\", y al terminar, \"Terminado el 31/03\".",
+          "Vacío = se repite para siempre, como era antes.",
+        ],
+      },
+      {
+        tipo: "lista",
+        titulo: "Para tenerlo en cuenta",
+        items: [
+          "Cambiar de \"cada semana\" a \"cada mes\" te va a pedir el día nuevo: son cosas distintas.",
+          "Un pago terminado deja de contar en tus metas y en el calendario.",
+        ],
+      },
+    ],
+  },
+);
 
 // ---------- La pantalla "Todo": el indice de la app ----------
 const DESTINOS = [
@@ -5277,9 +6201,14 @@ const DESTINOS = [
   { icono: "📒", nombre: "Movimientos", que: "Todo lo anotado: corregir, borrar, filtrar y buscar", panel: "financeTabMovimientos" },
   { icono: "🧾", nombre: "Anotaciones", que: "Tus conteos de yape, plin y efectivo", panel: "financeTabCuentas" },
   { icono: "⚠️", nombre: "Faltantes", que: "Lo que se perdió al cuadrar la caja", panel: "financeTabFaltantes" },
-  { icono: "🤝", nombre: "Deudas", que: "Quién te debe y cuánto te han pagado", panel: "financeTabDeudas" },
+  { icono: "🤝", nombre: "Me deben", que: "Quién te debe a ti y cuánto te han pagado", panel: "financeTabDeudas" },
+  { icono: "🏦", nombre: "Lo que debo", que: "Créditos y préstamos tuyos: cuánto falta devolver", panel: "financeTabPrestamos" },
   { icono: "🛡️", nombre: "Custodia", que: "Plata de otras personas que guardas", panel: "financeTabAna" },
   { icono: "📊", nombre: "Gráficos", que: "Qué día rinde más, gasolina, categorías y meses", panel: "financeTabGraficos" },
+  { icono: "📅", nombre: "Calendario", que: "El mes entero: qué hiciste cada día y qué te toca pagar", panel: "financeTabCalendario" },
+  { icono: "🐜", nombre: "Gastos hormiga", que: "Lo chiquito que se repite y no se nota", panel: "financeTabHormiga" },
+  { icono: "🐷", nombre: "Lo que te ahorraste", que: "Lo planeado que no gastaste, día por día", panel: "financeTabAhorrado" },
+  { icono: "🕘", nombre: "Historial de cambios", que: "Qué se tocó, cuándo y de dónde vino", panel: "financeTabBitacora" },
   { icono: "🏪", nombre: "Locales", que: "Qué restaurante te deja más", panel: "financeTabLocales" },
   { icono: "💸", nombre: "Presupuesto", que: "Límites por categoría y gastos programados", panel: "financeTabPresupuesto" },
   { icono: "🎯", nombre: "Metas y ahorro", que: "Cuánto necesitas por día y tu plan de ahorro", panel: "financeTabMetas" },
@@ -5390,6 +6319,9 @@ const desgloseBuscar = document.getElementById("desgloseBuscar");
 const desgloseCuerpo = document.getElementById("desgloseCuerpo");
 
 let desgloseConfig = null;
+// El rubro en el que entraste (vacío = estás viendo todo junto).
+let desgloseGrupo = "";
+let desgloseGrupoNombre = "";
 let desglosePeriodo = "mes";
 let desgloseDatos = null; // { movimientos, hoy }
 // id -> nombre legible. Sin esto el desglose mostraba "comida_diaria" y
@@ -5440,6 +6372,10 @@ function filtrarMovimientos(rango) {
   const q = (desgloseBuscar.value || "").trim().toLowerCase();
   return (desgloseDatos.movimientos || []).filter((m) => {
     if (m.tipo !== desgloseConfig.tipo) return false;
+    // Si entraste a un rubro, todo lo de esta pantalla es de ese rubro:
+    // el total de arriba, la comparación y la lista. Si no, no servía de
+    // nada entrar: seguirías viendo las mismas cifras de todo junto.
+    if (desgloseGrupo && claveDeGrupo(m) !== desgloseGrupo) return false;
     if (m.fecha < rango.desde || m.fecha > rango.hasta) return false;
     if (q && !(m.descripcion || "").toLowerCase().includes(q) && !String(m.monto).includes(q)) return false;
     if (desgloseConfig.filtroExtra && !desgloseConfig.filtroExtra(m)) return false;
@@ -5449,10 +6385,18 @@ function filtrarMovimientos(rango) {
 
 // Los gastos se agrupan por categoria y las ganancias por fuente: es la
 // clasificacion que ya trae cada movimiento resuelta desde el servidor.
+// A qué rubro pertenece un movimiento: su categoría si es gasto, su
+// fuente si es ganancia. Antes esto estaba escrito suelto adentro de
+// agruparMovimientos; ahora lo usan también el filtro y el "entrar" a un
+// grupo, y tienen que coincidir siempre.
+function claveDeGrupo(m) {
+  return desgloseConfig.tipo === "gasto" ? m.categoriaEfectiva || "otros" : m.fuenteEfectiva || "sin fuente";
+}
+
 function agruparMovimientos(movs) {
   const porGrupo = new Map();
   movs.forEach((m) => {
-    const clave = desgloseConfig.tipo === "gasto" ? m.categoriaEfectiva || "otros" : m.fuenteEfectiva || "sin fuente";
+    const clave = claveDeGrupo(m);
     const actual = porGrupo.get(clave) || { monto: 0, cantidad: 0 };
     actual.monto += m.monto || 0;
     actual.cantidad += 1;
@@ -5461,6 +6405,8 @@ function agruparMovimientos(movs) {
   const total = movs.reduce((s, m) => s + (m.monto || 0), 0);
   return Array.from(porGrupo.entries())
     .map((par) => ({
+      // La clave viaja junto al nombre: es con lo que se filtra al tocar.
+      clave: par[0],
       nombre: nombresDeGrupo.get(par[0]) || par[0],
       monto: par[1].monto,
       cantidad: par[1].cantidad,
@@ -5524,6 +6470,20 @@ function barraDe(pct, esGasto) {
   return fondo;
 }
 
+function entrarAlGrupo(clave, nombre) {
+  desgloseGrupo = clave;
+  desgloseGrupoNombre = nombre;
+  pintarDesglose();
+  desgloseCuerpo.scrollTop = 0;
+}
+
+function salirDelGrupo() {
+  desgloseGrupo = "";
+  desgloseGrupoNombre = "";
+  pintarDesglose();
+  desgloseCuerpo.scrollTop = 0;
+}
+
 function pintarDesglose() {
   if (!desgloseDatos || !desgloseConfig) return;
   const hoy = desgloseDatos.hoy;
@@ -5541,6 +6501,17 @@ function pintarDesglose() {
 
   desgloseCuerpo.innerHTML = "";
 
+  if (desgloseGrupo) {
+    const volver = document.createElement("button");
+    volver.className =
+      "w-full flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold bg-slate-100 text-slate-600 active:scale-95 transition-all";
+    volver.innerHTML =
+      '<i class="fa-solid fa-arrow-left"></i><span>Ver todo otra vez</span>' +
+      '<span class="ml-auto text-slate-400">' + desgloseGrupoNombre + "</span>";
+    volver.addEventListener("click", salirDelGrupo);
+    desgloseCuerpo.appendChild(volver);
+  }
+
   const cab = document.createElement("section");
   cab.className = "card border-0 py-4 text-white";
   cab.style.background = esGasto
@@ -5548,7 +6519,11 @@ function pintarDesglose() {
     : "linear-gradient(135deg, #22C55E 0%, #15803D 100%)";
   const et = document.createElement("p");
   et.className = "text-[10px] font-bold tracking-[0.1em] text-white/75";
-  et.textContent = esGasto ? "TOTAL GASTADO" : "TOTAL GANADO";
+  et.textContent = desgloseGrupo
+    ? desgloseGrupoNombre.toUpperCase() + " · " + (esGasto ? "GASTADO" : "GANADO")
+    : esGasto
+    ? "TOTAL GASTADO"
+    : "TOTAL GANADO";
   const num = document.createElement("p");
   num.className = "text-[34px] font-extrabold leading-none mt-1 tracking-tight";
   num.textContent = formatSoles(total);
@@ -5591,32 +6566,44 @@ function pintarDesglose() {
     return;
   }
 
-  // En qué se fue / de dónde vino
+  // En qué se fue / de dónde vino. Cada rubro se toca para entrar y ver
+  // solo lo suyo. Si ya entraste a uno, esta lista no aporta nada (sería
+  // una sola barra al 100%), así que no se dibuja.
   const grupos = agruparMovimientos(movs);
-  const secGrupos = document.createElement("section");
-  secGrupos.className = "card bg-white border border-slate-100 py-3";
-  const tg = document.createElement("p");
-  tg.className = "eyebrow text-slate-600 mb-2";
-  tg.textContent = esGasto ? "EN QUÉ SE FUE" : "DE DÓNDE VINO";
-  secGrupos.appendChild(tg);
-  grupos.forEach((g) => {
-    const fila = document.createElement("div");
-    fila.className = "mb-2";
-    const top = document.createElement("div");
-    top.className = "flex items-center justify-between gap-2 text-xs mb-1";
-    const n = document.createElement("span");
-    n.className = "font-semibold text-slate-700 truncate";
-    n.textContent = g.nombre + " (" + g.cantidad + ")";
-    const v = document.createElement("span");
-    v.className = "text-slate-500 shrink-0";
-    v.textContent = formatSoles(g.monto) + " · " + g.pct + "%";
-    top.appendChild(n);
-    top.appendChild(v);
-    fila.appendChild(top);
-    fila.appendChild(barraDe(g.pct, esGasto));
-    secGrupos.appendChild(fila);
-  });
-  desgloseCuerpo.appendChild(secGrupos);
+  if (!desgloseGrupo) {
+    const secGrupos = document.createElement("section");
+    secGrupos.className = "card bg-white border border-slate-100 py-3";
+    const tg = document.createElement("p");
+    tg.className = "eyebrow text-slate-600";
+    tg.textContent = esGasto ? "EN QUÉ SE FUE" : "DE DÓNDE VINO";
+    const sg = document.createElement("p");
+    sg.className = "text-[11px] text-slate-400 mt-0.5 mb-2";
+    sg.textContent = "Toca uno para ver todo lo suyo.";
+    secGrupos.appendChild(tg);
+    secGrupos.appendChild(sg);
+
+    grupos.forEach((g) => {
+      const fila = document.createElement("button");
+      fila.className = "w-full text-left mb-2 rounded-lg px-2 py-1.5 -mx-2 active:scale-[0.98] active:bg-slate-50 transition-all";
+      const top = document.createElement("div");
+      top.className = "flex items-center justify-between gap-2 text-xs mb-1";
+      const n = document.createElement("span");
+      n.className = "font-semibold text-slate-700 truncate";
+      n.textContent = g.nombre + " (" + g.cantidad + ")";
+      const v = document.createElement("span");
+      v.className = "text-slate-500 shrink-0 flex items-center gap-1.5";
+      v.innerHTML =
+        "<span>" + formatSoles(g.monto) + " · " + g.pct + "%</span>" +
+        '<i class="fa-solid fa-chevron-right text-slate-300"></i>';
+      top.appendChild(n);
+      top.appendChild(v);
+      fila.appendChild(top);
+      fila.appendChild(barraDe(g.pct, esGasto));
+      fila.addEventListener("click", () => entrarAlGrupo(g.clave, g.nombre));
+      secGrupos.appendChild(fila);
+    });
+    desgloseCuerpo.appendChild(secGrupos);
+  }
 
   // Este periodo contra el anterior del mismo largo, rubro por rubro.
   // Eligiendo "Mes" queda la comparacion de este mes contra el pasado.
@@ -5771,6 +6758,9 @@ function pintarDesglose() {
                 descripcion: copia.descripcion,
                 fecha: copia.fecha,
                 hora: copia.hora,
+                categoriaId: copia.categoriaId,
+                fuenteId: copia.fuenteId,
+                localId: copia.localId,
               }),
             });
             await recargarDesglose();
@@ -5833,6 +6823,8 @@ function pintarPeriodos() {
 
 async function abrirDesglose(config) {
   desgloseConfig = config;
+  desgloseGrupo = "";
+  desgloseGrupoNombre = "";
   desglosePeriodo = config.periodo || "mes";
   desgloseTitulo.textContent = config.titulo;
   desgloseBuscar.value = config.texto || "";
@@ -6080,6 +7072,1412 @@ function ocultarAviso() {
   avisoFlotante.classList.remove("flex");
 }
 
+
+// ---------- Anotar sin señal ----------
+// Antes, si estabas en una zona sin señal, la pantalla cargaba (queda
+// guardada en el celular) pero lo que anotabas se perdía: el pedido
+// fallaba y no quedaba nada. Ahora lo que no se puede mandar queda
+// esperando en el celular y sale solo apenas vuelve la señal.
+//
+// Solo se guardan COSAS NUEVAS, no correcciones ni borrados: corregir sin
+// señal, con el panel abierto en dos lados, terminaría pisando cambios
+// que no viste.
+const COLA_CLAVE = "finanzas-pendientes-de-mandar";
+const sinSenalAviso = document.getElementById("sinSenalAviso");
+const sinSenalTexto = document.getElementById("sinSenalTexto");
+
+function leerCola() {
+  try {
+    const crudo = localStorage.getItem(COLA_CLAVE);
+    const lista = crudo ? JSON.parse(crudo) : [];
+    return Array.isArray(lista) ? lista : [];
+  } catch (err) {
+    return [];
+  }
+}
+
+function guardarCola(lista) {
+  try {
+    localStorage.setItem(COLA_CLAVE, JSON.stringify(lista));
+  } catch (err) {
+    console.error("No se pudo guardar lo pendiente:", err);
+  }
+}
+
+function pintarSinSenal() {
+  if (!sinSenalAviso) return;
+  const n = leerCola().length;
+  if (n === 0) {
+    sinSenalAviso.classList.add("hidden");
+    sinSenalAviso.classList.remove("flex");
+    return;
+  }
+  sinSenalTexto.textContent =
+    n === 1 ? "1 anotación esperando señal" : n + " anotaciones esperando señal";
+  sinSenalAviso.classList.remove("hidden");
+  sinSenalAviso.classList.add("flex");
+}
+
+// Manda algo; si no hay señal, lo deja esperando en el celular en vez de
+// perderlo. Devuelve { ok, enCola }.
+async function mandarOGuardar(url, opciones, descripcion) {
+  try {
+    const res = await fetch(url, opciones);
+    // Un 4xx/5xx no es falta de señal: el servidor contestó y dijo que no.
+    // Guardarlo para reintentarlo lo repetiría para siempre.
+    return { ok: res.ok, enCola: false, res };
+  } catch (err) {
+    const cola = leerCola();
+    cola.push({
+      id: "cola_" + Date.now() + "_" + cola.length,
+      url,
+      metodo: opciones.method || "POST",
+      cuerpo: opciones.body || null,
+      descripcion: descripcion || "",
+      cuando: new Date().toISOString(),
+    });
+    guardarCola(cola);
+    pintarSinSenal();
+    return { ok: false, enCola: true };
+  }
+}
+
+// Intenta mandar lo que quedó esperando. Se llama al volver la señal, al
+// abrir la app, y cada tanto.
+let mandandoCola = false;
+async function vaciarCola() {
+  if (mandandoCola) return;
+  const cola = leerCola();
+  if (cola.length === 0) return;
+  mandandoCola = true;
+  const quedan = [];
+  let mandados = 0;
+
+  for (const item of cola) {
+    try {
+      const res = await fetch(item.url, {
+        method: item.metodo,
+        headers: { "Content-Type": "application/json" },
+        body: item.cuerpo,
+      });
+      if (res.ok) mandados += 1;
+      // Si el servidor contestó que no, no sirve reintentarlo: se
+      // descarta para que no quede trabado para siempre.
+      else if (res.status >= 500) quedan.push(item);
+    } catch (err) {
+      quedan.push(item); // sigue sin señal
+    }
+  }
+
+  guardarCola(quedan);
+  mandandoCola = false;
+  pintarSinSenal();
+
+  if (mandados > 0) {
+    mostrarAviso(
+      mandados === 1 ? "Mandé la anotación que estaba esperando." : "Mandé " + mandados + " anotaciones que estaban esperando."
+    );
+    if (typeof refrescarPorMovimiento === "function") await refrescarPorMovimiento();
+  }
+}
+
+window.addEventListener("online", vaciarCola);
+window.addEventListener("load", () => {
+  pintarSinSenal();
+  vaciarCola();
+});
+// Por si el navegador no avisa el "online" (pasa en algunos celulares).
+setInterval(vaciarCola, 60000);
+
+// ---------- Tu plata de verdad ----------
+// El número grande de arriba es lo que tienes en la mano. Pero parte es
+// de otros (custodia) y parte es prestada. Esta tarjeta reparte ESE
+// número, no inventa otro: así no hay dos verdades en la misma pantalla.
+const deVerdadCard = document.getElementById("deVerdadCard");
+const deVerdadLista = document.getElementById("deVerdadLista");
+const deVerdadNota = document.getElementById("deVerdadNota");
+const deVerdadVerMas = document.getElementById("deVerdadVerMas");
+
+function pintarPlataDeVerdad(d) {
+  if (!deVerdadCard || !d) return;
+  // Si no le guardas plata a nadie y no debes nada, tu plata es tu plata
+  // y la tarjeta solo estorbaría.
+  if (!d.deOtros && !d.prestado) {
+    deVerdadCard.classList.add("hidden");
+    return;
+  }
+  deVerdadCard.classList.remove("hidden");
+
+  const filas = [["Tienes en la mano", d.esperado, "text-slate-800"]];
+  if (d.deOtros) filas.push(["De otras personas", -d.deOtros, "text-violet-700"]);
+  if (d.prestado) filas.push(["Prestado, hay que devolverlo", -d.prestado, "text-amber-600"]);
+
+  deVerdadLista.innerHTML = "";
+  filas.forEach(([label, monto, clase]) => {
+    const fila = document.createElement("div");
+    fila.className = "flex items-center justify-between gap-2 text-xs";
+    const nombre = document.createElement("span");
+    nombre.className = "text-slate-600 truncate";
+    nombre.textContent = label;
+    const valor = document.createElement("b");
+    valor.className = clase + " shrink-0";
+    valor.textContent = (monto < 0 ? "-" : "") + formatSoles(Math.abs(monto));
+    fila.appendChild(nombre);
+    fila.appendChild(valor);
+    deVerdadLista.appendChild(fila);
+  });
+
+  const total = document.createElement("div");
+  total.className = "flex items-center justify-between gap-2 text-xs pt-1.5 mt-1.5 border-t border-slate-100";
+  total.innerHTML = '<span class="font-bold text-slate-700">Tuyo de verdad</span>';
+  const b = document.createElement("b");
+  b.className = (d.tuyo < 0 ? "text-brand-red" : "text-brand-green") + " shrink-0 text-sm";
+  b.textContent = formatSoles(d.tuyo);
+  total.appendChild(b);
+  deVerdadLista.appendChild(total);
+
+  deVerdadNota.textContent =
+    d.tuyo < 0
+      ? "Si devolvieras todo hoy, quedarías debiendo."
+      : "Si devolvieras todo lo ajeno hoy, te quedaría esto.";
+}
+
+if (deVerdadVerMas) {
+  deVerdadVerMas.addEventListener("click", () => irAPanel("financeTabPrestamos"));
+}
+
+// ---------- Dónde está la plata ----------
+// El total sigue siendo el mismo: esa plata es suya y sirve para pagar.
+// Lo que faltaba era saber cuánto está en el bolsillo y cuánto no.
+const lugaresCard = document.getElementById("lugaresCard");
+const lugaresLista = document.getElementById("lugaresLista");
+const lugaresNota = document.getElementById("lugaresNota");
+const lugaresVerMas = document.getElementById("lugaresVerMas");
+
+let lugaresCache = [];
+let ultimosLugares = null;
+
+async function fetchLugares() {
+  if (!lugaresCard) return;
+  try {
+    const data = await (await fetch("/api/finance/lugares")).json();
+    lugaresCache = data.lugares || [];
+    pintarLugares(data);
+  } catch (err) {
+    console.error("No se pudo obtener dónde está la plata:", err);
+  }
+}
+
+function pintarLugares(data) {
+  ultimosLugares = data;
+  pintarLugaresAjustes(data.lugares || []);
+  (data.detalle || []).forEach((l) => {
+    const nodo = document.querySelector('[data-lugar-saldo="' + l.id + '"]');
+    if (nodo) {
+      nodo.textContent = l.movimientos === 0
+        ? "Todavia nada cayo aca."
+        : l.movimientos + " movimientos · queda " + formatSoles(l.saldo);
+    }
+  });
+  const fueraDelBolsillo = (data.detalle || []).filter((l) => !l.esEfectivo && l.movimientos > 0);
+  // Si todo esta en efectivo, la tarjeta no aporta nada y estorba.
+  if (fueraDelBolsillo.length === 0) {
+    lugaresCard.classList.add("hidden");
+    return;
+  }
+  lugaresCard.classList.remove("hidden");
+
+  // El bolsillo es lo que queda del efectivo esperado despues de sacar lo
+  // que esta en Yape o en el banco. Asi las lineas suman exactamente el
+  // numero grande de arriba y no hay dos verdades en la misma pantalla.
+  const enBolsillo = esperadoActual - (data.fueraDelEfectivo || 0);
+  const filas = [{ label: "En el bolsillo", monto: enBolsillo, icono: "fa-money-bill-wave" }].concat(
+    fueraDelBolsillo.map((l) => ({ label: l.label, monto: l.saldo, icono: "fa-mobile-screen" }))
+  );
+
+  lugaresLista.innerHTML = "";
+  filas.forEach((f) => {
+    const fila = document.createElement("div");
+    fila.className = "flex items-center justify-between gap-2 text-xs";
+    const nombre = document.createElement("span");
+    nombre.className = "text-slate-600 truncate";
+    nombre.innerHTML = '<i class="fa-solid ' + f.icono + ' text-slate-300 mr-1.5"></i>' + f.label;
+    const monto = document.createElement("b");
+    monto.className = f.monto < 0 ? "text-brand-red shrink-0" : "text-slate-800 shrink-0";
+    monto.textContent = formatSoles(f.monto);
+    fila.appendChild(nombre);
+    fila.appendChild(monto);
+    lugaresLista.appendChild(fila);
+  });
+
+  lugaresNota.textContent =
+    "De tus " + formatSoles(esperadoActual) + ", " + formatSoles(data.fueraDelEfectivo) +
+    " no están en el bolsillo.";
+}
+
+if (lugaresVerMas) {
+  lugaresVerMas.addEventListener("click", () => irAPanel("financeTabAjustes"));
+}
+
+
+// ---------- Lo que TÚ debes ----------
+// Es lo contrario de "Me deben". Un crédito de Yape entra a la caja como
+// cualquier ganancia, pero hay que devolverlo: sin esto la app creía que
+// pedir prestado te dejaba mejor.
+//
+// La regla para no contar dos veces: si el préstamo cuelga de un
+// pendiente, el pendiente es el que cuenta en tus metas y acá solo se
+// lleva el saldo. Si no cuelga de ninguno, acá sí cuenta.
+const prestamosList = document.getElementById("prestamosList");
+const prestamosEmpty = document.getElementById("prestamosEmpty");
+const prestamosResumen = document.getElementById("prestamosResumen");
+const prestamosTotal = document.getElementById("prestamosTotal");
+const prestamosContexto = document.getElementById("prestamosContexto");
+const prestamosAlerta = document.getElementById("prestamosAlerta");
+const prestamosAlertaTexto = document.getElementById("prestamosAlertaTexto");
+const prestamoPalabras = document.getElementById("prestamoPalabras");
+const addPrestamoBtn = document.getElementById("addPrestamoBtn");
+
+let recordatoriosParaPrestamo = [];
+
+async function fetchPrestamos() {
+  if (!prestamosList) return;
+  try {
+    const data = await (await fetch("/api/finance/prestamos")).json();
+    recordatoriosParaPrestamo = data.recordatorios || [];
+    if (document.activeElement !== prestamoPalabras) {
+      prestamoPalabras.value = (data.palabras || []).join(", ");
+    }
+    pintarPrestamos(data);
+  } catch (err) {
+    console.error("No se pudo obtener lo que debes:", err);
+  }
+}
+
+function pintarPrestamos(data) {
+  const lista = data.prestamos || [];
+  const abiertos = lista.filter((p) => !p.saldado);
+  const t = data.totales || {};
+
+  prestamosResumen.classList.toggle("hidden", abiertos.length === 0);
+  prestamosTotal.textContent = formatSoles(t.debes || 0);
+  const partes = [];
+  if (abiertos.length) {
+    partes.push(abiertos.length === 1 ? "1 préstamo abierto" : abiertos.length + " préstamos abiertos");
+  }
+  if (data.interesesDelAnio > 0) {
+    partes.push("Este año los intereses te costaron " + formatSoles(data.interesesDelAnio));
+  }
+  prestamosContexto.textContent = partes.join(" · ");
+
+  // Si buena parte de lo que entró este mes fue prestado, el mes no se
+  // sostuvo con el trabajo. Eso no se ve en ningún otro lado.
+  const em = data.esteMes || {};
+  const mucho = em.porcentaje >= 25 && em.prestado > 0;
+  prestamosAlerta.classList.toggle("hidden", !mucho);
+  if (mucho) {
+    prestamosAlertaTexto.textContent =
+      "Este mes el " + em.porcentaje + "% de lo que entró fue prestado (" +
+      formatSoles(em.prestado) + " de " + formatSoles(em.entrado) +
+      "). Sin eso no te alcanzaba.";
+  }
+
+  prestamosList.innerHTML = "";
+  prestamosEmpty.classList.toggle("hidden", lista.length > 0);
+
+  // Primero los que debes, después los ya pagados.
+  lista
+    .slice()
+    .sort((a, b) => Number(a.saldado) - Number(b.saldado) || b.saldo - a.saldo)
+    .forEach((p) => prestamosList.appendChild(tarjetaPrestamo(p)));
+}
+
+function tarjetaPrestamo(p) {
+  const card = document.createElement("div");
+  card.className = "card py-3 " + (p.saldado ? "bg-slate-50 border border-slate-200 opacity-70" : "bg-white border border-slate-100");
+
+  const top = document.createElement("div");
+  top.className = "flex items-baseline justify-between gap-2";
+  const nombre = document.createElement("p");
+  nombre.className = "text-sm font-bold text-slate-800 truncate";
+  nombre.textContent = p.label;
+  const monto = document.createElement("b");
+  monto.className = (p.saldado ? "text-emerald-600" : "text-amber-600") + " shrink-0";
+  monto.textContent = p.saldado ? "Pagado" : formatSoles(p.saldo);
+  top.appendChild(nombre);
+  top.appendChild(monto);
+  card.appendChild(top);
+
+  const detalle = document.createElement("p");
+  detalle.className = "text-[11px] text-slate-400 mt-0.5";
+  detalle.textContent =
+    "Te prestaron " + formatSoles(p.recibido) + " · devuelves " + formatSoles(p.aDevolver) +
+    (p.interes > 0 ? " (S/ " + p.interes + " de interés)" : " (sin interés)") +
+    " · desde " + fmtFecha(p.fecha);
+  card.appendChild(detalle);
+
+  if (!p.saldado) {
+    const barra = document.createElement("div");
+    barra.className = "w-full h-1.5 rounded-full bg-slate-100 overflow-hidden mt-2";
+    const relleno = document.createElement("div");
+    relleno.className = "h-full bg-amber-400";
+    relleno.style.width = (p.aDevolver > 0 ? Math.min(100, (p.pagado / p.aDevolver) * 100) : 0) + "%";
+    barra.appendChild(relleno);
+    card.appendChild(barra);
+
+    const avance = document.createElement("p");
+    avance.className = "text-[11px] text-slate-400 mt-1";
+    avance.textContent = "Llevas pagado " + formatSoles(p.pagado) + " de " + formatSoles(p.aDevolver);
+    card.appendChild(avance);
+  }
+
+  // De dónde sale el pago: esto es lo que decide si cuenta o no en la meta.
+  const atado = recordatoriosParaPrestamo.find((r) => r.id === p.recordatorioId);
+  const quien = document.createElement("p");
+  quien.className = "text-[11px] mt-1 " + (atado ? "text-emerald-600" : "text-slate-400");
+  quien.textContent = atado
+    ? "Lo pagas con el pendiente “" + atado.label + "”. Se descuenta solo cuando marcas Ya pagué."
+    : p.cuota && p.diaDelMes
+    ? "Sin pendiente: cuenta " + formatSoles(p.cuota) + " cada día " + p.diaDelMes + " en tu meta."
+    : "Sin pendiente ni cuota: cuenta entero en tu meta.";
+  card.appendChild(quien);
+
+  const acciones = document.createElement("div");
+  acciones.className = "flex flex-wrap gap-2 mt-2";
+
+  if (!p.saldado) {
+    const pagar = document.createElement("button");
+    pagar.className = "rounded-lg px-3 py-1.5 text-xs font-bold bg-emerald-50 text-emerald-700 active:scale-95 transition-all";
+    pagar.textContent = "Anotar un pago";
+    pagar.addEventListener("click", () => abrirPagoPrestamo(p));
+    acciones.appendChild(pagar);
+  }
+
+  const editar = document.createElement("button");
+  editar.className = "rounded-lg px-3 py-1.5 text-xs font-semibold bg-slate-100 text-slate-600 active:scale-95 transition-all";
+  editar.textContent = "Editar";
+  editar.addEventListener("click", () => abrirEditarPrestamo(p));
+  acciones.appendChild(editar);
+
+  if ((p.pagos || []).length) {
+    const verPagos = document.createElement("button");
+    verPagos.className = "rounded-lg px-3 py-1.5 text-xs font-semibold bg-slate-100 text-slate-600 active:scale-95 transition-all";
+    verPagos.textContent = "Ver pagos (" + p.pagos.length + ")";
+    const historial = document.createElement("div");
+    historial.className = "hidden mt-2 space-y-1";
+    verPagos.addEventListener("click", () => {
+      historial.classList.toggle("hidden");
+      if (!historial.classList.contains("hidden")) pintarPagosPrestamo(historial, p);
+    });
+    acciones.appendChild(verPagos);
+    card.appendChild(acciones);
+    card.appendChild(historial);
+    return card;
+  }
+
+  card.appendChild(acciones);
+  return card;
+}
+
+function pintarPagosPrestamo(cont, p) {
+  cont.innerHTML = "";
+  p.pagos
+    .slice()
+    .reverse()
+    .forEach((pago) => {
+      const fila = document.createElement("div");
+      fila.className = "flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs bg-slate-50 border border-slate-100";
+      const info = document.createElement("div");
+      info.className = "min-w-0";
+      const l1 = document.createElement("p");
+      l1.className = "font-semibold text-slate-800";
+      l1.textContent = formatSoles(pago.monto);
+      const l2 = document.createElement("p");
+      l2.className = "text-slate-400";
+      l2.textContent =
+        fmtFecha(pago.fecha) + " " + pago.hora +
+        (pago.origen === "pendiente" ? " · desde el pendiente" : " · a mano");
+      info.appendChild(l1);
+      info.appendChild(l2);
+
+      const borrar = document.createElement("button");
+      borrar.innerHTML = '<i class="fa-solid fa-trash text-rose-400"></i>';
+      borrar.className = "w-7 h-7 flex items-center justify-center shrink-0";
+      borrar.addEventListener("click", async () => {
+        if (!confirm("¿Borrar este pago? El saldo vuelve a subir.")) return;
+        await fetch(
+          "/api/finance/prestamos/" + encodeURIComponent(p.id) + "/pagos/" + encodeURIComponent(pago.id),
+          { method: "DELETE" }
+        );
+        await fetchPrestamos();
+        fetchCashboxToday();
+        mostrarAviso("Listo.");
+      });
+
+      fila.appendChild(info);
+      fila.appendChild(borrar);
+      cont.appendChild(fila);
+    });
+}
+
+function abrirPagoPrestamo(p) {
+  abrirHojaSimple({
+    titulo: "Pago a " + p.label,
+    campos: [
+      { id: "monto", etiqueta: "Cuánto pagaste", tipo: "numero", valor: p.cuota || "" },
+      { id: "fecha", etiqueta: "Cuándo", tipo: "fecha", valor: "" },
+      { id: "descripcion", etiqueta: "Nota (opcional)", tipo: "texto", valor: "" },
+    ],
+    alGuardar: async (v) => {
+      if (!Number.isFinite(v.monto) || v.monto <= 0) {
+        mostrarAviso("¿De cuánto fue el pago?");
+        return false;
+      }
+      const res = await fetch("/api/finance/prestamos/" + encodeURIComponent(p.id) + "/pagos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(v),
+      });
+      const data = await res.json();
+      if (data.error) {
+        mostrarAviso(data.error);
+        return false;
+      }
+      await fetchPrestamos();
+      fetchCashboxToday();
+      fetchGoalsAndProgress();
+      mostrarAviso(
+        data.prestamo && data.prestamo.saldado
+          ? "¡Terminaste de pagarle a " + p.label + "!"
+          : "Anotado. Falta " + formatSoles(data.prestamo.saldo) + "."
+      );
+    },
+  });
+}
+
+function abrirEditarPrestamo(p) {
+  const opciones = [{ valor: "", label: "— Ninguno: que cuente en mi meta —" }].concat(
+    recordatoriosParaPrestamo.map((r) => ({ valor: r.id, label: r.label }))
+  );
+  abrirHojaSimple({
+    titulo: "Préstamo de " + p.label,
+    campos: [
+      { id: "label", etiqueta: "De quién", tipo: "texto", valor: p.label },
+      { id: "recibido", etiqueta: "Cuánto te prestaron", tipo: "numero", valor: p.recibido },
+      { id: "aDevolver", etiqueta: "Cuánto devuelves (con interés)", tipo: "numero", valor: p.aDevolver },
+      { id: "fecha", etiqueta: "Desde cuándo", tipo: "fecha", valor: p.fecha },
+      { id: "recordatorioId", etiqueta: "¿Con qué pendiente lo pagas?", tipo: "opciones", valor: p.recordatorioId || "", opciones },
+      { id: "cuota", etiqueta: "Cuota (solo si no tiene pendiente)", tipo: "numero", valor: p.cuota || "" },
+      { id: "diaDelMes", etiqueta: "Qué día del mes", tipo: "numero", valor: p.diaDelMes || "" },
+    ],
+    alGuardar: async (v) => {
+      if (!Number.isFinite(v.aDevolver) || v.aDevolver <= 0) {
+        mostrarAviso("¿Cuánto tienes que devolver?");
+        return false;
+      }
+      await fetch("/api/finance/prestamos/" + encodeURIComponent(p.id), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(v),
+      });
+      await fetchPrestamos();
+      fetchCashboxToday();
+      fetchGoalsAndProgress();
+      mostrarAviso("Guardado.");
+    },
+    alEliminar: async () => {
+      if (!confirm("¿Borrar este préstamo? El movimiento que dejó en tu caja no se toca.")) return;
+      await fetch("/api/finance/prestamos/" + encodeURIComponent(p.id), { method: "DELETE" });
+      await fetchPrestamos();
+      fetchCashboxToday();
+      fetchGoalsAndProgress();
+      mostrarAviso("Borrado.");
+    },
+  });
+}
+
+if (addPrestamoBtn) {
+  addPrestamoBtn.addEventListener("click", async () => {
+    const label = document.getElementById("prestamoNuevoLabel").value.trim();
+    const recibido = parseFloat(document.getElementById("prestamoNuevoRecibido").value);
+    const aDevolverRaw = parseFloat(document.getElementById("prestamoNuevoDevolver").value);
+    if (!label || !Number.isFinite(recibido) || recibido <= 0) {
+      return mostrarAviso("Ponle nombre y cuánto te prestaron.");
+    }
+    const res = await fetch("/api/finance/prestamos", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label, recibido, aDevolver: Number.isFinite(aDevolverRaw) ? aDevolverRaw : recibido }),
+    });
+    const data = await res.json();
+    if (data.error) return mostrarAviso(data.error);
+    document.getElementById("prestamoNuevoLabel").value = "";
+    document.getElementById("prestamoNuevoRecibido").value = "";
+    document.getElementById("prestamoNuevoDevolver").value = "";
+    await fetchPrestamos();
+    fetchCashboxToday();
+    mostrarAviso("Anotado.");
+  });
+}
+
+if (prestamoPalabras) {
+  prestamoPalabras.addEventListener("change", async () => {
+    await fetch("/api/finance/prestamos-palabras", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ palabras: prestamoPalabras.value.split(",").map((p) => p.trim()).filter(Boolean) }),
+    });
+    await fetchPrestamos();
+    mostrarAviso("Guardado.");
+  });
+}
+
+// ---------- ¿Me conviene sacarlo? ----------
+// Antes de pedirlo, no después. Lo honesto es mostrar las dos mitades: lo
+// que entra ahora te deja mejor, la cuota te deja peor.
+const simBtn = document.getElementById("simBtn");
+const simResultado = document.getElementById("simResultado");
+
+if (simBtn) {
+  simBtn.addEventListener("click", async () => {
+    const monto = parseFloat(document.getElementById("simMonto").value);
+    const meses = parseInt(document.getElementById("simMeses").value, 10);
+    const interes = parseFloat(document.getElementById("simInteres").value) || 0;
+    if (!Number.isFinite(monto) || monto <= 0 || !Number.isFinite(meses) || meses <= 0) {
+      simResultado.className = "text-xs mt-2 text-slate-400";
+      simResultado.textContent = "Escribe cuánto quieres sacar y en cuántos meses.";
+      return;
+    }
+    const params = new URLSearchParams({ monto, meses, interes });
+    const d = await (await fetch("/api/finance/prestamos-simular?" + params.toString())).json();
+
+    simResultado.className = "text-xs mt-2 space-y-1";
+    simResultado.innerHTML = "";
+    const filas = [
+      ["Te entran ahora", formatSoles(d.recibes), "text-brand-green"],
+      ["Devuelves en total", formatSoles(d.aDevolver), "text-brand-red"],
+      ["Te cuesta de más", formatSoles(d.interes), "text-brand-red"],
+      ["Cuota por mes", formatSoles(d.cuota), "text-slate-800"],
+    ];
+    filas.forEach(([label, valor, clase]) => {
+      const f = document.createElement("div");
+      f.className = "flex items-center justify-between gap-2";
+      f.innerHTML = '<span class="text-slate-500">' + label + "</span>";
+      const b = document.createElement("b");
+      b.className = clase + " shrink-0";
+      b.textContent = valor;
+      f.appendChild(b);
+      simResultado.appendChild(f);
+    });
+
+    const veredicto = document.createElement("p");
+    const mejora = d.sobraConCredito - d.sobraAhora;
+    veredicto.className =
+      "text-xs font-semibold mt-2 " + (d.sobraConCredito >= 0 ? "text-emerald-600" : "text-brand-red");
+    veredicto.textContent =
+      "Hasta " + fmtFecha(d.hasta) + ": hoy te sobrarían " + formatSoles(d.sobraAhora) +
+      "; con el crédito, " + formatSoles(d.sobraConCredito) +
+      (mejora >= 0 ? "." : ".") +
+      (d.sobraConCredito < 0 ? " Aun con el crédito no te alcanza." : "");
+    simResultado.appendChild(veredicto);
+
+    const nota = document.createElement("p");
+    nota.className = "text-[11px] text-slate-400";
+    nota.textContent =
+      "Ojo: eso es solo hasta esa fecha. Los " + formatSoles(d.aDevolver) +
+      " los terminas de pagar en " + d.meses + (d.meses === 1 ? " mes." : " meses.");
+    simResultado.appendChild(nota);
+  });
+}
+
+// ---------- El mes visto como mes ----------
+const calGrilla = document.getElementById("calGrilla");
+const calMesTitulo = document.getElementById("calMesTitulo");
+const calResumen = document.getElementById("calResumen");
+const calPorVenir = document.getElementById("calPorVenir");
+const calAnterior = document.getElementById("calAnterior");
+const calSiguiente = document.getElementById("calSiguiente");
+
+const MESES_ES = ["enero", "febrero", "marzo", "abril", "mayo", "junio",
+  "julio", "agosto", "setiembre", "octubre", "noviembre", "diciembre"];
+
+let calMes = "";
+
+function mesVecino(mes, paso) {
+  const [y, mo] = mes.split("-").map(Number);
+  const d = new Date(Date.UTC(y, mo - 1 + paso, 1));
+  return d.getUTCFullYear() + "-" + String(d.getUTCMonth() + 1).padStart(2, "0");
+}
+
+async function fetchCalendario(mes) {
+  if (!calGrilla) return;
+  try {
+    const url = "/api/finance/calendario" + (mes ? "?mes=" + encodeURIComponent(mes) : "");
+    const data = await (await fetch(url)).json();
+    calMes = data.mes;
+    pintarCalendario(data);
+  } catch (err) {
+    console.error("No se pudo obtener el calendario:", err);
+  }
+}
+
+function pintarCalendario(data) {
+  const [y, mo] = data.mes.split("-").map(Number);
+  calMesTitulo.textContent = MESES_ES[mo - 1] + " " + y;
+
+  calGrilla.innerHTML = "";
+  // Huecos hasta que empiece el mes, para que cada día caiga en su
+  // columna de la semana.
+  for (let i = 0; i < data.empiezaEn; i++) {
+    const hueco = document.createElement("div");
+    calGrilla.appendChild(hueco);
+  }
+
+  data.dias.forEach((d) => {
+    const celda = document.createElement("button");
+    const base = "rounded-lg py-1 px-0.5 text-center active:scale-95 transition-all border ";
+    celda.className =
+      base +
+      (d.esHoy
+        ? "bg-brand-green text-white border-brand-green"
+        : d.esFuturo
+        ? "bg-white border-slate-100"
+        : d.movimientos > 0
+        ? "bg-slate-50 border-slate-100"
+        : "bg-white border-slate-50");
+
+    const num = document.createElement("p");
+    num.className = "text-[11px] font-bold " + (d.esHoy ? "text-white" : "text-slate-700");
+    num.textContent = d.dia;
+    celda.appendChild(num);
+
+    if (!d.esFuturo && d.movimientos > 0) {
+      const g = document.createElement("p");
+      g.className = "text-[9px] font-semibold leading-tight " + (d.esHoy ? "text-white/90" : "text-brand-green");
+      g.textContent = Math.round(d.ganancias);
+      celda.appendChild(g);
+      if (d.gastos > 0) {
+        const gs = document.createElement("p");
+        gs.className = "text-[9px] leading-tight " + (d.esHoy ? "text-white/80" : "text-brand-red");
+        gs.textContent = "-" + Math.round(d.gastos);
+        celda.appendChild(gs);
+      }
+    } else if (d.esFuturo && d.porPagar > 0) {
+      const p = document.createElement("p");
+      p.className = "text-[9px] font-semibold text-amber-600 leading-tight";
+      p.textContent = "-" + Math.round(d.porPagar);
+      celda.appendChild(p);
+    }
+
+    // Un puntito si ese día hay un pago con nombre (Junta, Natura...).
+    if (d.pagos.length > 0) {
+      const punto = document.createElement("span");
+      punto.className = "block w-1 h-1 rounded-full bg-amber-500 mx-auto mt-0.5";
+      celda.appendChild(punto);
+    }
+
+    celda.addEventListener("click", () => abrirDiaDelCalendario(d));
+    calGrilla.appendChild(celda);
+  });
+
+  const t = data.totales;
+  calResumen.innerHTML = "";
+  const filas = [
+    ["Ganaste", formatSoles(t.ganancias), "text-brand-green"],
+    ["Gastaste", formatSoles(t.gastos), "text-brand-red"],
+    ["Te quedó", formatSoles(t.neto), t.neto < 0 ? "text-brand-red" : "text-slate-800"],
+    ["Días que trabajaste", String(t.diasTrabajados), "text-slate-800"],
+    ["Falta pagar este mes", formatSoles(t.porPagar), "text-amber-600"],
+  ];
+  if (t.mejorDia && t.mejorDia.ganancias > 0) {
+    filas.push(["Tu mejor día", fmtFecha(t.mejorDia.fecha) + " · " + formatSoles(t.mejorDia.ganancias), "text-slate-800"]);
+  }
+  filas.forEach(([label, valor, clase]) => {
+    const f = document.createElement("div");
+    f.className = "flex items-center justify-between gap-2";
+    f.innerHTML = '<span class="text-slate-500">' + label + "</span>";
+    const b = document.createElement("b");
+    b.className = clase + " shrink-0";
+    b.textContent = valor;
+    f.appendChild(b);
+    calResumen.appendChild(f);
+  });
+
+  // Lo que viene: los próximos días con algo que pagar.
+  calPorVenir.innerHTML = "";
+  const proximos = data.dias.filter((d) => d.esFuturo && d.porPagar > 0).slice(0, 8);
+  if (proximos.length === 0) {
+    const vacio = document.createElement("p");
+    vacio.className = "text-xs text-slate-400 text-center py-3";
+    vacio.textContent = "No te queda nada programado para lo que resta del mes.";
+    calPorVenir.appendChild(vacio);
+  }
+  proximos.forEach((d) => {
+    const fila = document.createElement("button");
+    fila.className =
+      "w-full flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs bg-white border border-slate-100 active:scale-95 transition-all text-left";
+    const izq = document.createElement("div");
+    izq.className = "min-w-0";
+    const l1 = document.createElement("p");
+    l1.className = "font-semibold text-slate-800";
+    l1.textContent = fmtFecha(d.fecha);
+    const l2 = document.createElement("p");
+    l2.className = "text-slate-400 truncate";
+    l2.textContent = d.pagos.length ? d.pagos.map((p) => p.label).join(", ") : "Gastos de todos los días";
+    izq.appendChild(l1);
+    izq.appendChild(l2);
+    const monto = document.createElement("b");
+    monto.className = "text-amber-600 shrink-0";
+    monto.textContent = formatSoles(d.porPagar);
+    fila.appendChild(izq);
+    fila.appendChild(monto);
+    fila.addEventListener("click", () => abrirDiaDelCalendario(d));
+    calPorVenir.appendChild(fila);
+  });
+}
+
+// Tocar un día: si ya pasó, se abre Movimientos filtrado por ese día
+// (ahí se ven las dos cosas y se pueden corregir); si viene, se muestra
+// lo que hay que pagar.
+function abrirDiaDelCalendario(d) {
+  if (!d.esFuturo && d.movimientos > 0) {
+    irAPanel("financeTabMovimientos");
+    movFiltroDesde.value = d.fecha;
+    movFiltroHasta.value = d.fecha;
+    movFiltroTipo.value = "";
+    movFiltroTexto.value = "";
+    renderMovimientos();
+    mostrarAviso(fmtFecha(d.fecha) + ": " + d.movimientos + (d.movimientos === 1 ? " movimiento" : " movimientos"));
+    return;
+  }
+  if (d.porPagar > 0) {
+    const detalle = d.pagos.map((p) => p.label + " " + formatSoles(p.monto)).join(" · ");
+    mostrarAviso(
+      fmtFecha(d.fecha) + ": " + formatSoles(d.porPagar) + (detalle ? " · " + detalle : " en gastos de todos los días")
+    );
+    return;
+  }
+  mostrarAviso(fmtFecha(d.fecha) + ": no hay nada anotado.");
+}
+
+if (calAnterior) {
+  calAnterior.addEventListener("click", () => fetchCalendario(mesVecino(calMes, -1)));
+  calSiguiente.addEventListener("click", () => fetchCalendario(mesVecino(calMes, 1)));
+}
+
+
+// ---------- Lo que te ahorraste ----------
+// Los días que no sales, el almuerzo y la gasolina de ese día no ocurren.
+// Esa plata no es ganancia ni gasto, así que no aparecía en ningún lado:
+// simplemente no se gastó y no se veía.
+const ahorradoGrilla = document.getElementById("ahorradoGrilla");
+const ahorradoMesTitulo = document.getElementById("ahorradoMesTitulo");
+const ahorradoTotal = document.getElementById("ahorradoTotal");
+const ahorradoContexto = document.getElementById("ahorradoContexto");
+const ahorradoConceptos = document.getElementById("ahorradoConceptos");
+const ahorradoVacio = document.getElementById("ahorradoVacio");
+const ahorradoAnterior = document.getElementById("ahorradoAnterior");
+const ahorradoSiguiente = document.getElementById("ahorradoSiguiente");
+
+let ahorradoMes = "";
+
+async function fetchAhorrado(mes) {
+  if (!ahorradoGrilla) return;
+  try {
+    const url = "/api/finance/ahorrado" + (mes ? "?mes=" + encodeURIComponent(mes) : "");
+    const data = await (await fetch(url)).json();
+    ahorradoMes = data.mes;
+    pintarAhorrado(data);
+  } catch (err) {
+    console.error("No se pudo calcular lo que te ahorraste:", err);
+  }
+}
+
+function pintarAhorrado(data) {
+  const [y, mo] = data.mes.split("-").map(Number);
+  ahorradoMesTitulo.textContent = MESES_ES[mo - 1] + " " + y;
+  ahorradoTotal.textContent = formatSoles(data.total);
+
+  const partes = [];
+  if (data.planeado > 0) {
+    const pct = Math.round((data.total / data.planeado) * 100);
+    partes.push("De " + formatSoles(data.planeado) + " planeados gastaste " + formatSoles(data.gastado) + " (" + pct + "% sin gastar)");
+  }
+  if (data.diasSinGastar > 0) {
+    partes.push(data.diasSinGastar + (data.diasSinGastar === 1 ? " día sin gastar nada" : " días sin gastar nada"));
+  }
+  ahorradoContexto.textContent = partes.join(" · ") || "Todavía no tienes gastos programados que medir.";
+
+  // El calendario del mes, en azul lo que no se gastó.
+  ahorradoGrilla.innerHTML = "";
+  for (let i = 0; i < data.empiezaEn; i++) ahorradoGrilla.appendChild(document.createElement("div"));
+
+  const maximo = data.dias.reduce((m, d) => (d.ahorro > m ? d.ahorro : m), 0);
+  data.dias.forEach((d) => {
+    const celda = document.createElement("button");
+    const fuerza = maximo > 0 ? d.ahorro / maximo : 0;
+    celda.className =
+      "rounded-lg py-1 px-0.5 text-center active:scale-95 transition-all border " +
+      (d.ahorro > 0 ? "border-sky-200" : "bg-white border-slate-50");
+    if (d.ahorro > 0) {
+      // Cuanto más te ahorraste, más fuerte el azul.
+      celda.style.backgroundColor = "rgba(14, 165, 233, " + (0.12 + fuerza * 0.45).toFixed(2) + ")";
+    }
+
+    const num = document.createElement("p");
+    num.className = "text-[11px] font-bold text-slate-700";
+    num.textContent = d.dia;
+    celda.appendChild(num);
+
+    if (d.ahorro > 0) {
+      const a = document.createElement("p");
+      a.className = "text-[9px] font-semibold text-sky-700 leading-tight";
+      a.textContent = Math.round(d.ahorro);
+      celda.appendChild(a);
+    }
+
+    celda.addEventListener("click", () => {
+      if (d.planeado === 0) return mostrarAviso(fmtFecha(d.fecha) + ": no tenías nada planeado.");
+      if (d.ahorro === 0) {
+        return mostrarAviso(fmtFecha(d.fecha) + ": gastaste todo lo planeado (" + formatSoles(d.planeado) + ").");
+      }
+      const de = d.detalle.map((x) => x.label + " " + formatSoles(x.ahorro)).join(" · ");
+      mostrarAviso(fmtFecha(d.fecha) + ": te ahorraste " + formatSoles(d.ahorro) + (de ? " · " + de : ""));
+    });
+    ahorradoGrilla.appendChild(celda);
+  });
+
+  // Si dos gastos programados comparten una palabra, un gasto real lo
+  // reconocen los dos y las cuentas salen mal en los DOS lados: acá y en
+  // la proyeccion de "lo que tengo que gastar". No se puede adivinar cual
+  // era, asi que se avisa.
+  pintarConflictosAhorro(data.conflictos || []);
+
+  // De qué te ahorraste.
+  ahorradoConceptos.innerHTML = "";
+  ahorradoVacio.classList.toggle("hidden", data.conceptos.length > 0);
+  data.conceptos.forEach((c) => {
+    const card = document.createElement("div");
+    card.className = "card bg-white border border-slate-100 py-3";
+    const top = document.createElement("div");
+    top.className = "flex items-baseline justify-between gap-2";
+    const nombre = document.createElement("p");
+    nombre.className = "text-sm font-bold text-slate-800 truncate";
+    nombre.textContent = c.label;
+    const monto = document.createElement("b");
+    monto.className = "text-sky-600 shrink-0";
+    monto.textContent = formatSoles(c.ahorro);
+    top.appendChild(nombre);
+    top.appendChild(monto);
+
+    const detalle = document.createElement("p");
+    detalle.className = "text-[11px] text-slate-400 mt-0.5";
+    detalle.textContent =
+      c.veces + (c.veces === 1 ? " día" : " días") + " que no lo gastaste, de " + formatSoles(c.planeado) + " planeados";
+
+    const barra = document.createElement("div");
+    barra.className = "w-full h-1.5 rounded-full bg-slate-100 overflow-hidden mt-2";
+    const relleno = document.createElement("div");
+    relleno.className = "h-full bg-sky-400";
+    relleno.style.width = (c.planeado > 0 ? Math.min(100, (c.ahorro / c.planeado) * 100) : 0) + "%";
+    barra.appendChild(relleno);
+
+    card.appendChild(top);
+    card.appendChild(detalle);
+    card.appendChild(barra);
+    ahorradoConceptos.appendChild(card);
+  });
+}
+
+function pintarConflictosAhorro(conflictos) {
+  const caja = document.getElementById("ahorradoConflictos");
+  if (!caja) return;
+  caja.innerHTML = "";
+  caja.classList.toggle("hidden", conflictos.length === 0);
+  if (!conflictos.length) return;
+
+  const titulo = document.createElement("p");
+  titulo.className = "eyebrow text-rose-700";
+  const icono = document.createElement("i");
+  icono.className = "fa-solid fa-triangle-exclamation";
+  titulo.appendChild(icono);
+  titulo.appendChild(document.createTextNode(" GASTOS PROGRAMADOS QUE SE PISAN"));
+  caja.appendChild(titulo);
+
+  const texto = document.createElement("p");
+  texto.className = "text-xs text-rose-700 mt-1";
+  texto.textContent =
+    "Estos comparten una palabra, así que un mismo gasto tuyo lo reconocen todos. " +
+    "Eso descuadra este número y también la meta. Cámbiales el nombre o borra el repetido en Análisis → Presupuesto.";
+  caja.appendChild(texto);
+
+  conflictos.forEach((c) => {
+    const fila = document.createElement("p");
+    fila.className = "text-xs text-rose-800 font-semibold mt-1.5";
+    fila.textContent = c.repetido
+      ? String.fromCharCode(34) + c.cuales[0] + String.fromCharCode(34) + " está dos veces"
+      : c.cuales.join(", ") + " (todos por la palabra " + String.fromCharCode(34) + c.palabra + String.fromCharCode(34) + ")";
+    caja.appendChild(fila);
+  });
+}
+
+if (ahorradoAnterior) {
+  ahorradoAnterior.addEventListener("click", () => fetchAhorrado(mesVecino(ahorradoMes, -1)));
+  ahorradoSiguiente.addEventListener("click", () => fetchAhorrado(mesVecino(ahorradoMes, 1)));
+}
+
+// El acumulado de un tramo cualquiera.
+const ahorradoVerRango = document.getElementById("ahorradoVerRango");
+const ahorradoRangoResultado = document.getElementById("ahorradoRangoResultado");
+
+if (ahorradoVerRango) {
+  ahorradoVerRango.addEventListener("click", async () => {
+    const params = new URLSearchParams();
+    const desde = document.getElementById("ahorradoDesde").value;
+    const hasta = document.getElementById("ahorradoHasta").value;
+    if (desde) params.set("desde", desde);
+    if (hasta) params.set("hasta", hasta);
+    const d = await (await fetch("/api/finance/ahorrado-rango?" + params.toString())).json();
+
+    ahorradoRangoResultado.innerHTML = "";
+    const filas = [
+      ["Tenías planeado", formatSoles(d.planeado), "text-slate-800"],
+      ["Gastaste", formatSoles(d.gastado), "text-brand-red"],
+      ["No gastaste", formatSoles(d.total), "text-sky-600"],
+    ];
+    filas.forEach(([label, valor, clase]) => {
+      const f = document.createElement("div");
+      f.className = "flex items-center justify-between gap-2";
+      f.innerHTML = '<span class="text-slate-500">' + label + "</span>";
+      const b = document.createElement("b");
+      b.className = clase + " shrink-0";
+      b.textContent = valor;
+      f.appendChild(b);
+      ahorradoRangoResultado.appendChild(f);
+    });
+
+    const nota = document.createElement("p");
+    nota.className = "text-[11px] text-slate-400 pt-1";
+    nota.textContent =
+      "Del " + fmtFecha(d.desde) + " al " + fmtFecha(d.hasta) +
+      (d.mejorDia && d.mejorDia.ahorro > 0
+        ? ". El día que más te ahorraste fue el " + fmtFecha(d.mejorDia.fecha) + " (" + formatSoles(d.mejorDia.ahorro) + ")."
+        : ".");
+    ahorradoRangoResultado.appendChild(nota);
+  });
+}
+
+// ---------- Gastos hormiga ----------
+const hormigaDesde = document.getElementById("hormigaDesde");
+const hormigaHasta = document.getElementById("hormigaHasta");
+const hormigaTope = document.getElementById("hormigaTope");
+const hormigaVer = document.getElementById("hormigaVer");
+const hormigaLista = document.getElementById("hormigaLista");
+const hormigaVacio = document.getElementById("hormigaVacio");
+const hormigaTotalCard = document.getElementById("hormigaTotalCard");
+const hormigaTotal = document.getElementById("hormigaTotal");
+const hormigaContexto = document.getElementById("hormigaContexto");
+
+async function fetchHormiga() {
+  if (!hormigaLista) return;
+  const params = new URLSearchParams();
+  if (hormigaDesde.value) params.set("desde", hormigaDesde.value);
+  if (hormigaHasta.value) params.set("hasta", hormigaHasta.value);
+  if (hormigaTope.value) params.set("tope", hormigaTope.value);
+  try {
+    const data = await (await fetch("/api/finance/hormiga?" + params.toString())).json();
+    pintarHormiga(data);
+  } catch (err) {
+    console.error("No se pudo calcular los gastos hormiga:", err);
+  }
+}
+
+function pintarHormiga(data) {
+  hormigaLista.innerHTML = "";
+  const hay = (data.grupos || []).length > 0;
+  hormigaVacio.classList.toggle("hidden", hay);
+  hormigaTotalCard.classList.toggle("hidden", !hay);
+  if (!hay) return;
+
+  hormigaTotal.textContent = formatSoles(data.totalHormiga);
+  const porcentaje = data.totalGastos > 0 ? Math.round((data.totalHormiga / data.totalGastos) * 100) : 0;
+  // Compararlo contra algo que sí mira todos los meses es lo que hace
+  // que el número se entienda.
+  const dias = ultimasMetas && ultimasMetas.ritmo && ultimasMetas.ritmo.promedioDiario > 0
+    ? Math.round((data.totalHormiga / ultimasMetas.ritmo.promedioDiario) * 10) / 10
+    : 0;
+  hormigaContexto.textContent =
+    "Es el " + porcentaje + "% de todo lo que gastaste" +
+    (dias > 0 ? ". Son " + dias + (dias === 1 ? " día" : " días") + " de trabajo tuyos." : ".");
+
+  data.grupos.forEach((g) => {
+    const card = document.createElement("div");
+    card.className = "card bg-white border border-slate-100 py-3";
+
+    const top = document.createElement("div");
+    top.className = "flex items-baseline justify-between gap-2";
+    const nombre = document.createElement("p");
+    nombre.className = "text-sm font-bold text-slate-800 truncate";
+    nombre.textContent = g.label;
+    const monto = document.createElement("b");
+    monto.className = "text-brand-red shrink-0";
+    monto.textContent = formatSoles(g.total);
+    top.appendChild(nombre);
+    top.appendChild(monto);
+
+    const detalle = document.createElement("p");
+    detalle.className = "text-[11px] text-slate-400 mt-0.5";
+    detalle.textContent =
+      g.veces + " veces de " + formatSoles(g.promedio) + " · " + g.porcentaje + "% de tus gastos";
+
+    const barra = document.createElement("div");
+    barra.className = "w-full h-1.5 rounded-full bg-slate-100 overflow-hidden mt-2";
+    const relleno = document.createElement("div");
+    relleno.className = "h-full bg-rose-400";
+    relleno.style.width = Math.min(100, g.porcentaje * 3) + "%";
+    barra.appendChild(relleno);
+
+    const ver = document.createElement("button");
+    ver.className = "text-[11px] font-bold text-brand-green mt-2";
+    ver.textContent = "Ver estos gastos";
+    ver.addEventListener("click", () => {
+      irAPanel("financeTabMovimientos");
+      movFiltroTipo.value = "gasto";
+      movFiltroTexto.value = g.label.toLowerCase();
+      if (data.desde) movFiltroDesde.value = data.desde;
+      if (data.hasta) movFiltroHasta.value = data.hasta;
+      renderMovimientos();
+    });
+
+    card.appendChild(top);
+    card.appendChild(detalle);
+    card.appendChild(barra);
+    card.appendChild(ver);
+    hormigaLista.appendChild(card);
+  });
+}
+
+if (hormigaVer) hormigaVer.addEventListener("click", fetchHormiga);
+
+// ---------- Historial de cambios ----------
+const bitacoraLista = document.getElementById("bitacoraLista");
+const bitacoraVacio = document.getElementById("bitacoraVacio");
+const bitacoraFiltro = document.getElementById("bitacoraFiltro");
+
+const BITACORA_ICONO = {
+  movimiento: "fa-receipt",
+  caja: "fa-cash-register",
+  dia: "fa-calendar-day",
+  deuda: "fa-handshake",
+  custodia: "fa-user-shield",
+  faltante: "fa-triangle-exclamation",
+};
+
+const BITACORA_ORIGEN = {
+  panel: "desde el panel",
+  whatsapp: "por WhatsApp",
+  automatico: "solo",
+};
+
+const BITACORA_CAMPO = {
+  tipo: "qué es",
+  monto: "monto",
+  descripcion: "descripción",
+  fecha: "fecha",
+  hora: "hora",
+  categoriaId: "categoría",
+  fuenteId: "de dónde vino",
+  localId: "local",
+  lugarId: "dónde está",
+};
+
+async function fetchBitacora() {
+  if (!bitacoraLista) return;
+  const params = new URLSearchParams({ limite: "200" });
+  if (bitacoraFiltro.value) params.set("que", bitacoraFiltro.value);
+  try {
+    const data = await (await fetch("/api/finance/bitacora?" + params.toString())).json();
+    pintarBitacora(data.entradas || []);
+  } catch (err) {
+    console.error("No se pudo obtener el historial de cambios:", err);
+  }
+}
+
+function pintarBitacora(entradas) {
+  bitacoraLista.innerHTML = "";
+  bitacoraVacio.classList.toggle("hidden", entradas.length > 0);
+
+  let ultimaFecha = "";
+  entradas.forEach((e) => {
+    if (e.fecha !== ultimaFecha) {
+      ultimaFecha = e.fecha;
+      const cabecera = document.createElement("p");
+      cabecera.className = "text-[11px] font-bold text-slate-400 pt-2";
+      cabecera.textContent = fmtFecha(e.fecha);
+      bitacoraLista.appendChild(cabecera);
+    }
+
+    const fila = document.createElement("div");
+    fila.className = "rounded-lg px-3 py-2 text-xs bg-white border border-slate-100";
+
+    const top = document.createElement("div");
+    top.className = "flex items-start gap-2";
+    const icono = document.createElement("i");
+    icono.className = "fa-solid " + (BITACORA_ICONO[e.que] || "fa-circle") + " text-slate-300 mt-0.5 shrink-0";
+    const texto = document.createElement("div");
+    texto.className = "min-w-0 flex-1";
+    const l1 = document.createElement("p");
+    l1.className = "text-slate-800 break-words";
+    l1.textContent = e.resumen;
+    const l2 = document.createElement("p");
+    l2.className = "text-slate-400";
+    l2.textContent = e.hora + " · " + (BITACORA_ORIGEN[e.origen] || e.origen);
+    texto.appendChild(l1);
+    texto.appendChild(l2);
+    top.appendChild(icono);
+    top.appendChild(texto);
+    fila.appendChild(top);
+
+    // Qué cambió exactamente. Sin esto diría "se editó" y no serviría.
+    (e.cambios || []).forEach((c) => {
+      const cambio = document.createElement("p");
+      cambio.className = "text-[11px] text-slate-500 mt-1 pl-6";
+      const antes = c.antes === null || c.antes === "" ? "(vacío)" : c.antes;
+      const despues = c.despues === null || c.despues === "" ? "(vacío)" : c.despues;
+      cambio.textContent = (BITACORA_CAMPO[c.campo] || c.campo) + ": " + antes + " → " + despues;
+      fila.appendChild(cambio);
+    });
+
+    bitacoraLista.appendChild(fila);
+  });
+}
+
+if (bitacoraFiltro) bitacoraFiltro.addEventListener("change", fetchBitacora);
+
+
+// ---------- Ajustar los lugares (efectivo, Yape, banco) ----------
+const lugaresAjustes = document.getElementById("lugaresAjustes");
+const lugarNuevoNombre = document.getElementById("lugarNuevoNombre");
+const addLugarBtn = document.getElementById("addLugarBtn");
+
+function pintarLugaresAjustes(lugares) {
+  if (!lugaresAjustes) return;
+  lugaresAjustes.innerHTML = "";
+  (lugares || []).forEach((l) => {
+    const card = document.createElement("div");
+    card.className = "rounded-xl px-3 py-2.5 bg-slate-50 border border-slate-100";
+
+    const top = document.createElement("div");
+    top.className = "flex items-center justify-between gap-2";
+    const nombre = document.createElement("p");
+    nombre.className = "text-sm font-bold text-slate-800 truncate";
+    nombre.textContent = l.label + (l.porDefecto ? " (por defecto)" : "");
+    top.appendChild(nombre);
+
+    if (!l.porDefecto) {
+      const borrar = document.createElement("button");
+      borrar.innerHTML = '<i class="fa-solid fa-trash text-rose-400"></i>';
+      borrar.className = "w-7 h-7 flex items-center justify-center shrink-0";
+      borrar.addEventListener("click", async () => {
+        if (!confirm("¿Borrar " + l.label + "? Lo que estaba ahí vuelve a contar como efectivo.")) return;
+        const res = await fetch("/api/finance/lugares/" + encodeURIComponent(l.id), { method: "DELETE" });
+        const data = await res.json();
+        if (data.error) return mostrarAviso(data.error);
+        await fetchLugares();
+        mostrarAviso("Listo.");
+      });
+      top.appendChild(borrar);
+    }
+    card.appendChild(top);
+
+    // Las palabras que hacen que una anotación caiga acá.
+    const palabras = document.createElement("input");
+    palabras.type = "text";
+    palabras.value = (l.keywords || []).join(", ");
+    palabras.placeholder = l.porDefecto ? "Todo lo que no sea de otro lugar cae acá" : "yape, plin, transferencia";
+    palabras.disabled = l.porDefecto;
+    palabras.className =
+      "w-full mt-2 bg-white rounded-lg px-3 py-2 text-xs border border-slate-200 disabled:opacity-60";
+    palabras.addEventListener("change", async () => {
+      await fetch("/api/finance/lugares/" + encodeURIComponent(l.id), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keywords: palabras.value.split(",").map((p) => p.trim()).filter(Boolean) }),
+      });
+      await fetchLugares();
+      mostrarAviso("Guardado.");
+    });
+    card.appendChild(palabras);
+
+    const saldo = document.createElement("p");
+    saldo.className = "text-[11px] text-slate-400 mt-1.5";
+    saldo.dataset.lugarSaldo = l.id;
+    card.appendChild(saldo);
+
+    lugaresAjustes.appendChild(card);
+  });
+}
+
+if (addLugarBtn) {
+  addLugarBtn.addEventListener("click", async () => {
+    const label = lugarNuevoNombre.value.trim();
+    if (!label) return;
+    const res = await fetch("/api/finance/lugares", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label, keywords: [] }),
+    });
+    const data = await res.json();
+    if (data.error) return mostrarAviso(data.error);
+    lugarNuevoNombre.value = "";
+    await fetchLugares();
+    mostrarAviso("Agregué " + label + ". Ponle las palabras que lo reconocen.");
+  });
+}
+
+// ---------- Gastos hormiga: arrancar en el mes en curso ----------
+let hormigaPreparada = false;
+function prepararHormiga() {
+  if (!hormigaDesde) return;
+  if (!hormigaPreparada) {
+    const hoy = new Date();
+    const y = hoy.getFullYear();
+    const mo = String(hoy.getMonth() + 1).padStart(2, "0");
+    hormigaDesde.value = y + "-" + mo + "-01";
+    hormigaHasta.value = hoy.toISOString().slice(0, 10);
+    hormigaPreparada = true;
+  }
+  fetchHormiga();
+}
+
+// ---------- Hoja generica para editar cualquier fila ----------
+// Deudas, faltantes y custodia se editaban con los cuadritos del
+// navegador (prompt), uno por campo y sin poder cancelar a medias. Esta
+// hoja es la misma de Movimientos pero armada al vuelo: quien la abre
+// dice que campos quiere y que hacer al guardar.
+//
+// campos: [{ id, etiqueta, tipo, valor, opciones }]
+//   tipo: "numero" | "texto" | "fecha" | "hora" | "opciones"
+// Devuelve un objeto { id: valor } al guardar.
+let hojaSimpleNodo = null;
+
+function cerrarHojaSimple() {
+  if (hojaSimpleNodo) hojaSimpleNodo.remove();
+  hojaSimpleNodo = null;
+}
+
+function abrirHojaSimple({ titulo, campos, alGuardar, alEliminar, textoEliminar }) {
+  cerrarHojaSimple();
+
+  const cont = document.createElement("div");
+  cont.className = "fixed inset-0 z-[60] flex items-end justify-center";
+
+  const fondo = document.createElement("div");
+  fondo.className = "absolute inset-0 bg-slate-900/50";
+  fondo.addEventListener("click", cerrarHojaSimple);
+
+  const hoja = document.createElement("div");
+  hoja.className =
+    "relative w-full max-w-[420px] bg-white rounded-t-3xl px-5 pt-3 pb-7 max-h-[88vh] overflow-y-auto";
+
+  const agarre = document.createElement("div");
+  agarre.className = "w-10 h-1 rounded-full bg-slate-200 mx-auto mb-4";
+  const tit = document.createElement("p");
+  tit.className = "text-sm font-bold text-slate-800 mb-3";
+  tit.textContent = titulo || "Editar";
+  hoja.appendChild(agarre);
+  hoja.appendChild(tit);
+
+  const entradas = {};
+  (campos || []).forEach((c) => {
+    const label = document.createElement("label");
+    label.className = "block text-[11px] font-semibold text-slate-400 mt-2";
+    label.textContent = c.etiqueta;
+
+    let input;
+    if (c.tipo === "opciones") {
+      input = document.createElement("select");
+      (c.opciones || []).forEach((o) => {
+        const op = document.createElement("option");
+        op.value = o.valor;
+        op.textContent = o.label;
+        if (String(o.valor) === String(c.valor)) op.selected = true;
+        input.appendChild(op);
+      });
+    } else {
+      input = document.createElement("input");
+      input.type =
+        c.tipo === "numero" ? "number" : c.tipo === "fecha" ? "date" : c.tipo === "hora" ? "time" : "text";
+      if (c.tipo === "numero") input.step = "0.01";
+      input.value = c.valor === undefined || c.valor === null ? "" : c.valor;
+    }
+    input.className =
+      "w-full mt-0.5 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-green/40";
+
+    label.appendChild(input);
+    hoja.appendChild(label);
+    entradas[c.id] = { input, tipo: c.tipo };
+  });
+
+  const guardar = document.createElement("button");
+  guardar.className =
+    "w-full mt-4 rounded-xl px-4 py-3 text-sm font-bold bg-brand-green text-white active:scale-95 transition-all";
+  guardar.textContent = "Guardar";
+  guardar.addEventListener("click", async () => {
+    const valores = {};
+    for (const [id, e] of Object.entries(entradas)) {
+      valores[id] = e.tipo === "numero" ? parseFloat(e.input.value) : e.input.value;
+    }
+    guardar.disabled = true;
+    try {
+      const r = await alGuardar(valores);
+      if (r === false) {
+        guardar.disabled = false;
+        return;
+      }
+    } catch (err) {
+      console.error("No se pudo guardar:", err);
+      guardar.disabled = false;
+      mostrarAviso("No se pudo guardar.");
+      return;
+    }
+    cerrarHojaSimple();
+  });
+  hoja.appendChild(guardar);
+
+  const fila = document.createElement("div");
+  fila.className = "flex gap-2 mt-2";
+  const cancelar = document.createElement("button");
+  cancelar.className =
+    "flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold bg-slate-100 text-slate-600 active:scale-95 transition-all";
+  cancelar.textContent = "Cancelar";
+  cancelar.addEventListener("click", cerrarHojaSimple);
+  fila.appendChild(cancelar);
+
+  if (typeof alEliminar === "function") {
+    const eliminar = document.createElement("button");
+    eliminar.className =
+      "flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold bg-rose-50 text-rose-600 active:scale-95 transition-all";
+    eliminar.textContent = textoEliminar || "Eliminar";
+    eliminar.addEventListener("click", async () => {
+      cerrarHojaSimple();
+      await alEliminar();
+    });
+    fila.appendChild(eliminar);
+  }
+  hoja.appendChild(fila);
+
+  cont.appendChild(fondo);
+  cont.appendChild(hoja);
+  document.body.appendChild(cont);
+  hojaSimpleNodo = cont;
+}
+
+// El id del movimiento si lo tiene; si no, su posicion (datos viejos).
+function refDeMov(m) {
+  return encodeURIComponent(m && m.id ? m.id : m.index);
+}
+
 // ---------- Hoja para editar un movimiento ----------
 const hojaMovimiento = document.getElementById("hojaMovimiento");
 const hojaTitulo = document.getElementById("hojaTitulo");
@@ -6196,6 +8594,7 @@ async function abrirHojaMovimiento(m, alGuardar) {
     }
   }
   if (!fuentesCache.length) await cargarFuentes();
+  if (!lugaresCache.length) await fetchLugares();
   if (!localesParaSelector.length) {
     try {
       const loc = await (await fetch("/api/finance/locales")).json();
@@ -6270,6 +8669,9 @@ async function eliminarDesdeHoja() {
           descripcion: copia.descripcion,
           fecha: copia.fecha,
           hora: copia.hora,
+          categoriaId: copia.categoriaId,
+          fuenteId: copia.fuenteId,
+          localId: copia.localId,
         }),
       });
       if (hojaAlGuardar) await hojaAlGuardar();

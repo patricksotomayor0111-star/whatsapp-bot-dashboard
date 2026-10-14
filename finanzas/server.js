@@ -2,12 +2,20 @@ const express = require("express");
 const path = require("path");
 const fsSync = require("fs");
 const { userDataPath } = require("./dataDir");
-const { startBot, startBotsGuardados, estadoDe, logoutBot, getSock, avisarAlGrupo, chatsDisponibles } = require("./bot");
+const { startBot, startBotsGuardados, estadoDe, logoutBot, getSock, avisarAlGrupo, avisarAMisMensajes, chatsDisponibles } = require("./bot");
 const cashbox = require("./cashbox");
 const pushSubscriptions = require("./pushSubscriptions");
 const budgetCategories = require("./budgetCategories");
 const queryIntents = require("./queryIntents");
 const productPrices = require("./productPrices");
+const documento = require("./documento");
+const termica = require("./termica");
+const impresoras = require("./impresoras");
+const productos = require("./productos");
+const foto = require("./foto");
+const negocio = require("./negocio");
+const logoNegocio = require("./logo");
+const plantillas = require("./plantillas");
 const reminders = require("./reminders");
 const debts = require("./debts");
 const shortfalls = require("./shortfalls");
@@ -23,6 +31,12 @@ const users = require("./users");
 const contexto = require("./contexto");
 const chatConfig = require("./chatConfig");
 const custodias = require("./custodias");
+const bitacora = require("./bitacora");
+const lugaresDinero = require("./lugaresDinero");
+const gastosHormiga = require("./gastosHormiga");
+const calendario = require("./calendario");
+const prestamos = require("./prestamos");
+const ahorrado = require("./ahorrado");
 const diasLibres = require("./diasLibres");
 const combustible = require("./combustible");
 const fuentesIngreso = require("./fuentesIngreso");
@@ -33,6 +47,13 @@ const motorizados = require("./motorizados");
 // Crea la cuenta del dueño y le pasa los datos que hoy están sueltos en el
 // volumen. Se hace al arrancar, antes de atender cualquier pedido.
 users.asegurarDueno();
+
+// Los avisos de los motorizados (sin señal, no responde, no entró, parado)
+// le llegan al dueño por WhatsApp, a su chat personal ("Mis propios
+// mensajes"), nunca a un grupo. Si su WhatsApp no está vinculado, el aviso
+// simplemente no se manda.
+motorizados.setNotificador((texto) => avisarAMisMensajes(users.DUENO_ID, texto).catch(() => {}));
+
 require("./limpiarSemillas").limpiar();
 const ExcelJS = require("exceljs");
 
@@ -49,7 +70,7 @@ app.use(express.json({ limit: "25mb" }));
 // "/api/gps" va sin sesión a propósito: la llama el celular del motorizado
 // (Traccar Client), que no tiene cookie. Se identifica por su código, y si
 // el código no está registrado el punto se descarta.
-const RUTAS_PUBLICAS = new Set(["/login", "/api/login", "/manifest.json", "/icon-192.png", "/icon-512.png", "/sw.js", "/api/gps"]);
+const RUTAS_PUBLICAS = new Set(["/login", "/api/login", "/manifest.json", "/icon-192.png", "/icon-512.png", "/sw.js", "/api/gps", "/api/gps-comando", "/api/gps-token"]);
 
 // La marca se puede LEER sin sesión (la pantalla de entrada la necesita
 // para pintarse), pero escribirla no: eso pasa por el candado y queda
@@ -131,7 +152,32 @@ app.use((req, res, next) => {
   // hace como esta cuenta. Es lo que impide que un pedido lea o escriba
   // en la información de otra.
   req.userId = cuenta.id;
-  contexto.correrComo(cuenta.id, next);
+  contexto.correrComo(cuenta.id, () => {
+    // Para la bitacora: todo lo que cambie de aca en adelante salio del
+    // panel, no de un mensaje de WhatsApp ni de algo automatico.
+    contexto.marcarOrigen("panel");
+    next();
+  });
+});
+
+// Las cuentas "solo motorizados" (socios) ven ÚNICAMENTE el panel de
+// motorizados. Se bloquea todo lo demás EN EL SERVIDOR (no solo escondido en
+// la pantalla): aunque escriban otra dirección a mano, no entran a las
+// finanzas. El dueño y las cuentas completas no se ven afectados.
+const PANTALLAS_MOTORIZADOS = new Set(["/motorizados", "/motorizados.html"]);
+app.use((req, res, next) => {
+  if (users.rolDe(req.userId) !== "motorizados") return next();
+  const p = req.path;
+  const permitido =
+    PANTALLAS_MOTORIZADOS.has(p) ||
+    p.startsWith("/api/motorizados") ||
+    p === "/api/sesion" ||
+    p === "/api/logout" ||
+    p === "/api/tutorial-visto";
+  if (permitido) return next();
+  // A la API se le niega; cualquier otra pantalla lo manda al mapa.
+  if (p.startsWith("/api/")) return res.status(403).json({ error: "Tu cuenta solo tiene acceso a los motorizados." });
+  return res.redirect("/motorizados");
 });
 
 // Quién soy: lo usa el panel para saludar y para mostrar la
@@ -143,6 +189,7 @@ app.get("/api/sesion", (req, res) => {
     usuario: cuenta.usuario,
     nombre: cuenta.nombre,
     esDueno: cuenta.id === users.DUENO_ID,
+    rol: users.rolDe(cuenta.id),
     tutorialVisto: chatConfig.getConfig().tutorialVisto,
   });
 });
@@ -191,6 +238,16 @@ app.post("/api/usuarios/:id/password", soloDueno, (req, res) => {
       return res.status(404).json({ error: "Cuenta no encontrada." });
     }
     res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/usuarios/:id/rol", soloDueno, (req, res) => {
+  try {
+    const rol = users.setRol(req.params.id, req.body?.rol);
+    if (rol === null) return res.status(404).json({ error: "Cuenta no encontrada." });
+    res.json({ ok: true, rol });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -272,6 +329,25 @@ app.get("/icon-512.png", servirIcono("icon-512.png"));
 // como formulario o JSON según la versión) y algunas versiones por GET.
 // Siempre se contesta 200: si se le contestara error, el celular
 // guardaría el punto y lo reintentaría para siempre.
+// La app del motorizado pregunta aquí si debe encender el GPS. Pública
+// (sin sesión): se identifica por su código, igual que /api/gps.
+app.get("/api/gps-comando", (req, res) => {
+  const c = motorizados.comando(req.query.id || req.query.deviceid);
+  if (!c) return res.status(404).json({ error: "Código no registrado" });
+  res.json(c);
+});
+
+// La app del motorizado registra aquí su token de avisos (push). Público:
+// se identifica por su código.
+app.post("/api/gps-token", (req, res) => {
+  try {
+    motorizados.setToken(req.body?.id || req.body?.codigo, req.body?.token);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 app.all("/api/gps", express.urlencoded({ extended: false }), (req, res) => {
   try {
     motorizados.recibir(req.query, req.body);
@@ -281,9 +357,12 @@ app.all("/api/gps", express.urlencoded({ extended: false }), (req, res) => {
   res.status(200).send("OK");
 });
 
-function soloDuenoMotorizados(req, res, next) {
-  if (req.userId !== users.DUENO_ID) {
-    return res.status(403).json({ error: "Solo el dueño puede ver a los motorizados." });
+function accesoMotorizados(req, res, next) {
+  // El dueño y los socios con rol "motorizados" pueden ver y manejar los
+  // motorizados. Las cuentas completas (de finanzas) no tienen acceso.
+  const rol = users.rolDe(req.userId);
+  if (rol !== "dueno" && rol !== "motorizados") {
+    return res.status(403).json({ error: "No tienes acceso a los motorizados." });
   }
   next();
 }
@@ -292,17 +371,55 @@ app.get(["/motorizados", "/motorizados.html"], (req, res) => {
   res.sendFile(path.join(__dirname, "motorizados.html"));
 });
 
-app.get("/api/motorizados", soloDuenoMotorizados, (req, res) => {
+app.get("/api/motorizados", accesoMotorizados, (req, res) => {
   res.json(motorizados.resumen());
 });
 
-app.get("/api/motorizados/:id/eventos", soloDuenoMotorizados, (req, res) => {
+app.get("/api/motorizados/debug", accesoMotorizados, (req, res) => {
+  res.json({ recibidos: motorizados.crudos() });
+});
+
+app.get("/api/motorizados/reporte", accesoMotorizados, (req, res) => {
+  res.json(motorizados.reporteDia(req.query.dia));
+});
+
+app.get("/api/motorizados/:id/ruta", accesoMotorizados, (req, res) => {
+  const r = motorizados.ruta(req.params.id);
+  if (!r) return res.status(404).json({ error: "Motorizado no encontrado." });
+  res.json(r);
+});
+
+app.post("/api/motorizados/ruta-config", accesoMotorizados, (req, res) => {
+  try {
+    res.json({ ok: true, ruta: motorizados.setRutaConfig(req.body || {}) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/motorizados/:id/comando", accesoMotorizados, (req, res) => {
+  try {
+    res.json({ ok: true, ...motorizados.setComando(req.params.id, req.body || {}) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/motorizados/:id/aceite", accesoMotorizados, (req, res) => {
+  try {
+    res.json({ ok: true, km: motorizados.aceite(req.params.id, req.body || {}) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.get("/api/motorizados/:id/eventos", accesoMotorizados, (req, res) => {
   const lista = motorizados.eventos(req.params.id, req.query.dia);
   if (!lista) return res.status(404).json({ error: "Motorizado no encontrado." });
   res.json({ eventos: lista });
 });
 
-app.post("/api/motorizados", soloDuenoMotorizados, (req, res) => {
+app.post("/api/motorizados", accesoMotorizados, (req, res) => {
   try {
     res.json({ ok: true, rider: motorizados.agregar(req.body || {}) });
   } catch (err) {
@@ -310,7 +427,7 @@ app.post("/api/motorizados", soloDuenoMotorizados, (req, res) => {
   }
 });
 
-app.post("/api/motorizados/horario", soloDuenoMotorizados, (req, res) => {
+app.post("/api/motorizados/horario", accesoMotorizados, (req, res) => {
   try {
     res.json({ ok: true, horario: motorizados.setHorarioGeneral(req.body || {}) });
   } catch (err) {
@@ -318,7 +435,23 @@ app.post("/api/motorizados/horario", soloDuenoMotorizados, (req, res) => {
   }
 });
 
-app.post("/api/motorizados/:id", soloDuenoMotorizados, (req, res) => {
+app.post("/api/motorizados/avisos", accesoMotorizados, (req, res) => {
+  try {
+    res.json({ ok: true, avisos: motorizados.setAvisos(req.body || {}) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/motorizados/comando-masivo", accesoMotorizados, (req, res) => {
+  try {
+    res.json({ ok: true, ...motorizados.setComandoMasivo(req.body || {}) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/motorizados/:id", accesoMotorizados, (req, res) => {
   try {
     res.json({ ok: true, rider: motorizados.editar(req.params.id, req.body || {}) });
   } catch (err) {
@@ -326,7 +459,7 @@ app.post("/api/motorizados/:id", soloDuenoMotorizados, (req, res) => {
   }
 });
 
-app.delete("/api/motorizados/:id", soloDuenoMotorizados, (req, res) => {
+app.delete("/api/motorizados/:id", accesoMotorizados, (req, res) => {
   if (!motorizados.quitar(req.params.id)) return res.status(404).json({ error: "Motorizado no encontrado." });
   res.json({ ok: true });
 });
@@ -475,6 +608,214 @@ app.post("/api/prices/:id/remove", (req, res) => {
   res.json({ ok: true, precios: productPrices.getAll() });
 });
 
+// ---------- Lo que NO gastaste de lo planeado ----------
+// Los dias que no sales, el almuerzo y la gasolina de ese dia no ocurren.
+// Esa plata no es una ganancia ni es un gasto, asi que no aparecia en
+// ningun lado: simplemente no se gasto y no se veia.
+app.get("/api/finance/ahorrado", (req, res) => {
+  const mes = /^[0-9]{4}-[0-9]{2}$/.test(req.query.mes || "")
+    ? req.query.mes
+    : cashbox.getHoyLabel().slice(0, 7);
+  res.json(ahorrado.delMes(mes, scheduledExpenses.getAll(), cashbox.getMovimientos()));
+});
+
+// El acumulado de un tramo cualquiera, para "desde que empece hasta hoy".
+app.get("/api/finance/ahorrado-rango", (req, res) => {
+  const movimientos = cashbox.getMovimientos();
+  const primera = movimientos.reduce((a, m) => (!a || m.fecha < a ? m.fecha : a), "");
+  res.json(
+    ahorrado.calcular({
+      desde: req.query.desde || primera || cashbox.getHoyLabel(),
+      hasta: req.query.hasta || cashbox.getHoyLabel(),
+      gastos: scheduledExpenses.getAll(),
+      movimientos,
+    })
+  );
+});
+
+// ---------- El mes visto como mes ----------
+// Cada dia con lo que ganaste y gastaste; los que vienen, con lo que te
+// toca pagar.
+app.get("/api/finance/calendario", (req, res) => {
+  const mes = /^[0-9]{4}-[0-9]{2}$/.test(req.query.mes || "")
+    ? req.query.mes
+    : cashbox.getHoyLabel().slice(0, 7);
+  const movimientos = cashbox.getMovimientos();
+  res.json(
+    calendario.armar({
+      mes,
+      movimientos,
+      recordatorios: reminders.getAll(),
+      proyeccionDia: (fecha) => scheduledExpenses.getProyeccion(fecha, fecha, movimientos),
+      cuotasDia: (fecha) => prestamos.cuotasDelDia(fecha),
+    })
+  );
+});
+
+// ---------- Lo que TÚ debes (préstamos) ----------
+// Es lo contrario de /debts, que es lo que te deben a ti. Un crédito entra
+// a la caja como cualquier ganancia (la plata la tienes) pero hay que
+// devolverlo, y eso antes no vivía en ningún lado.
+app.get("/api/finance/prestamos", (req, res) => {
+  const hoy = cashbox.getHoyLabel();
+  const mes = hoy.slice(0, 7);
+  const desdeMes = mes + "-01";
+
+  // Cuánto de lo que entró este mes fue prestado. Si es una parte grande,
+  // el mes no se sostuvo con el trabajo sino con el crédito.
+  const prestadoEsteMes = prestamos.loPrestadoEn(desdeMes, hoy);
+  const entradoEsteMes = cashbox
+    .getMovimientos()
+    .filter((m) => m.tipo === "ganancia" && m.fecha >= desdeMes && m.fecha <= hoy)
+    .reduce((sum, m) => sum + (m.monto || 0), 0);
+
+  res.json({
+    prestamos: prestamos.getAll(),
+    totales: prestamos.getTotales(),
+    palabras: prestamos.getPalabras(),
+    // Para poder atarlos a un pendiente desde el panel.
+    recordatorios: reminders.getAll().map((r) => ({ id: r.id, label: r.label, monto: r.monto })),
+    esteMes: {
+      prestado: prestadoEsteMes,
+      entrado: Math.round(entradoEsteMes * 100) / 100,
+      porcentaje: entradoEsteMes > 0 ? Math.round((prestadoEsteMes / entradoEsteMes) * 100) : 0,
+    },
+    interesesDelAnio: prestamos.interesesDesde(hoy.slice(0, 4) + "-01-01"),
+  });
+});
+
+app.post("/api/finance/prestamos", (req, res) => {
+  try {
+    res.json({ ok: true, prestamo: prestamos.addPrestamo(req.body || {}) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.put("/api/finance/prestamos/:id", (req, res) => {
+  const p = prestamos.editPrestamo(req.params.id, req.body || {});
+  if (!p) return res.status(404).json({ error: "Préstamo no encontrado." });
+  res.json({ ok: true, prestamo: p });
+});
+
+app.delete("/api/finance/prestamos/:id", (req, res) => {
+  if (!prestamos.removePrestamo(req.params.id)) {
+    return res.status(404).json({ error: "Préstamo no encontrado." });
+  }
+  res.json({ ok: true });
+});
+
+// Un pago a mano. El que entra solo al marcar "Ya pagué" en un pendiente
+// no pasa por acá: lo hace reminders directamente.
+app.post("/api/finance/prestamos/:id/pagos", (req, res) => {
+  try {
+    const p = prestamos.registrarPago(req.params.id, req.body || {});
+    if (!p) return res.status(404).json({ error: "Préstamo no encontrado." });
+    res.json({ ok: true, prestamo: p });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete("/api/finance/prestamos/:id/pagos/:pagoId", (req, res) => {
+  const p = prestamos.quitarPago(req.params.id, req.params.pagoId);
+  if (!p) return res.status(404).json({ error: "Pago no encontrado." });
+  res.json({ ok: true, prestamo: p });
+});
+
+// Las palabras que hacen que una ganancia se anote además como préstamo.
+app.put("/api/finance/prestamos-palabras", (req, res) => {
+  res.json({ ok: true, palabras: prestamos.setPalabras(req.body?.palabras) });
+});
+
+// "¿Si saco S/400 a 4 meses, me alcanza igual?" — antes de pedirlo, no
+// después.
+app.get("/api/finance/prestamos-simular", (req, res) => {
+  const sim = prestamos.simular({
+    monto: req.query.monto,
+    meses: req.query.meses,
+    interesPorciento: req.query.interes,
+  });
+  const metas = financeGoals.getGoals(req.query.hasta || "").automaticas;
+  // Lo que entra ahora te deja mejor; la cuota que cae dentro del periodo
+  // te deja peor. Lo honesto es mostrar las dos cosas juntas.
+  const hoy = cashbox.getHoyLabel();
+  const cuotasEnPeriodo = prestamos.ocurrenciasDelDiaEnRango(hoy, metas.hasta, Number(hoy.slice(8, 10)));
+  const devolverEnPeriodo = Math.min(sim.cuota * Math.max(cuotasEnPeriodo, 0), sim.aDevolver);
+  const sobraAhora = metas.tengo + (metas.ritmo?.proyectado || 0) - metas.necesito;
+  const sobraConCredito = sobraAhora + sim.recibes - devolverEnPeriodo;
+
+  res.json({
+    ...sim,
+    hasta: metas.hasta,
+    devolverEnPeriodo: Math.round(devolverEnPeriodo * 100) / 100,
+    sobraAhora: Math.round(sobraAhora * 100) / 100,
+    sobraConCredito: Math.round(sobraConCredito * 100) / 100,
+  });
+});
+
+// ---------- Gastos hormiga ----------
+// Lo chiquito que se repite y no aparece en ningun lado porque cada uno
+// se ve suelto.
+app.get("/api/finance/hormiga", (req, res) => {
+  res.json(
+    gastosHormiga.analizar(cashbox.getMovimientos(), {
+      desde: req.query.desde || "",
+      hasta: req.query.hasta || "",
+      tope: req.query.tope,
+      minimoVeces: req.query.veces,
+    })
+  );
+});
+
+// ---------- Donde esta la plata ----------
+// El total sigue sumando igual (esa plata es suya y sirve para pagar),
+// pero ahora se puede ver cuanto hay en cada lado.
+app.get("/api/finance/lugares", (req, res) => {
+  res.json({
+    lugares: lugaresDinero.getAll(),
+    ...lugaresDinero.getSaldos(cashbox.getMovimientos()),
+  });
+});
+
+app.post("/api/finance/lugares", (req, res) => {
+  try {
+    res.json({ ok: true, lugar: lugaresDinero.addLugar(req.body || {}) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.put("/api/finance/lugares/:id", (req, res) => {
+  const l = lugaresDinero.editLugar(req.params.id, req.body || {});
+  if (!l) return res.status(404).json({ error: "Lugar no encontrado." });
+  res.json({ ok: true, lugar: l });
+});
+
+app.delete("/api/finance/lugares/:id", (req, res) => {
+  try {
+    if (!lugaresDinero.removeLugar(req.params.id)) {
+      return res.status(404).json({ error: "Lugar no encontrado." });
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// De lo que tienes en la mano, cuánto es tuyo de verdad: sin la plata
+// que le guardas a otros y sin lo que debes.
+function plataDeVerdad(esperado) {
+  const custodia = custodias.getPersonas().reduce((s, p) => s + (p.saldo || 0), 0);
+  const debes = prestamos.getTotales().debes;
+  return {
+    esperado: Math.round(esperado * 100) / 100,
+    deOtros: Math.round(custodia * 100) / 100,
+    prestado: debes,
+    tuyo: Math.round((esperado - custodia - debes) * 100) / 100,
+  };
+}
+
 app.get("/api/cashbox/today", (req, res) => {
   // "custodia" es el total de plata de OTRAS personas que estás guardando,
   // sumando a todas: antes era solo de Ana, que estaba fija en el código.
@@ -483,7 +824,14 @@ app.get("/api/cashbox/today", (req, res) => {
     (acc, p) => ({ guardado: acc.guardado + p.guardado, gastado: acc.gastado + p.gastado, saldo: acc.saldo + p.saldo }),
     { guardado: 0, gastado: 0, saldo: 0 }
   );
-  res.json({ ...cashbox.getToday(), custodia, personasCustodia: personas.length });
+  const hoy = cashbox.getToday();
+  res.json({
+    ...hoy,
+    custodia,
+    personasCustodia: personas.length,
+    // Cuanto de lo que tienes en la mano es tuyo de verdad.
+    deVerdad: plataDeVerdad(hoy.esperado || 0),
+  });
 });
 
 // Corregir/reconstruir un día completo a mano (para que el Excel cuadre):
@@ -517,19 +865,32 @@ app.get("/api/finance/movements", (req, res) => {
     fuenteEfectiva: m.tipo === "ganancia" ? fuentesIngreso.resolveFuenteId(m) : undefined,
     // Y de que local vino, para poder cambiarlo desde el panel.
     localEfectivo: m.tipo === "ganancia" ? (locales.resolveLocal(m) || {}).id : undefined,
+    // Donde esta esa plata: bolsillo, Yape, banco.
+    lugarEfectivo: m.tipo === "caja" ? undefined : lugaresDinero.resolveLugarId(m),
   }));
   res.json({ movimientos });
 });
 
+function crearMovimiento(entrada) {
+  const { tipo, monto, descripcion, fecha, hora, categoriaId, fuenteId, localId } = entrada || {};
+  const montoNum = Number(monto);
+  if (!["ganancia", "gasto"].includes(tipo) || !Number.isFinite(montoNum) || montoNum <= 0) return null;
+  const id = cashbox.addMovimientoManual(tipo, montoNum, descripcion, fecha, hora);
+  // La clasificación puesta a mano viaja con el movimiento: sin esto,
+  // deshacer un borrado lo devolvía clasificado por palabras clave.
+  if (categoriaId || fuenteId || localId) {
+    cashbox.editMovimientoPorId(id, { categoriaId, fuenteId, localId });
+  }
+  return id;
+}
+
 app.post("/api/finance/movements", (req, res) => {
   try {
-    const { tipo, monto, descripcion, fecha, hora } = req.body || {};
-    const montoNum = Number(monto);
-    if (!["ganancia", "gasto"].includes(tipo) || !Number.isFinite(montoNum) || montoNum <= 0) {
+    const id = crearMovimiento(req.body);
+    if (!id) {
       return res.status(400).json({ error: "Se requiere 'tipo' (ganancia/gasto) y 'monto' válido." });
     }
-    cashbox.addMovimientoManual(tipo, montoNum, descripcion, fecha, hora);
-    res.json({ ok: true });
+    res.json({ ok: true, id });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -544,6 +905,12 @@ function movimientoPorRef(ref) {
   const texto = String(ref || "");
   if (texto.startsWith("mov_")) return cashbox.getMovimientos().find((m) => m.id === texto) || null;
   return cashbox.getMovimientos()[Number(texto)] || null;
+}
+
+// Lo mismo para custodias, deudas y faltantes: el panel manda el id y las
+// pestanas viejas todavia mandan el numero de fila.
+function refEsPosicion(ref) {
+  return /^[0-9]+$/.test(String(ref || ""));
 }
 
 app.put("/api/finance/movements/:ref", (req, res) => {
@@ -567,6 +934,63 @@ app.delete("/api/finance/movements/:ref", (req, res) => {
   // El faltante que lo haya generado se descuenta junto con él.
   if (movimientoId) shortfalls.removePorMovimiento(movimientoId);
   res.json({ ok: true });
+});
+
+// ---------- Varios movimientos de una sola vez ----------
+// Corregir 20 gastos mal clasificados era abrir 20 veces la misma
+// pantalla. Acá se marcan varios y se los mueve de categoría, se les
+// cambia la fuente o se los borra en un solo pedido.
+const TOPE_LOTE = 500;
+
+app.post("/api/finance/movements/lote", (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+  const accion = req.body?.accion;
+
+  // Restaurar no manda ids: manda los movimientos enteros que se
+  // borraron, para poder deshacer un borrado en lote.
+  if (accion === "restaurar") {
+    const movimientos = Array.isArray(req.body?.movimientos) ? req.body.movimientos : [];
+    if (movimientos.length === 0 || movimientos.length > TOPE_LOTE) {
+      return res.status(400).json({ error: "Nada que devolver." });
+    }
+    let devueltos = 0;
+    movimientos.forEach((m) => {
+      if (crearMovimiento(m)) devueltos += 1;
+    });
+    return res.json({ ok: true, tocados: devueltos });
+  }
+
+  if (ids.length === 0) return res.status(400).json({ error: "No marcaste ningún movimiento." });
+  if (ids.length > TOPE_LOTE) return res.status(400).json({ error: "Son demasiados de una sola vez." });
+
+  if (accion === "borrar") {
+    // Se devuelve una copia de lo borrado para poder deshacerlo.
+    const borrados = [];
+    ids.forEach((ref) => {
+      const objetivo = movimientoPorRef(ref);
+      if (!objetivo) return;
+      const copia = { ...objetivo };
+      if (!cashbox.removeMovimientoPorId(objetivo.id)) return;
+      shortfalls.removePorMovimiento(objetivo.id);
+      borrados.push(copia);
+    });
+    return res.json({ ok: true, tocados: borrados.length, borrados });
+  }
+
+  if (accion === "editar") {
+    const cambios = req.body?.cambios || {};
+    let tocados = 0;
+    ids.forEach((ref) => {
+      const objetivo = movimientoPorRef(ref);
+      if (!objetivo) return;
+      if (!cashbox.editMovimientoPorId(objetivo.id, cambios)) return;
+      shortfalls.editPorMovimiento(objetivo.id, cambios);
+      tocados += 1;
+    });
+    return res.json({ ok: true, tocados });
+  }
+
+  res.status(400).json({ error: "Acción desconocida." });
 });
 
 // Plata de otras personas en custodia (aparte de la caja). Cada cuenta
@@ -618,17 +1042,35 @@ app.post("/api/finance/custodias/:clave/movements", (req, res) => {
   res.json({ ok: true });
 });
 
-app.put("/api/finance/custodias/:clave/movements/:index", (req, res) => {
-  const mov = custodias.editMovimiento(req.params.clave, Number(req.params.index), req.body || {});
+app.put("/api/finance/custodias/:clave/movements/:ref", (req, res) => {
+  const ref = req.params.ref;
+  const mov = refEsPosicion(ref)
+    ? custodias.editMovimiento(req.params.clave, Number(ref), req.body || {})
+    : custodias.editMovimientoPorId(req.params.clave, ref, req.body || {});
   if (!mov) return res.status(404).json({ error: "Movimiento no encontrado." });
   res.json({ ok: true, movimiento: mov });
 });
 
-app.delete("/api/finance/custodias/:clave/movements/:index", (req, res) => {
-  if (!custodias.removeMovimiento(req.params.clave, Number(req.params.index))) {
-    return res.status(404).json({ error: "Movimiento no encontrado." });
-  }
+app.delete("/api/finance/custodias/:clave/movements/:ref", (req, res) => {
+  const ref = req.params.ref;
+  const ok = refEsPosicion(ref)
+    ? custodias.removeMovimiento(req.params.clave, Number(ref))
+    : custodias.removeMovimientoPorId(req.params.clave, ref);
+  if (!ok) return res.status(404).json({ error: "Movimiento no encontrado." });
   res.json({ ok: true });
+});
+
+// Pasar un movimiento de custodia a otra persona, sin borrarlo y volver a
+// anotarlo.
+app.post("/api/finance/custodias/:clave/movements/:ref/mover", (req, res) => {
+  const destino = String(req.body?.destino || "");
+  if (!destino) return res.status(400).json({ error: "Falta a quién se lo pasas." });
+  if (destino === req.params.clave) {
+    return res.status(400).json({ error: "Ya está en esa persona." });
+  }
+  const r = custodias.moverMovimiento(req.params.clave, req.params.ref, destino);
+  if (!r) return res.status(404).json({ error: "No se pudo mover ese movimiento." });
+  res.json({ ok: true, ...r });
 });
 
 // Consultas por WhatsApp del grupo GANANCIAS: frases que disparan cada
@@ -780,14 +1222,20 @@ app.get("/api/finance/debts/:persona/movements", (req, res) => {
   res.json({ movimientos });
 });
 
-app.put("/api/finance/debts/:persona/movements/:index", (req, res) => {
-  const resultado = debts.editMovimiento(req.params.persona, Number(req.params.index), req.body || {});
+app.put("/api/finance/debts/:persona/movements/:ref", (req, res) => {
+  const ref = req.params.ref;
+  const resultado = refEsPosicion(ref)
+    ? debts.editMovimiento(req.params.persona, Number(ref), req.body || {})
+    : debts.editMovimientoPorId(req.params.persona, ref, req.body || {});
   if (!resultado) return res.status(404).json({ error: "Movimiento no encontrado." });
   res.json({ ok: true, ...resultado });
 });
 
-app.delete("/api/finance/debts/:persona/movements/:index", (req, res) => {
-  const ok = debts.removeMovimiento(req.params.persona, Number(req.params.index));
+app.delete("/api/finance/debts/:persona/movements/:ref", (req, res) => {
+  const ref = req.params.ref;
+  const ok = refEsPosicion(ref)
+    ? debts.removeMovimiento(req.params.persona, Number(ref))
+    : debts.removeMovimientoPorId(req.params.persona, ref);
   if (!ok) return res.status(404).json({ error: "Movimiento no encontrado." });
   res.json({ ok: true });
 });
@@ -810,8 +1258,11 @@ app.post("/api/finance/shortfalls", (req, res) => {
   res.json({ ok: true });
 });
 
-app.put("/api/finance/shortfalls/:index", (req, res) => {
-  const mov = shortfalls.editMovimiento(Number(req.params.index), req.body || {});
+app.put("/api/finance/shortfalls/:ref", (req, res) => {
+  const ref = req.params.ref;
+  const mov = refEsPosicion(ref)
+    ? shortfalls.editMovimiento(Number(ref), req.body || {})
+    : shortfalls.editMovimientoPorId(ref, req.body || {});
   if (!mov) return res.status(404).json({ error: "Movimiento no encontrado." });
   // El gasto que este faltante dejó en la caja tiene que quedar igual, si no
   // el efectivo esperado seguiría calculado con el monto viejo.
@@ -819,8 +1270,11 @@ app.put("/api/finance/shortfalls/:index", (req, res) => {
   res.json({ ok: true, movimiento: mov });
 });
 
-app.delete("/api/finance/shortfalls/:index", (req, res) => {
-  const mov = shortfalls.removeMovimiento(Number(req.params.index));
+app.delete("/api/finance/shortfalls/:ref", (req, res) => {
+  const ref = req.params.ref;
+  const mov = refEsPosicion(ref)
+    ? shortfalls.removeMovimiento(Number(ref))
+    : shortfalls.removeMovimientoPorId(ref);
   if (!mov) return res.status(404).json({ error: "Movimiento no encontrado." });
   if (mov.movimientoId) cashbox.removeMovimientoPorId(mov.movimientoId);
   res.json({ ok: true, enlazado: !!mov.movimientoId });
@@ -948,6 +1402,23 @@ app.delete("/api/finance/accounts/entries/:index", (req, res) => {
 // Historial de cierres diarios (ganancias/gastos/efectivo esperado por
 // día) más el día en curso, para los gráficos y la lista diaria de
 // Finanzas.
+// ---------- Historial de cambios ----------
+// Quien toco que y cuando. Es de solo lectura a proposito: si se pudiera
+// editar o borrar, dejaria de servir para lo unico que sirve, que es
+// averiguar por que algo no cuadra.
+app.get("/api/finance/bitacora", (req, res) => {
+  const limite = Math.min(Number(req.query.limite) || 200, 1000);
+  res.json({
+    entradas: bitacora.getEntradas({
+      desde: req.query.desde || "",
+      hasta: req.query.hasta || "",
+      que: req.query.que || "",
+      limite,
+    }),
+    total: bitacora.contar(),
+  });
+});
+
 app.get("/api/finance/history", (req, res) => {
   // "meses" sale de TODOS los movimientos (no solo los cierres) para que un
   // gasto cargado a mano con fecha pasada también aparezca como mes
@@ -1559,6 +2030,207 @@ app.post("/api/push/subscribe", (req, res) => {
 app.post("/api/push/unsubscribe", (req, res) => {
   pushSubscriptions.removeSubscription(req.body.endpoint);
   res.json({ ok: true });
+});
+
+
+// ---------- Documentos para imprimir ----------
+// La pantalla donde se toma la foto, se revisa lo detectado y se arma el
+// documento. Va detrás de la sesión como todo lo demás.
+// Los módulos que el navegador necesita para armar la impresión por su
+// cuenta. Son los MISMOS archivos que usa el servidor: una sola copia del
+// cálculo del dinero y del render, imposible que se desincronicen.
+["documento.js", "termica.js", "impresoras.js", "bluetooth.js"].forEach((archivo) => {
+  app.get("/documentos/" + archivo, (req, res) => {
+    res.type("application/javascript").sendFile(path.join(__dirname, archivo));
+  });
+});
+
+app.get(["/documentos", "/documentos.html"], (req, res) => {
+  res.sendFile(path.join(__dirname, "boletas.html"));
+});
+
+// Leer una foto. Los dos modos son cosas distintas: "pedido" saca los
+// productos de lo que te pidieron para armar TU documento; "gasto" lee el
+// comprobante que te dieron al comprar, y eso queda como registro.
+app.post("/api/documentos/leer", async (req, res) => {
+  if (!foto.disponible()) {
+    return res.status(503).json({
+      error: "Falta la llave ANTHROPIC_API_KEY. Por ahora se carga a mano.",
+    });
+  }
+  try {
+    const { modo, base64, mediaType } = req.body || {};
+    const leer = modo === "gasto" ? foto.leerGasto : foto.leerPedido;
+    res.json(await leer(base64, mediaType));
+  } catch (err) {
+    res.status(400).json({ error: foto.mensajeDeError(err) });
+  }
+});
+
+// Autocompletado del catálogo.
+app.get("/api/documentos/productos", (req, res) => {
+  const encontrados = productos.sugerir(req.query.q || "", 8);
+  res.json(encontrados.map((p) => ({
+    id: p.id,
+    nombre: p.nombre,
+    precioTexto: documento.aTexto(p.precio),
+  })));
+});
+
+// Los datos del negocio que emite. Se escriben una vez y salen en todos
+// los documentos: no se leen de ninguna foto, porque son siempre los
+// mismos y un RUC borroso leído mal se imprime y se reparte.
+app.get("/api/documentos/negocio", (req, res) => {
+  res.json({ ...negocio.get(), proximoNumero: negocio.proximoNumero(), avisos: negocio.revisar() });
+});
+
+app.post("/api/documentos/negocio", (req, res) => {
+  const guardado = negocio.set(req.body || {});
+  res.json({ ...guardado, proximoNumero: negocio.proximoNumero(), avisos: negocio.revisar() });
+});
+
+// Plantillas: el orden y el estilo de los bloques.
+app.get("/api/documentos/plantillas", (req, res) => {
+  res.json({
+    lista: plantillas.todas().map((p) => ({ id: p.id, nombre: p.nombre, deFabrica: Boolean(p.deFabrica) })),
+    activa: plantillas.activa(),
+    tipos: plantillas.TIPOS,
+    campos: plantillas.CAMPOS,
+  });
+});
+
+app.post("/api/documentos/plantillas", (req, res) => {
+  try {
+    res.json(plantillas.guardar(req.body?.nombre, req.body?.bloques, req.body?.id));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/documentos/plantillas/usar", (req, res) => {
+  try {
+    res.json(plantillas.usar(req.body?.id));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete("/api/documentos/plantillas/:id", (req, res) => {
+  res.json({ ok: plantillas.eliminar(req.params.id), activa: plantillas.activa() });
+});
+
+// Gastar un correlativo. Lo llama el navegador DESPUÉS de imprimir, porque
+// ahora los bytes los arma él: el servidor ya no ve pasar el documento.
+app.post("/api/documentos/numero", (req, res) => {
+  const usado = negocio.consumirNumero();
+  res.json({ usado, proximoNumero: negocio.proximoNumero() });
+});
+
+// El logo, ya tramado a 1 bit por el navegador.
+app.get("/api/documentos/logo", (req, res) => {
+  res.json(logoNegocio.get() || {});
+});
+
+app.post("/api/documentos/logo", (req, res) => {
+  try {
+    res.json(logoNegocio.set(req.body || {}));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete("/api/documentos/logo", (req, res) => {
+  res.json({ ok: logoNegocio.quitar() });
+});
+
+// El catálogo: verlo y cargarlo pegando una lista.
+//
+// Sin esto el autocompletado no sugiere nada y parece roto, cuando en
+// realidad lo que pasa es que todavía no hay productos cargados.
+app.get("/api/documentos/catalogo", (req, res) => {
+  res.json(productos.listar().map((p) => ({
+    id: p.id, nombre: p.nombre, precioTexto: documento.aTexto(p.precio), usos: p.usos || 0,
+  })));
+});
+
+app.post("/api/documentos/catalogo", (req, res) => {
+  try {
+    const r = productos.importarTexto(req.body?.texto || "");
+    res.json({ ...r, total: productos.listar().length });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete("/api/documentos/catalogo/:id", (req, res) => {
+  res.json({ ok: productos.eliminar(req.params.id), total: productos.listar().length });
+});
+
+// Totales y vista previa.
+//
+// Los importes y el total los calcula el SERVIDOR, con la misma aritmética
+// en centavos que genera los bytes de la impresora. Si el navegador hiciera
+// su propia cuenta con decimales, la pantalla podría mostrar un total y el
+// papel salir con otro — y el que vale es el del papel.
+// El navegador manda solo los ítems; los datos del negocio y el número los
+// pone el servidor. Así el emisor no viaja de ida y vuelta en cada tecla, y
+// no hay forma de que una pantalla mande un emisor que no sea el tuyo.
+function armarDocumento(entrada = {}) {
+  const perfilNegocio = negocio.get();
+  return documento.normalizar({
+    ...entrada,
+    emisor: negocio.comoEmisor(),
+    logo: logoNegocio.paraImprimir(),
+    pie: entrada.pie === undefined ? perfilNegocio.pie : entrada.pie,
+    numero: entrada.numero || negocio.proximoNumero(),
+  });
+}
+
+app.post("/api/documentos/previa", (req, res) => {
+  try {
+    const perfil = impresoras.perfilDe(req.body?.perfil || negocio.get().impresora);
+    const doc = armarDocumento(req.body?.documento || {});
+    res.json({
+      previa: termica.previa(doc, {
+        perfil,
+        plantilla: req.body?.plantilla || plantillas.activa().bloques,
+      }),
+      numero: doc.numero,
+      tieneLogo: Boolean(doc.logo),
+      impresora: perfil.nombre,
+      columnas: perfil.columnas,
+      importes: doc.items.map((it) => documento.aTexto(documento.importeDe(it))),
+      subtotal: documento.aTexto(doc.totales.subtotal),
+      igv: documento.aTexto(doc.totales.igv),
+      total: documento.aTexto(doc.totales.total),
+      avisos: documento.revisar(doc).concat(negocio.revisar()),
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Los bytes listos para la impresora. Todavía no hay quien los reciba —eso
+// es el Bluetooth— pero el endpoint ya es el mismo que va a usar.
+//
+// ACÁ se gasta el correlativo, no en la previa: emitir es lo que consume un
+// número del talonario. Si avanzara al previsualizar, abrir la pantalla y
+// cerrarla dejaría huecos en la numeración que después hay que explicar.
+app.post("/api/documentos/escpos", (req, res) => {
+  try {
+    const numero = negocio.consumirNumero();
+    const doc = armarDocumento({ ...(req.body?.documento || {}), numero });
+    const bytes = termica.aEscPos(doc, {
+      perfil: req.body?.perfil || negocio.get().impresora,
+      copias: req.body?.copias,
+    });
+    res.set("X-Documento-Numero", numero);
+    // aEscPos ahora devuelve Uint8Array (para que sirva igual en el
+    // navegador); Express necesita un Buffer para mandarlo por HTTP.
+    res.type("application/octet-stream").send(Buffer.from(bytes));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 const PORT = process.env.PORT || 3000;

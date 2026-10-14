@@ -30,6 +30,8 @@ const contexto = require("./contexto");
 const users = require("./users");
 const chatConfig = require("./chatConfig");
 const custodias = require("./custodias");
+const prestamos = require("./prestamos");
+const diasLibres = require("./diasLibres");
 
 // Identificadores propios de la cuenta, para reconocer el chat de
 // "mensajes contigo mismo".
@@ -91,6 +93,49 @@ function normalizeText(str) {
   return str.normalize("NFD").replace(COMBINING_MARKS, "").toLowerCase();
 }
 
+// ¿Estas dos palabras están a UN error de distancia? Cuenta como un
+// error: una letra de más, una de menos, una cambiada, o dos letras
+// volteadas (que es el dedazo típico al escribir rápido).
+function aUnErrorDe(palabra, objetivo) {
+  const a = normalizeText(String(palabra || ""));
+  const b = normalizeText(String(objetivo || ""));
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1) return false;
+
+  // Dos letras volteadas: "menso" por "menos".
+  if (a.length === b.length) {
+    const distintas = [];
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) distintas.push(i);
+      if (distintas.length > 2) return false;
+    }
+    if (distintas.length === 1) return true; // una letra cambiada
+    if (distintas.length === 2) {
+      const [i, j] = distintas;
+      return j === i + 1 && a[i] === b[j] && a[j] === b[i];
+    }
+    return false;
+  }
+
+  // Una letra de más o de menos.
+  const corta = a.length < b.length ? a : b;
+  const larga = a.length < b.length ? b : a;
+  let i = 0;
+  let j = 0;
+  let saltos = 0;
+  while (i < corta.length && j < larga.length) {
+    if (corta[i] === larga[j]) {
+      i += 1;
+      j += 1;
+    } else {
+      saltos += 1;
+      if (saltos > 1) return false;
+      j += 1;
+    }
+  }
+  return true;
+}
+
 const CASHBOX_GROUP_NAME = "GANANCIAS";
 // Grupo donde se anotan a mano los precios de productos y se consultan
 // después ("six pack pilsen mas barato"). Igual que el de la caja chica,
@@ -125,7 +170,22 @@ function parseCashboxLine(rawLine) {
     }
   }
 
-  const mMenos = text.match(/^menos\s+(\d+(?:\.\d+)?)\s*(mil)?\s*(.*)$/i);
+  // Antes esto exigía "menos" exacto. Un dedazo —"Menso 48 pizza cena"—
+  // se ignoraba EN SILENCIO: el gasto no quedaba en ningún lado y no
+  // había forma de enterarse hasta que la caja no cuadraba. Ahora se
+  // acepta si está a un error, y se avisa que se corrigió.
+  const mPrimeraPalabra = text.match(/^(\S+)\s+(\d+(?:\.\d+)?)\s*(mil)?\s*(.*)$/i);
+  let mMenos = null;
+  let correccion = null;
+  if (mPrimeraPalabra) {
+    const escrita = mPrimeraPalabra[1];
+    if (normalizeText(escrita) === "menos") {
+      mMenos = [null, mPrimeraPalabra[2], mPrimeraPalabra[3], mPrimeraPalabra[4]];
+    } else if (aUnErrorDe(escrita, "menos")) {
+      mMenos = [null, mPrimeraPalabra[2], mPrimeraPalabra[3], mPrimeraPalabra[4]];
+      correccion = { escribiste: escrita, quisiste: "menos" };
+    }
+  }
   const mMas = mMenos ? null : text.match(/^(\d+(?:\.\d+)?)\s*(mil)?\s*(.*)$/i);
   const montoDe = (m) => parseFloat(m[1]) * (m[2] ? 1000 : 1);
 
@@ -137,13 +197,13 @@ function parseCashboxLine(rawLine) {
     // "Menos X Nombre debe": Nombre te debe X (no resta de la caja).
     if (/\bdebe\b/.test(restoNorm)) {
       const persona = resto.replace(/\bdebe\b/i, "").trim();
-      if (persona) return { type: "deuda_debe", monto, persona, descripcion: resto };
+      if (persona) return { type: "deuda_debe", monto, persona, descripcion: resto, correccion };
     }
 
     // "Menos X falto": diferencia de caja que no cuadró. Sí resta de la
     // caja (como un gasto normal) y además queda en un total aparte.
     if (/\bfalto\b/.test(restoNorm)) {
-      return { type: "faltante", monto, descripcion: resto };
+      return { type: "faltante", monto, descripcion: resto, correccion };
     }
   }
 
@@ -176,7 +236,7 @@ function parseCashboxLine(rawLine) {
   }
 
   // Y al final lo genérico.
-  if (mMenos) return { type: "gasto", monto: montoDe(mMenos), descripcion: mMenos[3].trim() };
+  if (mMenos) return { type: "gasto", monto: montoDe(mMenos), descripcion: mMenos[3].trim(), correccion };
   if (mMas) return { type: "ganancia", monto: montoDe(mMas), descripcion: mMas[3].trim() };
 
   return null;
@@ -540,6 +600,14 @@ function handleCashboxEntries(entradas, idsCreados) {
   const anotarId = (id) => { if (id && Array.isArray(idsCreados)) idsCreados.push(id); };
   const avisos = [];
   entradas.forEach((entrada) => {
+    // Si hubo que corregir un dedazo, se dice. Lo que el bot adivina
+    // nunca puede quedar callado: si adivinó mal, tienes que poder verlo.
+    if (entrada.correccion) {
+      avisos.push(
+        "\u270F\uFE0F Escribiste \"" + entrada.correccion.escribiste + "\" y lo tomé como \"" +
+          entrada.correccion.quisiste + "\".\nSi no era eso, bórralo desde el panel."
+      );
+    }
     if (entrada.type === "gasto") {
       anotarId(cashbox.addGasto(entrada.monto, entrada.descripcion));
       // Si ese gasto corresponde a un pago pendiente, se marca solo: así da
@@ -576,7 +644,19 @@ function handleCashboxEntries(entradas, idsCreados) {
     } else if (entrada.type === "referencia") {
       referenceAccounts.addEntrada(entrada.cuenta, entrada.monto, entrada.descripcion);
     } else {
-      anotarId(cashbox.addGanancia(entrada.monto, entrada.descripcion));
+      const movimientoId = cashbox.addGanancia(entrada.monto, entrada.descripcion);
+      anotarId(movimientoId);
+      // "400 yape credito": la plata entro de verdad y suma en la caja,
+      // pero no la generaste trabajando y hay que devolverla. Sin esto la
+      // app leia un prestamo como si te hubiera ido bien ese dia.
+      if (prestamos.esPrestamo(entrada.descripcion)) {
+        const label = prestamos.nombreDesdeDescripcion(entrada.descripcion, prestamos.getPalabras());
+        const p = prestamos.abrirOSumar({ label, recibido: entrada.monto, movimientoId });
+        avisos.push(
+          "\uD83C\uDFE6 Anoté que le debes S/ " + p.saldo + " a " + p.label + ".\n" +
+            "Si te cobran interés, corrige el total a devolver en el panel (Registros → Lo que debo)."
+        );
+      }
     }
   });
   return avisos;
@@ -881,13 +961,25 @@ async function checkCashboxSchedule(bot) {
     `🧮 Caja inicial: ${formatSoles(resumenDia.caja)}\n` +
     `💵 Efectivo esperado: ${formatSoles(resumenDia.esperado)}`;
 
-  if (progresoAntes) {
+  const eraDiaLibre = diasLibres.esLibre(hoyLabel);
+
+  if (progresoAntes && eraDiaLibre) {
+    // Lo que haya entrado en su día libre es de más, no una meta cumplida
+    // a medias. Retarlo por descansar el día que decidió descansar es la
+    // forma más rápida de que deje de mirar la app.
+    textoDia +=
+      `\n\n😴 Hoy era tu día de descanso, así que no había meta.` +
+      (resumenDia.ganancias > 0 ? ` Los ${formatSoles(resumenDia.ganancias)} que hiciste son extra.` : "") +
+      `\n📈 Vas en ${formatSoles(progresoAntes.generadoAcumulado + resumenDia.ganancias)} de ${formatSoles(progresoAntes.metaMensualReferencia)} este mes.`;
+  } else if (progresoAntes) {
     const cumplioMeta = resumenDia.ganancias >= progresoAntes.metaHoy;
     textoDia +=
       `\n\n🎯 Meta de producción de hoy: ${formatSoles(progresoAntes.metaHoy)} — ${cumplioMeta ? "cumplida ✅" : "no cumplida ⚠️"}\n` +
       `📈 Vas en ${formatSoles(progresoAntes.generadoAcumulado + resumenDia.ganancias)} de ${formatSoles(progresoAntes.metaMensualReferencia)} este mes.`;
   }
-  if (progresoSiguiente) {
+  if (diasLibres.esLibre(businessDay.addDays(hoyLabel, 1))) {
+    textoDia += `\n🌅 Mañana descansas.`;
+  } else if (progresoSiguiente) {
     textoDia += `\n🌅 Meta de mañana: ${formatSoles(progresoSiguiente.metaHoy)}`;
   }
 
@@ -900,7 +992,7 @@ async function checkCashboxSchedule(bot) {
   // Si hay meta diaria configurada y no se cumplió, avisa por notificación
   // push (aparte del mensaje de WhatsApp de arriba).
   const metaDiaria = financeGoals.getGoals().diaria;
-  if (metaDiaria > 0 && resumenDia.ganancias < metaDiaria) {
+  if (!eraDiaLibre && metaDiaria > 0 && resumenDia.ganancias < metaDiaria) {
     pushSubscriptions
       .notifyAll({
         title: "📉 No llegaste a la meta de hoy",
@@ -1171,7 +1263,11 @@ async function startBot(userId) {
   // financieras. Todo lo demás (otros grupos, cotizaciones, keywords) no
   // existe en este bot — vive en el proyecto de delivery, aparte.
   sock.ev.on("messages.upsert", ({ messages }) =>
-    contexto.correrComo(userId, () => procesarMensajes(bot, messages))
+    contexto.correrComo(userId, () => {
+      // Para la bitacora: esto entro por un mensaje de WhatsApp.
+      contexto.marcarOrigen("whatsapp");
+      return procesarMensajes(bot, messages);
+    })
   );
 
   return sock;
@@ -1268,6 +1364,14 @@ async function procesarMensajes(bot, messages) {
         const idsCreados = [];
         const avisos = handleCashboxEntries(entradas, idsCreados);
         await guardarRecibo(bot, msg, idsCreados);
+        // Un visto bueno en el mensaje, como en el grupo de precios: sin
+        // llenar el chat de respuestas, pero dejando claro qué entró. Si
+        // una línea no tiene palomita, no se anotó.
+        try {
+          await sock.sendMessage(chatId, { react: { text: "\u2705", key: msg.key } });
+        } catch (err) {
+          console.error("No se pudo reaccionar al movimiento anotado:", err.message);
+        }
         for (const aviso of avisos) {
           try {
             await enviarMensaje(bot, chatId, { text: aviso });
@@ -1301,6 +1405,20 @@ async function avisarAlGrupo(userId, texto) {
   return true;
 }
 
+// Aviso directo al chat personal de la cuenta ("Mis propios mensajes"), sin
+// depender de la configuración de la caja. Lo usan los avisos de los
+// motorizados: el dueño pidió que le lleguen a su propio chat y a ningún
+// grupo. Si el WhatsApp no está vinculado o no hay chat propio, no hace
+// nada (devuelve false) y el aviso simplemente no se manda.
+async function avisarAMisMensajes(userId, texto) {
+  const bot = botDe(userId);
+  if (!bot.sock || !bot.connected) return false;
+  const chatId = jidPropio(bot);
+  if (!chatId) return false;
+  await enviarMensaje(bot, chatId, { text: texto });
+  return true;
+}
+
 // Estado del bot de una cuenta, para que el panel muestre su QR y si está
 // conectado. Cada cuenta ve el suyo y nada del de las demás.
 function estadoDe(userId) {
@@ -1329,4 +1447,17 @@ function chatsDisponibles(userId) {
   return lista;
 }
 
-module.exports = { startBot, startBotsGuardados, estadoDe, logoutBot, getSock, avisarAlGrupo, chatsDisponibles };
+module.exports = {
+  startBot,
+  startBotsGuardados,
+  estadoDe,
+  logoutBot,
+  getSock,
+  avisarAlGrupo,
+  avisarAMisMensajes,
+  chatsDisponibles,
+  // Se exponen para poder probarlos sin levantar WhatsApp.
+  parseCashboxLine,
+  parseCashboxMessage,
+  aUnErrorDe,
+};

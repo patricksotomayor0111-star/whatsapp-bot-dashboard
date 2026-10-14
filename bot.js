@@ -20,6 +20,7 @@ const groupTimeWindows = require("./groupTimeWindows");
 const scheduledBroadcasts = require("./scheduledBroadcasts");
 const pendingTimeMatches = require("./pendingTimeMatches");
 const aiClassifier = require("./aiClassifier");
+const aiEjemplos = require("./aiEjemplos");
 const aiBlocked = require("./aiBlocked");
 const datosReenviados = require("./datosReenviados");
 const { dataPath } = require("./dataDir");
@@ -1452,9 +1453,17 @@ async function startBot() {
       // inequívocas, no hay nada que preguntar.
       const esLlamadoCorto = esSoloLaClave(text, match) || esFraseInequivoca(text, match);
 
+      // Las frases que le enseñaste al filtro valen SIEMPRE que llegue esa
+      // frase exacta, aunque sea un llamado corto o un grupo de "Otros": no
+      // cuestan nada (no se le pregunta a nadie) y es lo que decidiste tú.
+      // Solo no se meten con fotos/contactos/notas de voz ni con lo que
+      // autorizaste a mano para ese número o grupo, que es más específico.
+      const ensenada = esTriggerDeArchivo || configuradoAMano ? null : aiEjemplos.buscarExacto(rawText, chatId);
+      if (ensenada && !ensenada.esPedido) continue;
+
       let horaIA = null;
-      if (!esTriggerDeArchivo && !esSectorOlvidado && !configuradoAMano && !esLlamadoCorto) {
-        const veredicto = await aiClassifier.analizar(rawText, match.keyword);
+      if (!ensenada && !esTriggerDeArchivo && !esSectorOlvidado && !configuradoAMano && !esLlamadoCorto) {
+        const veredicto = await aiClassifier.analizar(rawText, match.keyword, chatId);
         if (!veredicto.esPedido) {
           // Un bot callado se ve igual que un bot que no vio nada, así que un
           // error del filtro se descubre perdiendo un pedido. Por eso se avisa
@@ -1984,13 +1993,38 @@ function probarFrase(textoCrudo, chatId, numeroCrudo) {
 
   // Lo que el filtro inteligente ya aprendió de esta frase. Se LEE nomás, no
   // se le pregunta de nuevo: probar una frase no debe gastar ni cambiar nada.
-  const recordadaIA = aiClassifier.getDecision(rawText);
+  // (Para preguntarle de verdad está "Preguntar al filtro", aparte.)
+  //
+  // Las mismas reglas que en el flujo de verdad: cuándo opina la IA y cuándo
+  // decide una frase enseñada.
+  const esLlamadoCorto = Boolean(match) && (esSoloLaClave(text, match) || esFraseInequivoca(text, match));
+  const ensenada = match && !configuradoAMano ? aiEjemplos.buscarExacto(rawText, chatId) : null;
+  let filtroNoOpina = null; // por qué la IA no revisaría esta frase (null = sí la revisa)
+  if (!match) filtroNoOpina = "el bot no detecta esta frase, así que el filtro ni la ve";
+  else if (configuradoAMano) filtroNoOpina = "esta frase la autorizaste tú para este número o este grupo";
+  else if (ensenada) filtroNoOpina = "decide la frase que le enseñaste";
+  else if (sectorId === DEFAULT_SECTOR) filtroNoOpina = "el grupo está en el sector Otros";
+  else if (esLlamadoCorto) filtroNoOpina = "es un llamado corto (la palabra clave y poco más), se responde al toque";
+
+  const recordadaIA = aiClassifier.getDecision(rawText, chatId);
   if (configuradoAMano) {
     pasos.push({
       nombre: "Filtro inteligente",
       detalle: "no opina: esta frase la autorizaste tú para este número y este grupo",
     });
-  } else if (recordadaIA && !recordadaIA.esPedido) {
+  } else if (ensenada) {
+    pasos.push({
+      nombre: "Frase enseñada",
+      detalle:
+        `le enseñaste que ${ensenada.esPedido ? "SÍ" : "NO"} es pedido` +
+        (ensenada.groupId ? " (solo en este local)" : " (en todos los locales)"),
+    });
+    if (!ensenada.esPedido) {
+      advertencias.push("Le enseñaste que esta frase no es un pedido, así que el bot no respondería. Se cambia en Frases enseñadas.");
+    }
+  } else if (match && filtroNoOpina) {
+    pasos.push({ nombre: "Filtro inteligente", detalle: `no opina: ${filtroNoOpina}` });
+  } else if (!filtroNoOpina && recordadaIA && !recordadaIA.esPedido) {
     advertencias.push(
       recordadaIA.manual
         ? "Tú marcaste esta frase como que no es un pedido, así que el bot no respondería. Se cambia en Filtro inteligente."
@@ -1999,7 +2033,8 @@ function probarFrase(textoCrudo, chatId, numeroCrudo) {
   }
 
   // La ventana de tiempo solo cuenta si la frase menciona una hora.
-  const ventana = evaluarVentanaTiempo(text, sectorId, getPeruNow(), nombreGrupo, recordadaIA?.hora || null);
+  const horaRecordada = !filtroNoOpina ? recordadaIA?.hora || null : null;
+  const ventana = evaluarVentanaTiempo(text, sectorId, getPeruNow(), nombreGrupo, horaRecordada);
   if (ventana.fuente) {
     pasos.push({
       nombre: "Hora del pedido",
@@ -2030,6 +2065,7 @@ function probarFrase(textoCrudo, chatId, numeroCrudo) {
     advertencias,
     sinRemarcar,
     respuesta: defaultResponse,
+    filtroNoOpina,
   };
 }
 

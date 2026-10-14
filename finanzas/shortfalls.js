@@ -1,4 +1,5 @@
 const { crearAlmacen } = require("./almacenPorUsuario");
+const bitacora = require("./bitacora");
 
 
 
@@ -17,6 +18,27 @@ function peruAhora() {
   const now = new Date();
   const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
   return new Date(utcMs - 5 * 3600000);
+}
+
+// Identificador propio de cada faltante, para editarlo por identidad y no
+// por su posicion en la lista. "movimientoId" es otra cosa: es el gasto
+// que este faltante dejo en la caja.
+let contadorFaltante = 0;
+function nuevoIdFaltante() {
+  contadorFaltante += 1;
+  return "fal_" + Date.now() + "_" + contadorFaltante;
+}
+
+// A los faltantes viejos se les pone id la primera vez que se los lee.
+function asegurarIds() {
+  let cambio = false;
+  (datos().movimientos || []).forEach((m) => {
+    if (!m.id) {
+      m.id = nuevoIdFaltante();
+      cambio = true;
+    }
+  });
+  return cambio;
 }
 
 function fechaLabel(d) {
@@ -41,6 +63,7 @@ function addFaltante(monto, descripcion, movimientoId) {
   const ahora = peruAhora();
   datos().total += monto;
   datos().movimientos.push({
+    id: nuevoIdFaltante(),
     fecha: fechaLabel(ahora),
     hora: horaLabel(ahora),
     monto,
@@ -48,6 +71,12 @@ function addFaltante(monto, descripcion, movimientoId) {
     movimientoId: movimientoId || null,
   });
   save();
+  bitacora.registrar({
+    que: "faltante",
+    accion: "creo",
+    resumen: "Te faltaron S/ " + monto + (descripcion ? " · " + descripcion : "") +
+      ". En total llevas S/ " + datos().total,
+  });
 }
 
 function getTotal() {
@@ -55,7 +84,24 @@ function getTotal() {
 }
 
 function getMovimientos() {
+  if (asegurarIds()) save();
   return datos().movimientos;
+}
+
+// Por identidad, no por posicion.
+function indicePorId(id) {
+  asegurarIds();
+  return (datos().movimientos || []).findIndex((m) => m.id === id);
+}
+
+function editMovimientoPorId(id, cambios) {
+  const i = indicePorId(id);
+  return i === -1 ? null : editMovimiento(i, cambios);
+}
+
+function removeMovimientoPorId(id) {
+  const i = indicePorId(id);
+  return i === -1 ? null : removeMovimiento(i);
 }
 
 // Corrige el total de faltantes. Devuelve el movimiento (con su
@@ -64,6 +110,7 @@ function getMovimientos() {
 function editMovimiento(indice, cambios) {
   const mov = datos().movimientos[indice];
   if (!mov) return null;
+  const copiaAntes = { ...mov };
   datos().total -= mov.monto;
   if (cambios.monto !== undefined) mov.monto = Number(cambios.monto) || 0;
   if (cambios.descripcion !== undefined) mov.descripcion = cambios.descripcion;
@@ -71,6 +118,14 @@ function editMovimiento(indice, cambios) {
   if (cambios.hora !== undefined) mov.hora = cambios.hora;
   datos().total += mov.monto;
   save();
+  bitacora.registrar({
+    que: "faltante",
+    accion: "edito",
+    ref: mov.id,
+    resumen: "Corregiste un faltante. En total llevas S/ " + datos().total,
+    antes: copiaAntes,
+    despues: mov,
+  });
   return mov;
 }
 
@@ -81,6 +136,13 @@ function removeMovimiento(indice) {
   datos().total -= mov.monto;
   datos().movimientos.splice(indice, 1);
   save();
+  bitacora.registrar({
+    que: "faltante",
+    accion: "borro",
+    ref: mov.id,
+    resumen: "Borraste un faltante de S/ " + mov.monto + ". En total llevas S/ " + datos().total,
+    antes: mov,
+  });
   return mov;
 }
 
@@ -105,6 +167,8 @@ module.exports = {
   getMovimientos,
   editMovimiento,
   removeMovimiento,
+  editMovimientoPorId,
+  removeMovimientoPorId,
   removePorMovimiento,
   editPorMovimiento,
 };

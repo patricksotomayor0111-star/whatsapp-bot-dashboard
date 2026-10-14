@@ -1,6 +1,7 @@
 const fs = require("fs");
 const Anthropic = require("@anthropic-ai/sdk");
 const { dataPath } = require("./dataDir");
+const aiEjemplos = require("./aiEjemplos");
 
 // Segunda opinión sobre los pedidos: las palabras clave ya dijeron que sí,
 // y acá se revisa si de verdad están pidiendo un motorizado. Sirve para los
@@ -15,10 +16,27 @@ const { dataPath } = require("./dataDir");
 //   3. Cada frase se consulta UNA sola vez y la respuesta queda guardada.
 //      Los locales repiten las mismas frases, así que a los pocos días casi
 //      todo sale de memoria: instantáneo y sin costo.
+//
+// Lo que el dueño le enseña a mano (aiEjemplos.js) manda sobre todo: la frase
+// exacta decide sin preguntar, y las demás van como ejemplos para que la IA
+// entienda también las parecidas.
 const DATA_PATH = dataPath("ai-decisions-data.json");
 
 const MODELO = "claude-haiku-4-5";
 const TIMEOUT_MS = 1000; // tope duro: pasado esto, el bot marca sin esperar
+// Desde el panel ("Preguntar al filtro") no hay nadie compitiendo por el
+// pedido: se le da más tiempo para que conteste aunque ande lenta.
+const TIMEOUT_PRUEBA_MS = 15000;
+
+// Por qué frenó, según el número de caso que contesta la IA ("NO 3").
+const MOTIVOS = {
+  1: "pregunta el precio o pide cotización",
+  2: "habla de un pedido que ya pasó (agradece, confirma que llegó)",
+  3: "cancela o avisa que ya no hace falta",
+  4: "lo manda con otra empresa o por su cuenta",
+  5: "es otro tema: saludo, conversación o coordinación",
+  6: "se parece a una frase que le enseñaste",
+};
 
 const INSTRUCCIONES = `Eres el filtro de un bot de WhatsApp de una empresa de delivery en Ica, Perú.
 
@@ -61,7 +79,9 @@ segundos y no hay forma de arreglarlo a tiempo.
 Además de eso, dices para cuándo es el pedido. Todo en una sola línea.
 
 Formatos de respuesta, sin nada más:
-- "NO"          → no están pidiendo un motorizado
+- "NO 1" a "NO 5" → no están pidiendo un motorizado; el número es el caso
+                  en el que encaja (ejemplo: "NO 1" si preguntan el precio).
+                  En los ejemplos de abajo va entre paréntesis.
 - "SI"          → piden un motorizado para ahora mismo
 - "SI +MINUTOS" → piden para dentro de un rato (ejemplo: "SI +30")
 - "SI @HH:MM"   → piden para una hora concreta, en formato de 24 horas
@@ -159,16 +179,9 @@ function save() {
 }
 
 // La clave de memoria: sin tildes, sin mayúsculas y sin espacios de más, para
-// que "Ya Puede  Venir" y "ya puede venir" cuenten como la misma frase.
-const COMBINING = new RegExp("[̀-ͯ]", "g");
-function claveDe(texto) {
-  return String(texto || "")
-    .normalize("NFD")
-    .replace(COMBINING, "")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
-}
+// que "Ya Puede  Venir" y "ya puede venir" cuenten como la misma frase. Es la
+// misma que usan las frases enseñadas, así las dos se reconocen entre sí.
+const { claveDe } = aiEjemplos;
 
 function estaConfigurado() {
   return Boolean((process.env.ANTHROPIC_API_KEY || "").trim());
@@ -178,12 +191,6 @@ let cliente = null;
 function getCliente() {
   if (!cliente) cliente = new Anthropic();
   return cliente;
-}
-
-function getDecision(texto) {
-  const clave = claveDe(texto);
-  if (!clave) return null;
-  return data.decisiones[clave] || null;
 }
 
 // La hora que entendió la IA, en una forma que NO depende de cuándo se
@@ -208,6 +215,85 @@ function parsearHora(dijo) {
   return null;
 }
 
+// ---------- Memoria por local ----------
+// Lo que la IA contesta depende de los ejemplos que leyó. Un local con frases
+// enseñadas propias lee ejemplos que los demás no, así que su respuesta no
+// sirve para otros (ni la de los otros para él): se guarda aparte, con el
+// grupo delante de la frase. Los locales sin frases propias comparten la
+// memoria de siempre.
+function claveMemoria(clave, groupId) {
+  return groupId ? `${groupId}::${clave}` : clave;
+}
+
+function usaMemoriaPropia(groupId) {
+  return aiEjemplos.tieneLocales(groupId);
+}
+
+// ¿Esta entrada de la memoria es de esa frase? (en la memoria general o en la
+// de algún local)
+function esDeLaFrase(k, d, clave) {
+  return k === clave || (Boolean(d.groupId) && k === claveMemoria(clave, d.groupId));
+}
+
+// ¿Esta entrada cae dentro de lo que cubre una frase enseñada? Las generales
+// cubren todo; las de un local, solo lo aprendido para ese local.
+function enAlcance(d, groupId) {
+  return groupId ? d.groupId === groupId : true;
+}
+
+function olvidar(condicion) {
+  let cuantas = 0;
+  Object.keys(data.decisiones).forEach((k) => {
+    if (condicion(data.decisiones[k], k)) {
+      delete data.decisiones[k];
+      cuantas++;
+    }
+  });
+  return cuantas;
+}
+
+function desdeEjemplo(e) {
+  return {
+    esPedido: e.esPedido,
+    hora: null, // la hora la leen las reglas de siempre
+    caso: e.esPedido ? null : 6,
+    manual: true,
+    texto: e.texto,
+    fuente: e.groupId ? "ejemplo-local" : "ejemplo-global",
+    ejemploId: e.id,
+  };
+}
+
+// Lo que ya se sabe de esta frase en este grupo, sin preguntarle a nadie. De
+// lo más específico a lo más general:
+//   1. una frase enseñada para ESE local
+//   2. una corrección tuya hecha en lo aprendido de ESE local
+//   3. una frase enseñada para todos
+//   4. una corrección tuya general
+//   5. lo que la IA ya contestó antes (del local si tiene memoria propia)
+function decisionConocida(texto, groupId) {
+  const clave = claveDe(texto);
+  if (!clave) return null;
+
+  const ejemplo = aiEjemplos.buscarExacto(texto, groupId);
+  if (ejemplo && ejemplo.groupId) return desdeEjemplo(ejemplo);
+
+  const propia = groupId ? data.decisiones[claveMemoria(clave, groupId)] : null;
+  if (propia && propia.manual) return { ...propia, fuente: "correccion" };
+
+  if (ejemplo) return desdeEjemplo(ejemplo);
+
+  const general = data.decisiones[clave];
+  if (general && general.manual) return { ...general, fuente: "correccion" };
+
+  if (usaMemoriaPropia(groupId)) return propia ? { ...propia, fuente: "memoria" } : null;
+  return general ? { ...general, fuente: "memoria" } : null;
+}
+
+function getDecision(texto, groupId) {
+  return decisionConocida(texto, groupId);
+}
+
 function guardarDecision(texto, esPedido, manual, hora) {
   const clave = claveDe(texto);
   if (!clave) return;
@@ -221,7 +307,42 @@ function guardarDecision(texto, esPedido, manual, hora) {
     texto: String(texto || "").slice(0, 200),
     fecha: new Date().toISOString(),
   };
+  // Una corrección tuya vale para todos: lo que la IA había contestado para
+  // un local en particular queda viejo.
+  if (manual) olvidar((d, k) => !d.manual && Boolean(d.groupId) && esDeLaFrase(k, d, clave));
   save();
+}
+
+// Lo que la IA contestó, guardado para no volver a preguntar. Si el local
+// tiene frases propias, va a su memoria aparte (ver claveMemoria).
+function guardarAprendida(texto, groupId, { esPedido, hora, caso }) {
+  const clave = claveDe(texto);
+  if (!clave) return;
+  const propio = usaMemoriaPropia(groupId);
+  data.decisiones[claveMemoria(clave, propio ? groupId : null)] = {
+    esPedido,
+    manual: false,
+    hora: hora || null,
+    caso: caso || null,
+    texto: String(texto || "").slice(0, 200),
+    fecha: new Date().toISOString(),
+    ...(propio ? { groupId } : {}),
+  };
+  save();
+}
+
+// "Cambiar" desde la lista de lo aprendido. Se corrige ESA entrada, así una
+// frase aprendida para un local sigue valiendo solo para ese local.
+function corregir(claveMapa, esPedido) {
+  const d = data.decisiones[claveMapa];
+  if (!d) return false;
+  d.esPedido = Boolean(esPedido);
+  d.manual = true;
+  d.caso = null;
+  d.fecha = new Date().toISOString();
+  if (!d.groupId) olvidar((x, k) => !x.manual && Boolean(x.groupId) && esDeLaFrase(k, x, claveMapa));
+  save();
+  return true;
 }
 
 function getAll() {
@@ -237,52 +358,106 @@ function removeDecision(clave) {
   return true;
 }
 
+// ---------- Lo que lee la IA ----------
+function lineaEjemplo(e) {
+  return `- "${e.texto.replace(/"/g, "'")}" → ${e.esPedido ? "SI" : "NO 6"}`;
+}
+
+// Las frases enseñadas para todos van pegadas a las instrucciones (y entran
+// en el mismo caché). Mandan sobre los ejemplos de fábrica: las revisó el
+// dueño mirando sus propios grupos.
+function bloqueGlobales() {
+  const globales = aiEjemplos.getGlobales();
+  if (!globales.length) return null;
+  return `FRASES QUE TE ENSEÑÓ EL DUEÑO
+
+El dueño revisó estas frases a mano mirando sus grupos. Mandan sobre todo lo
+anterior y cuentan como un caso más, el 6:
+- Si el mensaje dice LO MISMO que una frase marcada NO, aunque use otras
+  palabras, responde "NO 6".
+- Si dice lo mismo que una marcada SI, responde SI (con la hora si la dice).
+- Si solo comparte algunas palabras pero dice otra cosa, no cuenta: sigue las
+  reglas de arriba.
+
+${globales.map(lineaEjemplo).join("\n")}`;
+}
+
+// Las de un local van en el mensaje: cambian de grupo a grupo, y meterlas en
+// las instrucciones rompería el caché de todos los demás.
+function bloqueLocales(groupId) {
+  const locales = aiEjemplos.getLocales(groupId);
+  if (!locales.length) return null;
+  return `Este local tiene frases propias que te enseñó el dueño. Valen solo para este grupo y mandan sobre todas las demás. Si el mensaje dice LO MISMO que una marcada NO, aunque use otras palabras, responde "NO 6"; si dice lo mismo que una marcada SI, responde SI. Si solo comparte algunas palabras pero dice otra cosa, no cuenta.
+
+${locales.map(lineaEjemplo).join("\n")}`;
+}
+
+// Lee la respuesta. Solo un "NO" claro frena al bot: cualquier otra cosa
+// (respuesta rara, vacía o inesperada) se toma como que sí es pedido.
+function interpretar(dijo) {
+  const esPedido = !/^NO(?:\b|(?=\d))/.test(dijo);
+  const numero = esPedido ? null : dijo.match(/^NO\D{0,8}?([1-6])/);
+  return {
+    esPedido,
+    hora: esPedido ? parsearHora(dijo) : null,
+    caso: numero ? Number(numero[1]) : null,
+  };
+}
+
+async function consultarIA(texto, keyword, groupId, timeoutMs) {
+  const system = [{ type: "text", text: INSTRUCCIONES }];
+  const globales = bloqueGlobales();
+  if (globales) system.push({ type: "text", text: globales });
+  system[system.length - 1].cache_control = { type: "ephemeral" };
+
+  // La palabra clave va junto al mensaje: sin ella la IA no tiene forma de
+  // saber por qué saltó el bot. Un "box" suelto le parecía una palabra
+  // cualquiera y frenaba un pedido de verdad.
+  const locales = bloqueLocales(groupId);
+  const partes = [];
+  if (locales) partes.push(locales);
+  if (keyword) partes.push(`Palabra clave que activó al bot: "${keyword}"`);
+  partes.push(partes.length ? `Mensaje: ${texto}` : texto);
+
+  const respuesta = await getCliente().messages.create(
+    {
+      model: MODELO,
+      max_tokens: 12,
+      system,
+      messages: [{ role: "user", content: partes.join("\n\n") }],
+    },
+    { timeout: timeoutMs, maxRetries: 0 } // sin reintentos: el tope es el tope
+  );
+
+  const dijo = respuesta.content
+    .filter((b) => b.type === "text")
+    .map((b) => b.text)
+    .join(" ")
+    .trim()
+    .toUpperCase();
+  return interpretar(dijo);
+}
+
 // Las dos respuestas de una: si hay que marcar, y para cuándo es el pedido.
 // SIEMPRE devuelve esPedido:true ante cualquier problema (ver regla 2), y
 // hora:null, que significa "no sé" — ahí mandan las reglas de siempre.
-async function analizar(texto, keyword) {
+async function analizar(texto, keyword, groupId) {
   const clave = claveDe(texto);
   if (!clave) return { esPedido: true, hora: null, consultada: false };
 
-  const recordada = data.decisiones[clave];
+  const conocida = decisionConocida(texto, groupId);
   // Instantáneo y sin costo. `consultada: false` importa: quien avisa de un
   // mensaje frenado solo debe avisar la PRIMERA vez, no cada repetición.
-  if (recordada) return { esPedido: recordada.esPedido, hora: recordada.hora || null, consultada: false };
+  if (conocida) {
+    return { esPedido: conocida.esPedido, hora: conocida.hora || null, consultada: false, fuente: conocida.fuente };
+  }
 
   if (!estaConfigurado()) return { esPedido: true, hora: null, consultada: false }; // sin llave configurada, no aplica
 
   try {
-    const respuesta = await getCliente().messages.create(
-      {
-        model: MODELO,
-        max_tokens: 12,
-        system: [{ type: "text", text: INSTRUCCIONES, cache_control: { type: "ephemeral" } }],
-        // La palabra clave va junto al mensaje: sin ella la IA no tiene forma
-        // de saber por qué saltó el bot. Un "box" suelto le parecía una
-        // palabra cualquiera y frenaba un pedido de verdad.
-        messages: [
-          {
-            role: "user",
-            content: keyword ? `Palabra clave que activó al bot: "${keyword}"\n\nMensaje: ${texto}` : texto,
-          },
-        ],
-      },
-      { timeout: TIMEOUT_MS, maxRetries: 0 } // sin reintentos: el tope es el tope
-    );
-
-    const dijo = respuesta.content
-      .filter((b) => b.type === "text")
-      .map((b) => b.text)
-      .join(" ")
-      .trim()
-      .toUpperCase();
-
-    // Solo un "NO" claro frena al bot. Cualquier otra cosa (respuesta rara,
-    // vacía o inesperada) se toma como que sí es pedido.
-    const esPedido = !/^NO\b/.test(dijo);
-    const hora = esPedido ? parsearHora(dijo) : null;
-    guardarDecision(texto, esPedido, false, hora);
-    return { esPedido, hora, consultada: true };
+    const r = await consultarIA(texto, keyword, groupId, TIMEOUT_MS);
+    guardarAprendida(texto, groupId, r);
+    return { ...r, consultada: true };
   } catch (err) {
     console.error("Filtro de IA no disponible, se marca igual:", err.message);
     return { esPedido: true, hora: null, consultada: false };
@@ -294,13 +469,93 @@ async function esPedidoDeVerdad(texto) {
   return (await analizar(texto)).esPedido;
 }
 
+// ---------- "Preguntar al filtro" desde el panel ----------
+// Dice qué haría el filtro con esa frase en ese grupo, y por qué. Si ya la
+// sabe, contesta de memoria; si no, le pregunta de verdad a la IA. NO guarda
+// nada: probar no cambia lo que hace el bot.
+//
+// `fresco` vuelve a preguntarle a la IA aunque ya la tenga aprendida (sirve
+// para ver si con las frases enseñadas ahora contestaría distinto). Lo que
+// decidiste tú — frases enseñadas y correcciones — no se salta nunca.
+async function probar(texto, keyword, groupId, { fresco = false } = {}) {
+  if (!claveDe(texto)) throw new Error("Escribe la frase que quieres probar.");
+
+  const conocida = decisionConocida(texto, groupId);
+  if (conocida && !(fresco && conocida.fuente === "memoria")) {
+    return {
+      configurado: estaConfigurado(),
+      fuente: conocida.fuente,
+      esPedido: conocida.esPedido,
+      hora: conocida.hora || null,
+      caso: conocida.caso || null,
+      motivo: MOTIVOS[conocida.caso] || null,
+      ejemplo: conocida.ejemploId ? aiEjemplos.getById(conocida.ejemploId) : null,
+    };
+  }
+
+  if (!estaConfigurado()) return { configurado: false, fuente: null };
+
+  const inicio = Date.now();
+  try {
+    const r = await consultarIA(texto, keyword, groupId, TIMEOUT_PRUEBA_MS);
+    return {
+      configurado: true,
+      fuente: "ia",
+      ...r,
+      motivo: MOTIVOS[r.caso] || null,
+      ms: Date.now() - inicio,
+      tope: TIMEOUT_MS,
+      // Para avisar si lo aprendido antes ya no coincide con lo que diría hoy.
+      recordada: conocida ? { esPedido: conocida.esPedido } : null,
+    };
+  } catch (err) {
+    return { configurado: true, fuente: "error", error: err.message, ms: Date.now() - inicio };
+  }
+}
+
+// ---------- Frases enseñadas ----------
+// Al enseñar una frase, lo aprendido antes que podría cambiar se olvida para
+// que se vuelva a preguntar (ya con la frase nueva como ejemplo):
+//   - la frase exacta, porque desde ahora decide la frase enseñada;
+//   - lo aprendido con el veredicto CONTRARIO, porque alguna de esas puede
+//     ser parecida. Las que ya coincidían no pueden cambiar por esto.
+// Solo dentro del alcance: una frase de un local no toca lo de los demás.
+// Tus correcciones a mano no se tocan nunca (salvo la de la frase exacta).
+function ensenar(datos) {
+  const { ejemplo, nuevo } = aiEjemplos.add(datos);
+  const g = ejemplo.groupId;
+  const exactas = olvidar((d, k) => esDeLaFrase(k, d, ejemplo.clave) && (g ? d.groupId === g : true));
+  const parecidas = olvidar((d) => !d.manual && d.esPedido !== ejemplo.esPedido && enAlcance(d, g));
+  save();
+  return { ejemplo, nuevo, olvidadas: exactas + parecidas };
+}
+
+// Al borrar una, lo aprendido con su MISMO veredicto pudo haber salido de
+// ella: se vuelve a preguntar. Y si el local se quedó sin frases propias,
+// vuelve a la memoria general y la suya ya no sirve.
+function desensenar(id) {
+  const quitado = aiEjemplos.remove(id);
+  if (!quitado) return null;
+  const g = quitado.groupId;
+  let olvidadas = olvidar((d) => !d.manual && d.esPedido === quitado.esPedido && enAlcance(d, g));
+  if (g && !aiEjemplos.tieneLocales(g)) olvidadas += olvidar((d) => !d.manual && d.groupId === g);
+  save();
+  return { quitado, olvidadas };
+}
+
 module.exports = {
   analizar,
   esPedidoDeVerdad,
   estaConfigurado,
   getDecision,
   guardarDecision,
+  corregir,
   getAll,
   removeDecision,
+  probar,
+  ensenar,
+  desensenar,
+  getEjemplos: aiEjemplos.getAll,
+  MOTIVOS,
   MODELO,
 };

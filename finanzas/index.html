@@ -122,6 +122,29 @@
             </div>
           </section>
 
+          <!-- Tu plata de verdad: el total sigue siendo el mismo, pero no
+               todo es tuyo. Hay plata que le guardas a otros y plata que
+               es prestada y hay que devolver. -->
+          <section id="deVerdadCard" class="card fade-in bg-white border border-slate-100 py-3 hidden">
+            <div class="flex items-baseline justify-between gap-2">
+              <p class="eyebrow text-slate-600"><i class="fa-solid fa-scale-balanced"></i> TU PLATA DE VERDAD</p>
+              <button id="deVerdadVerMas" class="text-[11px] font-bold text-brand-green">Lo que debo</button>
+            </div>
+            <div id="deVerdadLista" class="mt-2 space-y-1.5"></div>
+            <p id="deVerdadNota" class="text-[11px] text-slate-400 mt-2"></p>
+          </section>
+
+          <!-- Dónde está la plata: el total sigue siendo el mismo, pero
+               no todo está en el bolsillo. -->
+          <section id="lugaresCard" class="card fade-in bg-white border border-slate-100 py-3 hidden">
+            <div class="flex items-baseline justify-between gap-2">
+              <p class="eyebrow text-slate-600"><i class="fa-solid fa-wallet"></i> DÓNDE ESTÁ TU PLATA</p>
+              <button id="lugaresVerMas" class="text-[11px] font-bold text-brand-green">Ajustar</button>
+            </div>
+            <div id="lugaresLista" class="mt-2 space-y-1.5"></div>
+            <p id="lugaresNota" class="text-[11px] text-slate-400 mt-2"></p>
+          </section>
+
           <!-- El día de hoy -->
           <div class="grid grid-cols-2 gap-3">
             <section class="card fade-in bg-white border border-slate-100 py-3">
@@ -167,6 +190,8 @@
           <div class="grid grid-cols-2 gap-3">
             <section class="card fade-in bg-blue-50 border border-blue-100 py-3">
               <p class="eyebrow text-blue-700"><i class="fa-solid fa-hand-holding-dollar"></i> TE DEBEN</p>
+              <!-- Ojo: esto es lo que te deben A TI. Lo que TÚ debes está
+                   en Registros → Lo que debo. -->
               <p id="statDeudasTotal" class="text-[20px] font-extrabold text-blue-800 mt-1 leading-none">S/ 0</p>
               <p class="text-[10px] text-blue-500/80 mt-0.5">Por cobrar</p>
             </section>
@@ -218,7 +243,21 @@
             </div>
           </section>
           <section>
-            <p class="eyebrow text-brand-green"><i class="fa-solid fa-list"></i> HISTORIAL</p>
+            <div class="flex items-center justify-between gap-2">
+              <p class="eyebrow text-brand-green"><i class="fa-solid fa-list"></i> HISTORIAL</p>
+              <!-- Marcar varios y moverlos o borrarlos de una: corregir 20
+                   gastos mal clasificados era abrir 20 veces la misma
+                   pantalla. -->
+              <button id="movSeleccionBtn" class="text-[11px] font-bold text-brand-green active:scale-95 transition-all">
+                <i class="fa-solid fa-check-double"></i> Seleccionar
+              </button>
+            </div>
+            <div id="movSeleccionBarra" class="hidden items-center gap-2 mt-2 rounded-xl bg-emerald-50 border border-emerald-200 px-3 py-2">
+              <button id="movSeleccionTodos" class="text-[11px] font-bold text-emerald-700 shrink-0">Todos</button>
+              <span id="movSeleccionCuenta" class="text-[11px] text-emerald-700 flex-1">0 marcados</span>
+              <button id="movSeleccionMover" class="text-[11px] font-bold text-emerald-700 shrink-0"><i class="fa-solid fa-right-left"></i> Mover</button>
+              <button id="movSeleccionBorrar" class="text-[11px] font-bold text-rose-600 shrink-0"><i class="fa-solid fa-trash"></i> Borrar</button>
+            </div>
             <div id="movimientosList" class="space-y-1.5 mt-2"></div>
             <p id="movimientosEmpty" class="hidden text-center text-xs text-slate-400 py-6">No hay movimientos con esos filtros.</p>
           </section>
@@ -685,6 +724,20 @@
               </button>
             </div>
           </section>
+          <!-- Dónde está la plata: efectivo, Yape, banco -->
+          <section class="card fade-in bg-white border border-slate-100 py-3">
+            <p class="eyebrow text-brand-green"><i class="fa-solid fa-wallet"></i> DÓNDE ESTÁ TU PLATA</p>
+            <p class="text-xs text-slate-400 mt-1 mb-2">
+              El total sigue siendo el mismo y sirve igual para pagar. Esto solo separa dónde está: en el bolsillo, en Yape, en el banco.
+              Cada lugar reconoce sus palabras: si escribes <b>"80 bum yape"</b>, esa plata queda en Yape y no en efectivo.
+            </p>
+            <div id="lugaresAjustes" class="space-y-2"></div>
+            <div class="grid grid-cols-3 gap-2 mt-3">
+              <input id="lugarNuevoNombre" type="text" placeholder="Banco" class="col-span-2 bg-white rounded-xl px-3 py-2 text-xs border border-slate-200" />
+              <button id="addLugarBtn" class="rounded-xl px-3 py-2 text-xs font-bold bg-brand-green text-white active:scale-95 transition-all">Agregar</button>
+            </div>
+          </section>
+
           <!-- Dónde escucha el bot de esta cuenta -->
           <section id="chatConfigCard" class="card fade-in bg-white border border-slate-100 hidden">
         <p class="eyebrow text-brand-green"><i class="fa-solid fa-comment-dots"></i> DÓNDE ANOTAS TUS REPARTOS</p>
@@ -727,6 +780,197 @@
         </div>
 
         <!-- Tab: Guía -->
+        <!-- Tab: Lo que debo (préstamos y créditos) -->
+        <div id="financeTabPrestamos" class="finance-tab-panel hidden space-y-4">
+          <section id="prestamosResumen" class="card border-0 py-4 text-white hidden" style="background: linear-gradient(135deg, #F59E0B 0%, #B45309 100%)">
+            <p class="text-[10px] font-bold tracking-[0.1em] text-white/75">LO QUE DEBES EN TOTAL</p>
+            <p id="prestamosTotal" class="text-[32px] font-extrabold leading-none mt-1">S/ 0</p>
+            <p id="prestamosContexto" class="text-xs text-white/85 mt-2"></p>
+          </section>
+
+          <!-- El aviso que no se ve en ningún otro lado: si buena parte de
+               lo que entró este mes fue prestado, el mes no se sostuvo con
+               el trabajo. -->
+          <section id="prestamosAlerta" class="card bg-rose-50 border border-rose-200 py-3 hidden">
+            <p class="eyebrow text-rose-700"><i class="fa-solid fa-triangle-exclamation"></i> OJO CON ESTO</p>
+            <p id="prestamosAlertaTexto" class="text-xs text-rose-700 mt-1"></p>
+          </section>
+
+          <p class="text-xs text-slate-400">
+            Escribiendo <b>"400 yape credito"</b> en tu chat, esa plata entra a tu caja igual que siempre
+            <b>y</b> queda anotada acá como deuda tuya. Si te cobran interés, corrige el total a devolver.
+          </p>
+
+          <div id="prestamosList" class="space-y-2"></div>
+          <p id="prestamosEmpty" class="hidden text-center text-xs text-slate-400 py-6">No debes nada. Que dure.</p>
+
+          <details>
+            <summary class="text-xs font-bold text-amber-600 cursor-pointer">+ Anotar un préstamo a mano</summary>
+            <div class="mt-2 space-y-2">
+              <input id="prestamoNuevoLabel" type="text" placeholder="De quién (Yape, BCP, mi tío)" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200" />
+              <input id="prestamoNuevoRecibido" type="number" step="0.01" placeholder="Cuánto te prestaron (S/)" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200" />
+              <input id="prestamoNuevoDevolver" type="number" step="0.01" placeholder="Cuánto devuelves con interés (S/)" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200" />
+              <button id="addPrestamoBtn" class="w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-amber-500 text-white active:scale-95 transition-all">Anotar préstamo</button>
+              <p class="text-[11px] text-slate-400">Esto NO suma a tu caja: se usa para deudas viejas que ya tenías. Lo que entra hoy se anota desde el chat.</p>
+            </div>
+          </details>
+
+          <!-- Antes de pedirlo, no después. -->
+          <section class="card bg-white border border-slate-100 py-3">
+            <p class="eyebrow text-slate-600"><i class="fa-solid fa-calculator"></i> ¿ME CONVIENE SACARLO?</p>
+            <div class="grid grid-cols-3 gap-2 mt-2">
+              <input id="simMonto" type="number" step="0.01" placeholder="S/ 400" class="bg-white rounded-xl px-3 py-2 text-xs border border-slate-200" />
+              <input id="simMeses" type="number" min="1" placeholder="4 meses" class="bg-white rounded-xl px-3 py-2 text-xs border border-slate-200" />
+              <input id="simInteres" type="number" step="0.1" placeholder="10 %" class="bg-white rounded-xl px-3 py-2 text-xs border border-slate-200" />
+            </div>
+            <button id="simBtn" class="w-full mt-2 rounded-xl px-4 py-2.5 text-sm font-bold bg-brand-green text-white active:scale-95 transition-all">Ver qué pasaría</button>
+            <div id="simResultado" class="text-xs mt-2 space-y-1"></div>
+          </section>
+
+          <section class="card bg-white border border-slate-100 py-3">
+            <p class="eyebrow text-slate-600"><i class="fa-solid fa-key"></i> PALABRAS QUE LO DISPARAN</p>
+            <p class="text-xs text-slate-400 mt-1 mb-2">Si una ganancia nombra una de estas, además de sumar a tu caja queda anotada como deuda tuya.</p>
+            <input id="prestamoPalabras" type="text" class="w-full bg-white rounded-xl px-3 py-2 text-xs border border-slate-200" />
+            <p class="text-[11px] text-slate-400 mt-1">Separadas por coma.</p>
+          </section>
+        </div>
+
+        <!-- Tab: Calendario (el mes visto como mes) -->
+        <div id="financeTabCalendario" class="finance-tab-panel hidden space-y-4">
+          <section>
+            <div class="flex items-center justify-between gap-2">
+              <button id="calAnterior" class="w-9 h-9 rounded-xl flex items-center justify-center bg-slate-100 active:scale-90 transition-all">
+                <i class="fa-solid fa-chevron-left text-slate-500"></i>
+              </button>
+              <p id="calMesTitulo" class="text-sm font-bold text-slate-800">—</p>
+              <button id="calSiguiente" class="w-9 h-9 rounded-xl flex items-center justify-center bg-slate-100 active:scale-90 transition-all">
+                <i class="fa-solid fa-chevron-right text-slate-500"></i>
+              </button>
+            </div>
+            <div class="grid grid-cols-7 gap-1 mt-3 text-center text-[10px] font-bold text-slate-400">
+              <span>D</span><span>L</span><span>M</span><span>M</span><span>J</span><span>V</span><span>S</span>
+            </div>
+            <div id="calGrilla" class="grid grid-cols-7 gap-1 mt-1"></div>
+            <p class="text-[11px] text-slate-400 mt-2">Toca un día para ver todo lo de ese día.</p>
+          </section>
+
+          <section class="card bg-white border border-slate-100 py-3">
+            <p class="eyebrow text-slate-600"><i class="fa-solid fa-calendar-check"></i> ESTE MES</p>
+            <div id="calResumen" class="mt-2 space-y-1 text-xs"></div>
+          </section>
+
+          <section>
+            <p class="eyebrow text-brand-green"><i class="fa-solid fa-hourglass-half"></i> LO QUE VIENE</p>
+            <div id="calPorVenir" class="space-y-1.5 mt-2"></div>
+          </section>
+        </div>
+
+        <!-- Tab: Lo que te ahorraste (lo planeado que no gastaste) -->
+        <div id="financeTabAhorrado" class="finance-tab-panel hidden space-y-4">
+          <section id="ahorradoResumen" class="card border-0 py-4 text-white" style="background: linear-gradient(135deg, #0EA5E9 0%, #0369A1 100%)">
+            <p class="text-[10px] font-bold tracking-[0.1em] text-white/75">TE AHORRASTE ESTE MES</p>
+            <p id="ahorradoTotal" class="text-[32px] font-extrabold leading-none mt-1">S/ 0</p>
+            <p id="ahorradoContexto" class="text-xs text-white/85 mt-2"></p>
+          </section>
+
+          <section>
+            <div class="flex items-center justify-between gap-2">
+              <button id="ahorradoAnterior" class="w-9 h-9 rounded-xl flex items-center justify-center bg-slate-100 active:scale-90 transition-all">
+                <i class="fa-solid fa-chevron-left text-slate-500"></i>
+              </button>
+              <p id="ahorradoMesTitulo" class="text-sm font-bold text-slate-800">—</p>
+              <button id="ahorradoSiguiente" class="w-9 h-9 rounded-xl flex items-center justify-center bg-slate-100 active:scale-90 transition-all">
+                <i class="fa-solid fa-chevron-right text-slate-500"></i>
+              </button>
+            </div>
+            <div class="grid grid-cols-7 gap-1 mt-3 text-center text-[10px] font-bold text-slate-400">
+              <span>D</span><span>L</span><span>M</span><span>M</span><span>J</span><span>V</span><span>S</span>
+            </div>
+            <div id="ahorradoGrilla" class="grid grid-cols-7 gap-1 mt-1"></div>
+            <p class="text-[11px] text-slate-400 mt-2">En azul lo que no gastaste ese día de lo que tenías planeado. Toca un día para ver de qué.</p>
+          </section>
+
+          <section id="ahorradoConflictos" class="card bg-rose-50 border border-rose-200 py-3 hidden"></section>
+
+          <section>
+            <p class="eyebrow text-sky-600"><i class="fa-solid fa-piggy-bank"></i> DE QUÉ TE AHORRASTE</p>
+            <div id="ahorradoConceptos" class="space-y-2 mt-2"></div>
+            <p id="ahorradoVacio" class="hidden text-center text-xs text-slate-400 py-6">Este mes gastaste todo lo que tenías planeado.</p>
+          </section>
+
+          <section class="card bg-white border border-slate-100 py-3">
+            <p class="eyebrow text-slate-600"><i class="fa-solid fa-calendar-week"></i> DESDE QUE EMPEZASTE</p>
+            <p class="text-xs text-slate-400 mt-1 mb-2">El acumulado de todo lo que llevas sin gastar de lo planeado.</p>
+            <div class="grid grid-cols-2 gap-2">
+              <label class="block text-[11px] font-semibold text-slate-400">Desde
+                <input id="ahorradoDesde" type="date" class="w-full mt-0.5 bg-white rounded-xl px-3 py-2 text-xs border border-slate-200" />
+              </label>
+              <label class="block text-[11px] font-semibold text-slate-400">Hasta
+                <input id="ahorradoHasta" type="date" class="w-full mt-0.5 bg-white rounded-xl px-3 py-2 text-xs border border-slate-200" />
+              </label>
+            </div>
+            <button id="ahorradoVerRango" class="w-full mt-2 rounded-xl px-4 py-2.5 text-sm font-bold bg-sky-500 text-white active:scale-95 transition-all">Ver el total</button>
+            <div id="ahorradoRangoResultado" class="text-xs mt-2 space-y-1"></div>
+          </section>
+
+          <section class="card bg-amber-50 border border-amber-100 py-3">
+            <p class="eyebrow text-amber-600"><i class="fa-solid fa-circle-info"></i> QUÉ CUENTA ACÁ</p>
+            <p class="text-xs text-slate-500 mt-1">
+              Solo los <b>gastos programados</b> (Análisis → Presupuesto): los de todos los días y los de cada semana.
+              Si un día no saliste y no almorzaste fuera, ese almuerzo no se gastó y cuenta.
+              <b>Los pagos de Pendientes no cuentan</b>: si no pagaste la luz, no te la ahorraste — la debes.
+            </p>
+          </section>
+        </div>
+
+        <!-- Tab: Gastos hormiga (lo chiquito que se repite) -->
+        <div id="financeTabHormiga" class="finance-tab-panel hidden space-y-4">
+          <section class="card bg-white border border-slate-100 py-3">
+            <p class="eyebrow text-brand-red"><i class="fa-solid fa-bug"></i> GASTOS HORMIGA</p>
+            <p class="text-xs text-slate-400 mt-1">Lo chiquito que se repite y no se nota, porque cada uno se ve suelto.</p>
+            <div class="grid grid-cols-2 gap-2 mt-3">
+              <label class="block text-[11px] font-semibold text-slate-400">Desde
+                <input id="hormigaDesde" type="date" class="w-full mt-0.5 bg-white rounded-xl px-3 py-2 text-xs border border-slate-200" />
+              </label>
+              <label class="block text-[11px] font-semibold text-slate-400">Hasta
+                <input id="hormigaHasta" type="date" class="w-full mt-0.5 bg-white rounded-xl px-3 py-2 text-xs border border-slate-200" />
+              </label>
+            </div>
+            <label class="block text-[11px] font-semibold text-slate-400 mt-2">Cuenta como chico hasta
+              <input id="hormigaTope" type="number" step="1" min="1" value="25" class="w-full mt-0.5 bg-white rounded-xl px-3 py-2 text-xs border border-slate-200" />
+            </label>
+            <button id="hormigaVer" class="w-full mt-3 rounded-xl px-4 py-2.5 text-sm font-bold bg-brand-green text-white active:scale-95 transition-all">Ver</button>
+          </section>
+
+          <section id="hormigaTotalCard" class="card border-0 py-4 text-white hidden" style="background: linear-gradient(135deg, #EF4444 0%, #B91C1C 100%)">
+            <p class="text-[10px] font-bold tracking-[0.1em] text-white/75">SE TE FUE EN GASTOS CHICOS</p>
+            <p id="hormigaTotal" class="text-[32px] font-extrabold leading-none mt-1">S/ 0</p>
+            <p id="hormigaContexto" class="text-xs text-white/85 mt-2"></p>
+          </section>
+
+          <div id="hormigaLista" class="space-y-2"></div>
+          <p id="hormigaVacio" class="hidden text-center text-xs text-slate-400 py-6">Todavía no hay nada chico que se repita lo suficiente en ese periodo.</p>
+        </div>
+
+        <!-- Tab: Historial de cambios (quién tocó qué y cuándo) -->
+        <div id="financeTabBitacora" class="finance-tab-panel hidden space-y-4">
+          <section class="card bg-white border border-slate-100 py-3">
+            <p class="eyebrow text-slate-600"><i class="fa-solid fa-clock-rotate-left"></i> HISTORIAL DE CAMBIOS</p>
+            <p class="text-xs text-slate-400 mt-1">Todo lo que cambió y de dónde vino. No se puede editar ni borrar: para eso sirve.</p>
+            <select id="bitacoraFiltro" class="w-full mt-3 bg-white rounded-xl px-3 py-2 text-xs border border-slate-200">
+              <option value="">Todo</option>
+              <option value="movimiento">Ganancias y gastos</option>
+              <option value="caja">Conteos de caja</option>
+              <option value="dia">Cierres de día</option>
+              <option value="deuda">Deudas</option>
+              <option value="custodia">Custodia</option>
+              <option value="faltante">Faltantes</option>
+            </select>
+          </section>
+          <div id="bitacoraLista" class="space-y-1.5"></div>
+          <p id="bitacoraVacio" class="hidden text-center text-xs text-slate-400 py-6">Todavía no hay nada anotado.</p>
+        </div>
+
         <div id="financeTabGuia" class="finance-tab-panel hidden space-y-3"></div>
 
         <!-- Tab: Todo (índice de la app, con buscador) -->
@@ -801,6 +1045,11 @@
             <input id="cuentaNuevoNombre" type="text" placeholder="Nombre (ej: Carlos Delivery)" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200" />
             <input id="cuentaNuevoUsuario" type="text" placeholder="Usuario para entrar (ej: carlos)" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200" />
             <input id="cuentaNuevoPassword" type="text" placeholder="Contraseña (mínimo 6 caracteres)" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200" />
+            <select id="cuentaNuevoRol" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200">
+              <option value="completo">Cuenta completa (con sus finanzas)</option>
+              <option value="motorizados">Solo motorizados (para socios)</option>
+            </select>
+            <p class="text-xs text-slate-400">"Solo motorizados": el socio entra directo al mapa de motorizados y no ve ninguna finanza.</p>
             <button id="addCuentaBtn" class="w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-brand-green text-white active:scale-95 transition-all">Crear cuenta</button>
           </div>
         </section>
@@ -851,6 +1100,12 @@
           <button id="hojaEliminar" class="flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold bg-rose-50 text-rose-600 active:scale-95 transition-all">Eliminar</button>
         </div>
       </div>
+    </div>
+
+    <!-- Sin señal: lo que anotaste queda en el celular hasta que vuelva. -->
+    <div id="sinSenalAviso" class="fixed bottom-20 left-1/2 -translate-x-1/2 z-[65] hidden items-center gap-2 rounded-2xl bg-amber-500 text-white px-4 py-2 shadow-lg max-w-[92vw]">
+      <i class="fa-solid fa-cloud-arrow-up text-sm"></i>
+      <span id="sinSenalTexto" class="text-xs font-semibold"></span>
     </div>
 
     <!-- Aviso flotante: confirma lo que se hizo y, cuando se puede,
@@ -912,8 +1167,26 @@
               <option value="6">Sábado</option>
               <option value="0">Domingo</option>
             </select>
-            <input id="newReminderDay" type="number" min="1" max="31" placeholder="Día del mes (1-31)" class="hidden w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-green/40" />
+            <!-- Antes acá había una cajita para escribir un número del 1 al
+                 31. En el celular eso es incómodo y abstracto: no ves en
+                 qué día cae. Ahora se toca el día en una cuadrícula. El
+                 input sigue existiendo, escondido, porque es el que
+                 guarda el valor. -->
+            <input id="newReminderDay" type="number" min="1" max="31" class="hidden" />
+            <div id="newReminderDayGrid" class="hidden">
+              <p class="text-[11px] font-semibold text-slate-400 mb-1">¿Qué día de cada mes?</p>
+              <div id="newReminderDayBotones" class="grid grid-cols-7 gap-1"></div>
+              <p id="newReminderDayHint" class="text-[11px] text-slate-400 mt-1.5"></p>
+            </div>
             <input id="newReminderDate" type="date" class="hidden w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-green/40" />
+            <!-- Hasta cuando se paga: una cuota se termina. Antes se
+                 repetia para siempre y habia que apagarla a mano. -->
+            <div id="newReminderHastaCaja">
+              <label class="block text-[11px] font-semibold text-slate-400">Hasta cuándo (opcional)
+                <input id="newReminderHasta" type="date" class="w-full mt-0.5 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-green/40" />
+              </label>
+              <p class="text-[11px] text-slate-400 mt-1">Vacío = se repite para siempre.</p>
+            </div>
             <button id="addReminderBtn" class="w-full rounded-xl px-4 py-2.5 text-sm font-semibold bg-brand-green text-white active:scale-95 transition-all">Agregar pago</button>
           </div>
         </section>

@@ -374,6 +374,18 @@ body.oscuro .border-blue-100 { border-color: #234A6E !important; }
 body.oscuro .border-violet-100 { border-color: #3A2C5A !important; }
 body.oscuro .border-amber-100,
 body.oscuro .border-amber-200 { border-color: #5A4718 !important; }
+body.oscuro .border-emerald-200,
+body.oscuro .border-emerald-300 { border-color: #2A6B4F !important; }
+
+/* Los textos de color venian del modo claro: sobre fondo oscuro un
+   verde/azul/violeta fuerte queda casi negro. */
+body.oscuro .text-emerald-600 { color: #34D399 !important; }
+body.oscuro .text-emerald-700 { color: #6EE7B7 !important; }
+body.oscuro .text-rose-600 { color: #FB7185 !important; }
+body.oscuro .text-blue-600,
+body.oscuro .text-blue-700 { color: #7DB3F0 !important; }
+body.oscuro .text-violet-700 { color: #C4B5FD !important; }
+body.oscuro .text-amber-700 { color: #FCD34D !important; }
 
 body.oscuro input,
 body.oscuro select,

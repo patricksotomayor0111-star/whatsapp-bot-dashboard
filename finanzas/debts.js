@@ -1,4 +1,5 @@
 const { crearAlmacen } = require("./almacenPorUsuario");
+const bitacora = require("./bitacora");
 
 
 
@@ -46,6 +47,25 @@ function ensurePersona(k, label) {
 }
 
 // "Menos X Nombre debe": Nombre te debe X soles. No afecta la caja.
+let contadorMovDeuda = 0;
+function nuevoIdMov() {
+  contadorMovDeuda += 1;
+  return "deu_" + Date.now() + "_" + contadorMovDeuda;
+}
+
+// A los movimientos que ya existian se les pone id la primera vez que se
+// los lee, y se guarda una sola vez.
+function asegurarIds(p) {
+  let cambio = false;
+  (p.movimientos || []).forEach((m) => {
+    if (!m.id) {
+      m.id = nuevoIdMov();
+      cambio = true;
+    }
+  });
+  return cambio;
+}
+
 function addDebt(personaRaw, monto, descripcion) {
   const k = normKey(personaRaw);
   if (!k) return null;
@@ -53,6 +73,7 @@ function addDebt(personaRaw, monto, descripcion) {
   const ahora = peruAhora();
   p.saldo += monto;
   p.movimientos.push({
+    id: nuevoIdMov(),
     fecha: fechaLabel(ahora),
     hora: horaLabel(ahora),
     tipo: "debe",
@@ -60,6 +81,13 @@ function addDebt(personaRaw, monto, descripcion) {
     descripcion: descripcion || "",
   });
   save();
+  bitacora.registrar({
+    que: "deuda",
+    accion: "creo",
+    ref: k,
+    resumen: p.label + " te quedó debiendo S/ " + monto + (descripcion ? " · " + descripcion : "") +
+      ". Ahora te debe S/ " + p.saldo,
+  });
   return { key: k, label: p.label, saldo: p.saldo };
 }
 
@@ -71,6 +99,7 @@ function payDebt(personaRaw, monto, descripcion) {
   const ahora = peruAhora();
   p.saldo -= monto;
   p.movimientos.push({
+    id: nuevoIdMov(),
     fecha: fechaLabel(ahora),
     hora: horaLabel(ahora),
     tipo: "pago",
@@ -78,6 +107,13 @@ function payDebt(personaRaw, monto, descripcion) {
     descripcion: descripcion || "",
   });
   save();
+  bitacora.registrar({
+    que: "deuda",
+    accion: "pago",
+    ref: k,
+    resumen: p.label + " te pagó S/ " + monto + (descripcion ? " · " + descripcion : "") +
+      ". Queda debiendo S/ " + p.saldo,
+  });
   return { key: k, label: p.label, saldo: p.saldo };
 }
 
@@ -94,9 +130,30 @@ function getDeuda(personaRaw) {
   return p ? { label: p.label, saldo: p.saldo } : null;
 }
 
+// Por identidad, no por posicion.
+function editMovimientoPorId(personaRaw, id, cambios) {
+  const p = datos().personas[normKey(personaRaw)];
+  if (!p) return null;
+  asegurarIds(p);
+  const i = (p.movimientos || []).findIndex((m) => m.id === id);
+  return i === -1 ? null : editMovimiento(personaRaw, i, cambios);
+}
+
+function removeMovimientoPorId(personaRaw, id) {
+  const p = datos().personas[normKey(personaRaw)];
+  if (!p) return false;
+  asegurarIds(p);
+  const i = (p.movimientos || []).findIndex((m) => m.id === id);
+  return i === -1 ? false : removeMovimiento(personaRaw, i);
+}
+
 function getMovimientos(personaRaw) {
   const p = datos().personas[normKey(personaRaw)];
-  return p ? p.movimientos : [];
+  if (!p) return [];
+  // Los movimientos viejos no tenian id. Se los ponemos al leerlos, una
+  // sola vez, para poder editarlos por identidad y no por posicion.
+  if (asegurarIds(p)) save();
+  return p.movimientos;
 }
 
 // Marca como saldada la deuda completa de una persona (uso desde el panel).
@@ -126,6 +183,7 @@ function editMovimiento(personaRaw, indice, cambios) {
   const p = datos().personas[normKey(personaRaw)];
   if (!p || !p.movimientos[indice]) return null;
   const mov = p.movimientos[indice];
+  const copiaAntes = { ...mov };
 
   p.saldo += efectoDelta(mov.tipo, mov.monto, -1);
 
@@ -138,6 +196,14 @@ function editMovimiento(personaRaw, indice, cambios) {
   p.saldo += efectoDelta(mov.tipo, mov.monto, 1);
 
   save();
+  bitacora.registrar({
+    que: "deuda",
+    accion: "edito",
+    ref: mov.id,
+    resumen: "Corregiste un movimiento de " + p.label + ". Ahora te debe S/ " + p.saldo,
+    antes: copiaAntes,
+    despues: mov,
+  });
   return { saldo: p.saldo, movimiento: mov };
 }
 
@@ -149,6 +215,13 @@ function removeMovimiento(personaRaw, indice) {
   p.saldo += efectoDelta(mov.tipo, mov.monto, -1);
   p.movimientos.splice(indice, 1);
   save();
+  bitacora.registrar({
+    que: "deuda",
+    accion: "borro",
+    ref: mov.id,
+    resumen: "Borraste un movimiento de " + p.label + ". Ahora te debe S/ " + p.saldo,
+    antes: mov,
+  });
   return true;
 }
 
@@ -162,4 +235,6 @@ module.exports = {
   removePersona,
   editMovimiento,
   removeMovimiento,
+  editMovimientoPorId,
+  removeMovimientoPorId,
 };
