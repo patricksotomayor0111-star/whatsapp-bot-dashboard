@@ -10,16 +10,21 @@ const CONTACTO_LEGACY_PATH = dataPath("contact-trigger-groups.json");
 //   imagen   -> mandan una foto (nota escrita a mano, boleta)
 //   contacto -> mandan una tarjeta de contacto
 //   audio    -> mandan una nota de voz ("mándame un motorizado")
+//   datosCliente -> reenvían los datos del cliente y después mandan el
+//               número, sin palabra clave (ver datosReenviados.js)
 //
-// En los tres casos el bot responde igual que con una palabra clave, y
+// En todos los casos el bot responde igual que con una palabra clave, y
 // respeta TODAS las demás reglas (números ignorados, sector/grupo activos,
 // ventana de tiempo, y apagarse solo después de responder).
-const TIPOS = ["imagen", "contacto", "audio"];
+const TIPOS = ["imagen", "contacto", "audio", "datosCliente"];
 
 const SEED = {
   imagen: ["CANTONES - BOX DELIVERY", "CHIFA LIU BOX DELIVERY", "CARTAS RESTAURANTES"],
   contacto: ["AYABACA - BUMANGUESA II"],
   audio: ["LAS NIEVES BOX DELIVERY"],
+  // Vacío a propósito: se prende desde el panel eligiendo el grupo de la
+  // lista real, así el nombre queda exacto (acá habría que adivinarlo).
+  datosCliente: [],
 };
 
 // Una nota de voz pidiendo un motorizado dura 2-5 segundos; una conversación
@@ -51,6 +56,7 @@ function loadData() {
       imagen: SEED.imagen.slice(),
       contacto: leerContactoLegacy() || SEED.contacto.slice(),
       audio: SEED.audio.slice(),
+      datosCliente: SEED.datosCliente.slice(),
       audioMaxSegundos: AUDIO_SEGUNDOS_DEFAULT,
     };
   }
@@ -81,6 +87,7 @@ function getConfig() {
     imagen: data.imagen.slice(),
     contacto: data.contacto.slice(),
     audio: data.audio.slice(),
+    datosCliente: data.datosCliente.slice(),
     audioMaxSegundos: data.audioMaxSegundos,
   };
 }
