@@ -123,6 +123,7 @@
           <p class="eyebrow text-violet-600"><i class="fa-solid fa-flask"></i> PROBAR UNA FRASE</p>
           <p class="text-xs text-slate-400 mt-1 mb-2">
             Pega una frase que el bot no detectó y te explico por qué. No manda nada a WhatsApp ni cambia nada.
+            Con <strong>Preguntar al filtro 🧠</strong> ves además qué opina el filtro inteligente y por qué.
           </p>
           <select id="probarGrupoSelect" class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-violet-400/40 mb-2">
             <option value="">— ¿En qué grupo? —</option>
@@ -170,6 +171,39 @@
             <button id="aiDecisionVerTodasBtn" class="hidden w-full mt-2 rounded-xl px-3 py-2 text-xs font-semibold bg-white border border-slate-200 text-slate-600 active:scale-95 transition-all"></button>
             <p id="aiDecisionEmpty" class="hidden text-xs text-slate-400 py-2">
               Todavía no aprendió ninguna frase.
+            </p>
+          </div>
+
+          <!-- Frases enseñadas: lo que le dices tú. La frase exacta decide sola
+               y la IA las usa de ejemplo para entender las parecidas. -->
+          <div class="mt-4 pt-3 border-t border-slate-200">
+            <p class="text-xs font-bold text-slate-700">📚 Frases enseñadas</p>
+            <p class="text-[11px] text-slate-400 mt-0.5 mb-2">
+              Dile tú qué es pedido y qué no. Si llega esa frase exacta, decide lo que le enseñaste sin preguntarle
+              a la IA, y la IA también la usa para entender las frases <strong>parecidas</strong>.
+              Las de un local solo valen para ese local.
+            </p>
+            <p class="text-[11px] text-slate-400 mb-2">
+              Ojo: el filtro solo revisa mensajes que ya activaron una palabra clave. Para que el bot responda a
+              una frase nueva, agrégala como frase especial del grupo.
+            </p>
+            <textarea id="aiEjemploTexto" rows="2" maxlength="200" placeholder="Ej: está bien, nos avisa con tiempo porfi"
+              class="w-full bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-violet-400/40"></textarea>
+            <select id="aiEjemploAlcance" class="w-full mt-2 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-violet-400/40">
+              <option value="">🌎 Todos los locales</option>
+            </select>
+            <div class="grid grid-cols-2 gap-2 mt-2">
+              <button id="aiEjemploSiBtn" class="rounded-xl px-3 py-2.5 text-xs font-semibold bg-green-600 text-white active:scale-95 transition-all">
+                ✅ Sí es pedido
+              </button>
+              <button id="aiEjemploNoBtn" class="rounded-xl px-3 py-2.5 text-xs font-semibold bg-rose-600 text-white active:scale-95 transition-all">
+                ❌ No es pedido
+              </button>
+            </div>
+            <p id="aiEjemploMsg" class="hidden text-[11px] mt-1.5"></p>
+            <div id="aiEjemploList" class="space-y-1.5 mt-2"></div>
+            <p id="aiEjemploEmpty" class="hidden text-xs text-slate-400 py-2">
+              Todavía no le enseñaste ninguna frase.
             </p>
           </div>
         </section>

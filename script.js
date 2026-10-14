@@ -2498,6 +2498,7 @@ function activarBuscadoresDeGrupos() {
     "quoteGroupSelect",
     "groupDelayGroupSelect",
     "groupTimeWindowSelect",
+    "aiEjemploAlcance",
   ].forEach((id) => hacerSelectBuscable(document.getElementById(id)));
   document.querySelectorAll(".media-group-select").forEach((s) => hacerSelectBuscable(s));
 }
@@ -2600,7 +2601,196 @@ function renderProbarResultado(data, groupId, frase) {
     probarResultado.appendChild(agregar);
   }
 
+  agregarPreguntaAlFiltro(data, groupId, frase);
+
   probarResultado.classList.remove("hidden");
+}
+
+// ---------- Preguntar al filtro 🧠 ----------
+// Lo de arriba explica las palabras clave; esto dice qué opina el filtro
+// inteligente de esa frase en ese grupo, y por qué. Si no la sabe, le
+// pregunta de verdad a la IA, pero no guarda nada ni manda nada a WhatsApp.
+function nombreDeGrupo(groupId, respaldo) {
+  return groupsData.find((g) => g.id === groupId)?.name || respaldo || "ese local";
+}
+
+function textoHoraFiltro(hora) {
+  if (!hora) return "";
+  if (typeof hora.minutos === "number") return `sale en ${hora.minutos} min`;
+  if (typeof hora.hour === "number") {
+    return `sale a las ${String(hora.hour).padStart(2, "0")}:${String(hora.minute).padStart(2, "0")}`;
+  }
+  return "";
+}
+
+function parrafo(texto, clase) {
+  const p = document.createElement("p");
+  p.className = clase;
+  p.textContent = texto;
+  return p;
+}
+
+function agregarPreguntaAlFiltro(data, groupId, frase) {
+  const caja = document.createElement("div");
+  caja.className = "mt-2 pt-2 border-t border-slate-200";
+  const btn = document.createElement("button");
+  btn.className =
+    "w-full rounded-xl px-3 py-2 text-xs font-semibold bg-violet-600 text-white active:scale-95 transition-all";
+  btn.textContent = "🧠 Preguntar al filtro";
+  const respuesta = document.createElement("div");
+  caja.appendChild(btn);
+  caja.appendChild(respuesta);
+
+  const preguntar = async (fresco) => {
+    btn.disabled = true;
+    btn.textContent = "🧠 Preguntando…";
+    try {
+      const res = await fetch("/api/probar-filtro", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ texto: frase, groupId, keyword: data.keyword, fresco }),
+      });
+      const r = await res.json();
+      if (res.ok) {
+        renderRespuestaFiltro(respuesta, r, data, groupId, frase, () => preguntar(true));
+      } else {
+        respuesta.className = "mt-2 rounded-xl border p-3 bg-rose-50 border-rose-200 text-rose-800";
+        respuesta.textContent = r.error || "No se pudo preguntar";
+      }
+    } catch (err) {
+      respuesta.className = "mt-2 rounded-xl border p-3 bg-rose-50 border-rose-200 text-rose-800";
+      respuesta.textContent = "No se pudo preguntar";
+    }
+    btn.disabled = false;
+    btn.textContent = "🧠 Preguntar al filtro";
+  };
+  btn.addEventListener("click", () => preguntar(false));
+  probarResultado.appendChild(caja);
+}
+
+function renderRespuestaFiltro(cont, r, data, groupId, frase, preguntarDeNuevo) {
+  cont.innerHTML = "";
+
+  if (r.fuente === "error" || r.fuente === null) {
+    cont.className = "mt-2 rounded-xl border p-3 bg-amber-50 border-amber-200 text-amber-800";
+    cont.appendChild(
+      parrafo(
+        r.fuente === null
+          ? "⏸️ El filtro está apagado (falta la llave ANTHROPIC_API_KEY): el bot responde solo con las palabras clave."
+          : `No se pudo preguntar: ${r.error}. En el bot de verdad, si la IA falla, el bot marca igual.`,
+        ""
+      )
+    );
+    renderEnsenarFrase(cont, frase, groupId);
+    return;
+  }
+
+  cont.className = `mt-2 rounded-xl border p-3 ${
+    r.esPedido ? "bg-green-50 border-green-200" : "bg-rose-50 border-rose-200"
+  }`;
+  cont.appendChild(
+    parrafo(
+      `🧠 El filtro dice: ${r.esPedido ? "✅ Sí es pedido" : "❌ No es pedido"}`,
+      `font-bold ${r.esPedido ? "text-green-800" : "text-rose-800"}`
+    )
+  );
+  const esEnsenada = String(r.fuente).startsWith("ejemplo");
+  if (!r.esPedido && !esEnsenada) {
+    cont.appendChild(parrafo(`Motivo: ${r.motivo || "no dijo en cuál de los casos encaja"}`, "mt-1 text-slate-700"));
+  } else if (r.hora) {
+    cont.appendChild(parrafo(`Para cuándo: ${textoHoraFiltro(r.hora)}`, "mt-1 text-slate-700"));
+  }
+
+  const origen = {
+    ia: `Le preguntó a la IA ahora mismo (tardó ${((r.ms || 0) / 1000).toFixed(1)} s).`,
+    memoria: "Ya la tenía aprendida, así que no le preguntó de nuevo.",
+    correccion: "Lo decidiste tú en «Lo que aprendió».",
+    "ejemplo-local": "Decide la frase que le enseñaste para este local.",
+    "ejemplo-global": "Decide la frase que le enseñaste para todos los locales.",
+  }[r.fuente];
+  if (origen) cont.appendChild(parrafo(origen, "mt-1 text-slate-500"));
+
+  if (r.fuente === "ia" && r.tope && r.ms > r.tope) {
+    cont.appendChild(
+      parrafo(
+        `⚠️ En el bot de verdad no espera más de ${r.tope / 1000} s: si tarda así, marca igual sin esperar.`,
+        "mt-1 text-amber-700"
+      )
+    );
+  }
+  if (r.fuente === "ia" && r.recordada && r.recordada.esPedido !== r.esPedido) {
+    cont.appendChild(
+      parrafo(
+        `⚠️ Antes había aprendido que ${r.recordada.esPedido ? "SÍ" : "NO"} es pedido, y el bot sigue usando eso. ` +
+          "Si quieres cambiarlo, enséñale la frase aquí abajo.",
+        "mt-1 text-amber-700"
+      )
+    );
+  }
+  if (data.filtroNoOpina && !esEnsenada) {
+    cont.appendChild(
+      parrafo(`Ojo: en el bot de verdad el filtro no revisa esta frase (${data.filtroNoOpina}).`, "mt-1 text-slate-500")
+    );
+  }
+
+  if (r.fuente === "memoria") {
+    const otraVez = document.createElement("button");
+    otraVez.className =
+      "w-full mt-2 rounded-xl px-3 py-2 text-xs font-semibold bg-white border border-slate-200 text-slate-600 active:scale-95 transition-all";
+    otraVez.textContent = "Preguntar de nuevo a la IA";
+    otraVez.addEventListener("click", preguntarDeNuevo);
+    cont.appendChild(otraVez);
+  }
+
+  renderEnsenarFrase(cont, frase, groupId);
+}
+
+// Enseñarle la frase recién probada, sin tener que copiarla abajo.
+function renderEnsenarFrase(cont, frase, groupId) {
+  const fila = document.createElement("div");
+  fila.className = "mt-2 pt-2 border-t border-slate-200";
+  fila.appendChild(parrafo("Enseñarle esta frase:", "font-semibold text-slate-600"));
+
+  const alcance = document.createElement("select");
+  alcance.className = "w-full mt-1 bg-white rounded-lg px-2 py-2 text-xs border border-slate-200";
+  [
+    [groupId, `🏪 Solo en ${nombreDeGrupo(groupId)}`],
+    ["", "🌎 Todos los locales"],
+  ].forEach(([valor, texto]) => {
+    const opt = document.createElement("option");
+    opt.value = valor;
+    opt.textContent = texto;
+    alcance.appendChild(opt);
+  });
+  fila.appendChild(alcance);
+
+  const botones = document.createElement("div");
+  botones.className = "grid grid-cols-2 gap-2 mt-1.5";
+  const msg = parrafo("", "hidden mt-1.5");
+  [
+    [true, "✅ Sí es pedido", "bg-green-600"],
+    [false, "❌ No es pedido", "bg-rose-600"],
+  ].forEach(([esPedido, texto, color]) => {
+    const b = document.createElement("button");
+    b.className = `rounded-lg px-2 py-2 text-xs font-semibold text-white active:scale-95 transition-all ${color}`;
+    b.textContent = texto;
+    b.addEventListener("click", async () => {
+      botones.querySelectorAll("button").forEach((x) => (x.disabled = true));
+      try {
+        const r = await ensenarFrase({ texto: frase, esPedido, groupId: alcance.value || null });
+        msg.className = "mt-1.5 text-green-700";
+        msg.textContent = mensajeEnsenado(r);
+      } catch (err) {
+        msg.className = "mt-1.5 text-rose-700";
+        msg.textContent = err.message;
+      }
+      botones.querySelectorAll("button").forEach((x) => (x.disabled = false));
+    });
+    botones.appendChild(b);
+  });
+  fila.appendChild(botones);
+  fila.appendChild(msg);
+  cont.appendChild(fila);
 }
 
 probarFraseBtn.addEventListener("click", async () => {
@@ -2712,9 +2902,12 @@ function renderAiDecisions(data) {
     frase.title = d.texto || d.clave;
     const veredicto = document.createElement("p");
     veredicto.className = `text-[11px] ${d.esPedido ? "text-green-700" : "text-rose-700"}`;
+    const motivo = !d.esPedido && d.caso ? data.motivos?.[d.caso] : null;
     veredicto.textContent =
       (d.esPedido ? "Sí es pedido — responde" : "No es pedido — no responde") +
+      (motivo ? ` (${motivo})` : "") +
       textoHoraAprendida(d.hora) +
+      (d.groupId ? ` · solo en ${nombreDeGrupo(d.groupId)}` : "") +
       (d.manual ? " · corregido por ti" : "");
     texto.appendChild(frase);
     texto.appendChild(veredicto);
@@ -2731,7 +2924,7 @@ function renderAiDecisions(data) {
         const res = await fetch("/api/ai-decisions", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ texto: d.texto || d.clave, esPedido: !d.esPedido }),
+          body: JSON.stringify({ clave: d.clave, texto: d.texto || d.clave, esPedido: !d.esPedido }),
         });
         const r = await res.json();
         if (res.ok) {
@@ -2793,6 +2986,139 @@ aiDecisionVerTodasBtn.addEventListener("click", () => {
   aiDecisionVerTodas = !aiDecisionVerTodas;
   if (aiDecisionUltima) renderAiDecisions(aiDecisionUltima);
 });
+
+// ---------- Frases enseñadas ----------
+// "Esto SÍ / NO es pedido", para todos los locales o solo para uno. La frase
+// exacta decide sola y la IA las usa de ejemplo para entender las parecidas.
+const aiEjemploTexto = document.getElementById("aiEjemploTexto");
+const aiEjemploAlcance = document.getElementById("aiEjemploAlcance");
+const aiEjemploSiBtn = document.getElementById("aiEjemploSiBtn");
+const aiEjemploNoBtn = document.getElementById("aiEjemploNoBtn");
+const aiEjemploMsg = document.getElementById("aiEjemploMsg");
+const aiEjemploList = document.getElementById("aiEjemploList");
+const aiEjemploEmpty = document.getElementById("aiEjemploEmpty");
+
+function poblarAlcanceEjemplos() {
+  const seleccionActual = aiEjemploAlcance.value;
+  aiEjemploAlcance.innerHTML = '<option value="">🌎 Todos los locales</option>';
+  groupsData.forEach((g) => {
+    const opt = document.createElement("option");
+    opt.value = g.id;
+    opt.textContent = `🏪 Solo en ${g.name}`;
+    aiEjemploAlcance.appendChild(opt);
+  });
+  if (seleccionActual) aiEjemploAlcance.value = seleccionActual;
+}
+
+function renderAiEjemplos(ejemplos) {
+  aiEjemploList.innerHTML = "";
+  aiEjemploEmpty.classList.toggle("hidden", ejemplos.length > 0);
+  ejemplos.forEach((e) => {
+    const fila = document.createElement("div");
+    fila.className = `flex items-center gap-2 rounded-xl border px-3 py-2 ${
+      e.esPedido ? "bg-green-50 border-green-200" : "bg-rose-50 border-rose-200"
+    }`;
+
+    const texto = document.createElement("div");
+    texto.className = "flex-1 min-w-0";
+    const frase = parrafo(e.texto, "text-xs text-slate-700 truncate");
+    frase.title = e.texto;
+    texto.appendChild(frase);
+    texto.appendChild(
+      parrafo(
+        (e.esPedido ? "✅ Sí es pedido" : "❌ No es pedido") +
+          " · " +
+          (e.groupId ? `🏪 Solo en ${nombreDeGrupo(e.groupId, e.grupoNombre)}` : "🌎 Todos los locales"),
+        `text-[11px] ${e.esPedido ? "text-green-700" : "text-rose-700"}`
+      )
+    );
+    fila.appendChild(texto);
+
+    const borrar = document.createElement("button");
+    borrar.className =
+      "shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-brand-red active:scale-90 transition-all";
+    borrar.innerHTML = '<i class="fa-solid fa-xmark text-xs"></i>';
+    borrar.title = "Borrar esta frase";
+    borrar.addEventListener("click", async () => {
+      borrar.disabled = true;
+      try {
+        const res = await fetch(`/api/ai-ejemplos/${encodeURIComponent(e.id)}/remove`, { method: "POST" });
+        const r = await res.json();
+        if (res.ok) aplicarEjemplos(r);
+        else borrar.disabled = false;
+      } catch (err) {
+        borrar.disabled = false;
+      }
+    });
+    fila.appendChild(borrar);
+
+    aiEjemploList.appendChild(fila);
+  });
+}
+
+// Enseñar o borrar también cambia lo aprendido (se olvida lo que podría
+// cambiar), así que se repintan las dos listas.
+function aplicarEjemplos(r) {
+  renderAiEjemplos(r.ejemplos || []);
+  if (r.decisiones && aiDecisionUltima) {
+    aiDecisionUltima = { ...aiDecisionUltima, decisiones: r.decisiones };
+    renderAiDecisions(aiDecisionUltima);
+  }
+}
+
+async function ensenarFrase({ texto, esPedido, groupId }) {
+  const res = await fetch("/api/ai-ejemplos", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ texto, esPedido, groupId }),
+  });
+  const r = await res.json();
+  if (!res.ok) throw new Error(r.error || "No se pudo guardar");
+  aplicarEjemplos(r);
+  return r;
+}
+
+function mensajeEnsenado(r) {
+  const olvido = r.olvidadas
+    ? ` Va a volver a revisar ${r.olvidadas === 1 ? "1 frase que había aprendido" : `${r.olvidadas} frases que había aprendido`}.`
+    : "";
+  return (r.nuevo ? "Listo, aprendida ✓" : "Listo, actualizada ✓") + olvido;
+}
+
+async function ensenarDesdeSeccion(esPedido) {
+  const texto = aiEjemploTexto.value.trim();
+  if (!texto) {
+    aiEjemploMsg.className = "text-[11px] mt-1.5 text-amber-700";
+    aiEjemploMsg.textContent = "Escribe la frase que quieres enseñarle.";
+    return;
+  }
+  aiEjemploSiBtn.disabled = true;
+  aiEjemploNoBtn.disabled = true;
+  try {
+    const r = await ensenarFrase({ texto, esPedido, groupId: aiEjemploAlcance.value || null });
+    aiEjemploTexto.value = "";
+    aiEjemploMsg.className = "text-[11px] mt-1.5 text-green-700";
+    aiEjemploMsg.textContent = mensajeEnsenado(r);
+  } catch (err) {
+    aiEjemploMsg.className = "text-[11px] mt-1.5 text-rose-700";
+    aiEjemploMsg.textContent = err.message;
+  }
+  aiEjemploSiBtn.disabled = false;
+  aiEjemploNoBtn.disabled = false;
+}
+
+aiEjemploSiBtn.addEventListener("click", () => ensenarDesdeSeccion(true));
+aiEjemploNoBtn.addEventListener("click", () => ensenarDesdeSeccion(false));
+
+async function fetchAiEjemplos() {
+  try {
+    const res = await fetch("/api/ai-ejemplos");
+    const r = await res.json();
+    renderAiEjemplos(r.ejemplos || []);
+  } catch (err) {
+    console.error("No se pudieron obtener las frases enseñadas:", err);
+  }
+}
 
 // ---------- Respaldo de la configuración ----------
 // La descarga es un <a href="/api/backup" download>, no hace falta JS.
@@ -2883,7 +3209,9 @@ const categoryLoaders = {
     renderSpecialKeywords(); // repinta lo que ya tenías guardado (localStorage)
     fetchKeywords();
     fetchAiDecisions();
+    fetchAiEjemplos();
     poblarProbarGrupos();
+    poblarAlcanceEjemplos();
     populateExceptionGroupSelect();
     fetchExceptionsOverview();
   },
