@@ -38,8 +38,15 @@ const SEED = [
 
 const almacen = crearAlmacen("reminders-data.json", function (parsed) {
   try {
+    const reminders = Array.isArray(parsed.reminders)
+      ? parsed.reminders
+      : sembrarSoloAlDueno(SEED.map((r) => ({ ...r, activo: true, lastPaidCycle: null })));
+    // Repara los pagos a los que se les cambió el día antes de que existiera
+    // alinearCicloPagado (volvían a salir pendientes estando pagados). En los
+    // que nunca se editaron no cambia nada.
+    reminders.forEach(alinearCicloPagado);
     return {
-      reminders: Array.isArray(parsed.reminders) ? parsed.reminders : sembrarSoloAlDueno(SEED.map((r) => ({ ...r, activo: true, lastPaidCycle: null }))),
+      reminders,
       lastNotifiedLabel: parsed.lastNotifiedLabel || null,
       pagosMarcados: Array.isArray(parsed.pagosMarcados) ? parsed.pagosMarcados : [],
     };
@@ -66,6 +73,38 @@ const { ymdToUtc, utcToLabel, addDays, diasEnMes, horaPeru, peruAhora, horaLabel
 
 function diasEntre(labelA, labelB) {
   return Math.round((ymdToUtc(labelB).getTime() - ymdToUtc(labelA).getTime()) / 86400000);
+}
+
+// El pago se guarda con la FECHA del ciclo que se pagó (lastPaidCycle). Si
+// después se cambia el día (ej. del 22 al 23), esa fecha queda "atrás" del
+// nuevo vencimiento del MISMO mes y el mes ya pagado volvía a salir
+// pendiente. Esto mueve el pago a la fecha equivalente del mismo período
+// con el calendario nuevo: el mismo mes (pagos mensuales) o el día más
+// cercano de esa semana (semanales). Solo lo mueve hacia adelante y dentro
+// del mismo período, así que nunca da por pagado un ciclo que no se pagó; y
+// en un pago que nunca se editó no cambia nada.
+function alinearCicloPagado(r) {
+  if (!r || !r.lastPaidCycle || !/^\d{4}-\d{2}-\d{2}$/.test(r.lastPaidCycle)) return false;
+  const pagado = r.lastPaidCycle;
+  let equivalente = null;
+  if (r.tipo === "mensual_dia" || r.tipo === "mensual_finmes") {
+    const [y, mo] = pagado.split("-").map(Number);
+    const ultimo = diasEnMes(y, mo);
+    const dia = r.tipo === "mensual_finmes" ? ultimo : Math.min(Number(r.dia), ultimo);
+    if (!Number.isInteger(dia) || dia < 1) return false;
+    equivalente = utcToLabel(new Date(Date.UTC(y, mo - 1, dia)));
+  } else if (r.tipo === "semanal") {
+    const diaSemana = Number(r.dia);
+    if (!Number.isInteger(diaSemana) || diaSemana < 0 || diaSemana > 6) return false;
+    let diff = (diaSemana - ymdToUtc(pagado).getUTCDay() + 7) % 7;
+    if (diff > 3) diff -= 7; // el de esa misma semana (el más cercano)
+    equivalente = addDays(pagado, diff);
+  }
+  if (equivalente && equivalente > pagado) {
+    r.lastPaidCycle = equivalente;
+    return true;
+  }
+  return false;
 }
 
 // La fecha de vencimiento del ciclo cuyo aviso YA se abrió (1 día antes),
@@ -486,6 +525,8 @@ function editReminder(id, cambios) {
   }
   if (r.tipo === "unica") delete r.dia;
   else delete r.fecha;
+  // Cambiar el día no puede deshacer un pago ya hecho (ver alinearCicloPagado).
+  alinearCicloPagado(r);
   save();
   return r;
 }
@@ -655,4 +696,6 @@ module.exports = {
   getPagosManana,
   getPagosQuincena,
   getPagosMesRestante,
+  // Para pruebas.
+  _alinearCicloPagado: alinearCicloPagado,
 };
