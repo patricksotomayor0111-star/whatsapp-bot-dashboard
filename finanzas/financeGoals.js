@@ -1,7 +1,8 @@
 const { crearAlmacen } = require("./almacenPorUsuario");
+const { usuarioActual } = require("./contexto");
 
-// Lo unico que se guarda a mano es el PLAN DE AHORRO: cuanto quiere juntar
-// y hasta cuando. Antes era un numero suelto "ahorro del mes"; ahora es
+// Lo que se guarda a mano es el PLAN DE AHORRO (cuanto quiere juntar y
+// hasta cuando) y su MINIMO POR DIA (ver mas abajo). Antes era un numero suelto "ahorro del mes"; ahora es
 // "desde tal dia hasta tal dia me propongo ahorrar tanto", que es como el
 // lo piensa. Las metas diaria/semanal/mensual nunca se escriben: las
 // calcula metasAutomaticas.js a partir de lo que falta pagar.
@@ -10,10 +11,18 @@ const { crearAlmacen } = require("./almacenPorUsuario");
 // modulo y este necesita cashbox, que a su vez no debe arrastrar a los
 // otros al cargar. Pedirlos al momento evita el require circular.
 
+// El minimo por dia con el que arranca cada cuenta: el del dueno lo pidio el
+// mismo (S/ 100); una cuenta nueva arranca sin minimo y lo pone si quiere.
+function minimoInicial() {
+  const users = require("./users");
+  return usuarioActual() === users.DUENO_ID ? 100 : 0;
+}
+
 const almacen = crearAlmacen("finance-goals-data.json", function (parsed) {
   try {
     const a = parsed.ahorro || {};
     return {
+      minimoDiario: parsed.minimoDiario !== undefined ? Math.max(Number(parsed.minimoDiario) || 0, 0) : minimoInicial(),
       ahorro: {
         // Compatibilidad: lo que estaba guardado como "ahorroMensual" pasa
         // a ser el monto del plan. Sin fechas propias se asume el mes en
@@ -24,7 +33,7 @@ const almacen = crearAlmacen("finance-goals-data.json", function (parsed) {
       },
     };
   } catch (err) {
-    return { ahorro: { monto: 0, desde: null, hasta: null } };
+    return { minimoDiario: minimoInicial(), ahorro: { monto: 0, desde: null, hasta: null } };
   }
 });
 const datos = almacen.datos;
@@ -120,6 +129,23 @@ function ahorroRequeridoHasta(hastaLabel) {
   return Math.min((plan.monto * transcurrido) / total, plan.monto);
 }
 
+// ---------- Minimo por dia ----------
+// Lo minimo que se propone hacer cada dia de trabajo (ej. S/ 100). No es
+// lo que necesita (eso lo calcula metasAutomaticas): es su piso, para ver
+// "si hago al menos esto todos los dias, ¿como cierro el mes?". Un solo
+// numero que vale para todos los meses: no hay que volver a ponerlo.
+function getMinimoDiario() {
+  return Math.max(Number(datos().minimoDiario) || 0, 0);
+}
+
+function setMinimoDiario(monto) {
+  const n = Number(monto);
+  if (!Number.isFinite(n) || n < 0) throw new Error("El mínimo tiene que ser un monto (0 para no usar ninguno).");
+  datos().minimoDiario = Math.round(n * 100) / 100;
+  save();
+  return getMinimoDiario();
+}
+
 function getGoals(hasta) {
   const metas = require("./metasAutomaticas").calcular(hasta);
   return {
@@ -131,4 +157,12 @@ function getGoals(hasta) {
   };
 }
 
-module.exports = { getGoals, getAhorro, setAhorro, getPlanAhorro, ahorroRequeridoHasta };
+module.exports = {
+  getGoals,
+  getAhorro,
+  setAhorro,
+  getPlanAhorro,
+  ahorroRequeridoHasta,
+  getMinimoDiario,
+  setMinimoDiario,
+};

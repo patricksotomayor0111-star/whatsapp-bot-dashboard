@@ -3,8 +3,8 @@
 // de HOY hasta una fecha limite.
 //
 //   me falta   = (lo que tengo que gastar) - (lo que ya tengo)
-//   diaria     = me falta / dias que quedan hasta esa fecha
-//   semanal    = diaria x dias que quedan de esta semana
+//   diaria     = lo que faltaba al EMPEZAR hoy / dias de trabajo que quedan
+//   semanal    = diaria x dias de trabajo que quedan de esta semana
 //   del periodo= me falta
 //
 // Por defecto la fecha limite es el fin del mes en curso, pero se puede
@@ -65,6 +65,7 @@ function calcular(hastaPedido) {
   // 1. Lo que ya tengo: el efectivo esperado que muestra el panel.
   const hoy = cashbox.getToday();
   const tengo = hoy.esperado || 0;
+  const gananciasHoy = hoy.ganancias || 0;
 
   // 2. Lo que tengo que gastar de HOY hasta la fecha limite.
   //    Lo que vence dentro del periodo, y TAMBIEN lo que quedo con fecha
@@ -119,11 +120,21 @@ function calcular(hastaPedido) {
   //    le pide menos por dia del que necesita y el ultimo domingo lo
   //    agarra corto. Sin dias libres configurados esto da igual que antes.
   const diasHabiles = diasLibres.contarHabiles(hoyLabel, hasta);
-  const diaria = falta / diasHabiles;
   // Hoy puede ser un día de descanso. En ese caso no hay meta de hoy: lo
   // que haga sale de más, y lo que falta ya está repartido entre los días
   // que sí va a trabajar.
   const hoyEsLibre = diasLibres.esLibre(hoyLabel);
+
+  //    La meta de HOY se saca con lo que faltaba al empezar el día. Lo que
+  //    va ganando hoy es AVANCE de esa meta, no algo que la achique: antes
+  //    se contaba dos veces (bajaba la meta y además sumaba como avance),
+  //    y la meta parecía cumplida antes de tiempo. Lo que gasta hoy sí la
+  //    sube en vivo, que es lo que tiene que pasar.
+  //    En un día de descanso hoy no está entre los días de trabajo, así que
+  //    lo que haga baja directamente lo que falta para los demás.
+  const baseDelDia = hoyEsLibre ? tengo : tengo - gananciasHoy;
+  const faltaAlEmpezar = Math.max(necesito - baseDelDia, 0);
+  const diaria = faltaAlEmpezar / diasHabiles;
 
   //    Para la semanal: cuantos de esos dias de trabajo caen en lo que
   //    queda de esta semana, sin pasarse de la fecha limite.
@@ -169,14 +180,41 @@ function calcular(hastaPedido) {
     porDiaTrabajado.set(m.fecha, (porDiaTrabajado.get(m.fecha) || 0) + (m.monto || 0));
   });
 
+  //    Hoy tampoco entra: el dia todavia no termino. Con los S/ 75 de la
+  //    mañana metidos como un dia entero, el promedio bajaba durante el dia
+  //    y volvia a subir al dia siguiente.
   const diasTrabajados = Array.from(porDiaTrabajado.entries())
-    .filter((par) => par[1] > 0)
+    .filter((par) => par[1] > 0 && par[0] !== hoyLabel)
     .sort((a, b) => a[0].localeCompare(b[0]))
     .slice(-DIAS_PARA_EL_PROMEDIO);
   const promedioDiario = diasTrabajados.length
     ? diasTrabajados.reduce((s, par) => s + par[1], 0) / diasTrabajados.length
     : 0;
-  const proyectado = promedioDiario * diasHabiles;
+
+  //    Cuanto juntaria de aca al final haciendo "porDia" cada dia de trabajo.
+  //    Hoy ya esta en marcha y lo que ya hizo esta en "tengo": de hoy solo
+  //    se cuenta lo que le falta para llegar a ese monto. Sin esto, a las 5
+  //    de la tarde contaba lo de hoy dos veces (en la caja y en el pronostico).
+  function juntaria(porDia, yaHechoHoy) {
+    const deHoy = hoyEsLibre ? 0 : Math.min(yaHechoHoy, porDia);
+    return Math.max(porDia * diasHabiles - deHoy, 0);
+  }
+  const ganadoTrabajandoHoy = porDiaTrabajado.get(hoyLabel) || 0;
+  const proyectado = juntaria(promedioDiario, ganadoTrabajandoHoy);
+  const sobraARitmo = tengo + proyectado - necesito;
+
+  // 5. Los tres caminos para cerrar el periodo, para verlos lado a lado:
+  //    lo justo (la meta), su minimo por dia, y su ritmo real. "sobra" es
+  //    lo que le quedaria al final (negativo = lo que le faltaria).
+  const minimo = financeGoals.getMinimoDiario();
+  const sobraConMinimo = minimo > 0 ? tengo + juntaria(minimo, gananciasHoy) - necesito : null;
+
+  //    Lo que le sobraria haciendo su minimo, repartido en los dias que
+  //    quedan: es lo que puede gastar en gustos sin tocar nada de lo que
+  //    tiene que pagar (los gastos de todos los dias ya estan contados).
+  const gustosPorDia = sobraConMinimo !== null && sobraConMinimo > 0 ? sobraConMinimo / diasRestantes : 0;
+
+  const vencenHoy = pagos.filter((p) => p.fecha === hoyLabel);
 
   const r2 = (n) => Math.round(n * 100) / 100;
 
@@ -202,8 +240,8 @@ function calcular(hastaPedido) {
       promedioDiario: r2(promedioDiario),
       diasMedidos: diasTrabajados.length,
       proyectado: r2(proyectado),
-      alcanza: proyectado >= falta,
-      diferencia: r2(proyectado - falta),
+      alcanza: sobraARitmo >= 0,
+      diferencia: r2(sobraARitmo),
       // Plata que entro pero no se gano trabajando (bancos, Ana). Cuenta
       // en la caja y en las metas; solo queda fuera del promedio.
       ingresosNoTrabajo: r2(ingresosNoTrabajo),
@@ -211,6 +249,23 @@ function calcular(hastaPedido) {
     diaria: r2(diaria),
     semanal: r2(diaria * diasSemana),
     mensual: r2(falta),
+    // La meta de hoy con su avance: lo mismo que muestra Inicio y dice el bot.
+    hoy: {
+      esLibre: hoyEsLibre,
+      meta: r2(hoyEsLibre ? 0 : diaria),
+      ganado: r2(gananciasHoy),
+      falta: r2(hoyEsLibre ? 0 : Math.max(diaria - gananciasHoy, 0)),
+    },
+    minimoDiario: r2(minimo),
+    escenarios: {
+      justo: { porDia: r2(diaria) },
+      minimo: minimo > 0 ? { porDia: r2(minimo), sobra: r2(sobraConMinimo), alcanza: sobraConMinimo >= 0 } : null,
+      ritmo:
+        diasTrabajados.length > 0
+          ? { porDia: r2(promedioDiario), sobra: r2(sobraARitmo), alcanza: sobraARitmo >= 0 }
+          : null,
+    },
+    gustosPorDia: r2(gustosPorDia),
     detalle: {
       pendientes: { total: r2(pendientes), items: pagos },
       programados: { total: r2(programados), items: proyeccion.detalle || [] },
@@ -220,6 +275,8 @@ function calcular(hastaPedido) {
       prestamos: { total: r2(devolver.total), items: devolver.detalle },
       // Ya vencidos y sin marcar como pagados: SI suman a la meta.
       atrasados: { total: r2(atrasadosTotal), items: atrasados },
+      // Los que vencen hoy (ya estan dentro de "pendientes").
+      vencenHoy: { total: r2(vencenHoy.reduce((s, p) => s + (p.monto || 0), 0)), items: vencenHoy },
     },
   };
 }

@@ -170,6 +170,21 @@
             <p id="resumenMetaAtrasados" class="hidden text-[11px] text-amber-700 mt-1"></p>
           </section>
 
+          <!-- Para cerrar el mes tranquilo: lo mismo que el mensaje de las 7am,
+               pero en vivo (cambia con cada ingreso o gasto que anotas). -->
+          <section id="cierreCard" class="card fade-in bg-white border border-slate-100 py-3 hidden">
+            <p class="eyebrow text-slate-600"><i class="fa-solid fa-flag-checkered"></i> <span id="cierreTitulo">PARA CERRAR EL MES</span></p>
+            <p id="cierreSub" class="text-[11px] text-slate-400 mt-0.5"></p>
+            <div class="mt-2 space-y-1 text-xs">
+              <div class="flex items-center justify-between gap-2"><span class="text-slate-500">Tienes</span><b id="cierreTengo" class="text-slate-800">S/ 0</b></div>
+              <div class="flex items-center justify-between gap-2"><span class="text-slate-500">Te toca cubrir</span><b id="cierreNecesito" class="text-slate-800">S/ 0</b></div>
+              <div class="flex items-center justify-between gap-2"><span class="text-slate-700 font-semibold">Te falta juntar</span><b id="cierreFalta" class="text-brand-red">S/ 0</b></div>
+            </div>
+            <div id="cierreEscenarios" class="mt-3 pt-2 border-t border-slate-100 space-y-2"></div>
+            <div id="cierreAvisos" class="mt-2 space-y-1"></div>
+            <p id="cierreGustos" class="hidden text-xs font-semibold mt-2"></p>
+          </section>
+
           <!-- A tu ritmo: si con el promedio de lo que viene haciendo le alcanza -->
           <section class="card fade-in bg-white border border-slate-100 py-3">
             <p class="eyebrow text-slate-600"><i class="fa-solid fa-gauge-high"></i> A TU RITMO</p>
@@ -459,7 +474,7 @@
         <div id="financeTabMetas" class="finance-tab-panel hidden space-y-4">
           <section class="card bg-brand-green/5 border border-brand-green/20 py-3">
             <p class="eyebrow text-brand-green"><i class="fa-solid fa-bullseye"></i> TUS METAS</p>
-            <p class="text-xs text-slate-500 mt-1">Se calculan solas: es lo que te falta juntar para cubrir todo lo que tienes que pagar de hoy hasta la fecha que elijas. Baja sola cada vez que anotas un ingreso.</p>
+            <p class="text-xs text-slate-500 mt-1">Se calculan solas: es lo que te falta juntar para cubrir todo lo que tienes que pagar de hoy hasta la fecha que elijas. Lo que falta baja con cada ingreso; la meta de HOY no se achica, porque lo que ganas hoy cuenta como avance.</p>
 
             <div class="flex gap-1 mt-3">
               <button data-meta-rango="mes" class="meta-rango-btn flex-1 text-xs rounded-lg px-2 py-2 border transition-all active:scale-95">Fin de mes</button>
@@ -502,8 +517,20 @@
               <p class="pt-1">Ya tienes: <span id="metaAutoTengo" class="font-semibold text-emerald-700">S/ 0</span></p>
               <p class="text-base font-bold pt-1">Te falta: <span id="metaAutoFalta" class="text-brand-green">S/ 0</span></p>
               <p class="text-xs text-slate-500">Repartido en los <span id="metaAutoDias" class="font-semibold">0</span> días que quedan.</p>
+              <p id="metaAutoHoyNota" class="hidden text-xs text-slate-500"></p>
               <p id="metaAutoPorCobrar" class="hidden text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded-lg px-2 py-1.5 mt-1"></p>
             </div>
+          </section>
+
+          <!-- Tu mínimo por día: un solo número que vale todos los meses -->
+          <section class="card bg-white border border-slate-100 py-3">
+            <p class="eyebrow text-slate-600"><i class="fa-solid fa-person-running"></i> TU MÍNIMO POR DÍA</p>
+            <p class="text-xs text-slate-500 mt-1 mb-2">Lo mínimo que te propones hacer cada día de trabajo. Con esto te digo cómo cerrarías el mes y cuánto puedes gastar en gustos (en Inicio y en el mensaje de las 7am). Vale para todos los meses; pon 0 para no usarlo.</p>
+            <div class="flex gap-2">
+              <input id="minimoDiarioInput" type="number" inputmode="decimal" min="0" step="any" placeholder="S/" class="flex-1 min-w-0 bg-white rounded-xl px-3 py-2 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-green/40" />
+              <button id="minimoDiarioBtn" class="shrink-0 rounded-xl px-4 py-2 text-sm font-semibold bg-brand-green text-white active:scale-95 transition-all">Guardar</button>
+            </div>
+            <p id="minimoDiarioMsg" class="hidden text-xs mt-2"></p>
           </section>
 
           <section>
