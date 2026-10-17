@@ -247,24 +247,40 @@ function soloLetras(s) {
 }
 
 // Distancia de la frase contra el pedazo que más se le parezca del mensaje:
-// empezar y terminar en cualquier lado del mensaje sale gratis.
+// empezar y terminar en cualquier lado del mensaje sale gratis. Además dice
+// dónde está ese pedazo (desde/hasta), para poder ver qué palabras toca.
 function distanciaComoSubcadena(texto, frase) {
   const n = texto.length;
   const m = frase.length;
-  if (m === 0) return 0;
+  if (m === 0) return { distancia: 0, desde: 0, hasta: 0 };
   let fila = new Array(m + 1);
+  let inicio = new Array(m + 1).fill(0); // dónde arrancó cada camino
   for (let j = 0; j <= m; j++) fila[j] = j;
-  let mejor = fila[m];
+  let mejor = { distancia: fila[m], desde: 0, hasta: 0 };
   for (let i = 1; i <= n; i++) {
     const nueva = new Array(m + 1);
+    const nuevoInicio = new Array(m + 1);
     nueva[0] = 0; // arrancar en cualquier punto del mensaje no cuesta
+    nuevoInicio[0] = i;
     for (let j = 1; j <= m; j++) {
       const costo = texto[i - 1] === frase[j - 1] ? 0 : 1;
-      nueva[j] = Math.min(fila[j] + 1, nueva[j - 1] + 1, fila[j - 1] + costo);
+      let d = fila[j - 1] + costo;
+      let desde = inicio[j - 1];
+      if (fila[j] + 1 < d) {
+        d = fila[j] + 1;
+        desde = inicio[j];
+      }
+      if (nueva[j - 1] + 1 < d) {
+        d = nueva[j - 1] + 1;
+        desde = nuevoInicio[j - 1];
+      }
+      nueva[j] = d;
+      nuevoInicio[j] = desde;
     }
-    if (nueva[m] < mejor) mejor = nueva[m];
-    if (mejor === 0) return 0;
+    if (nueva[m] < mejor.distancia) mejor = { distancia: nueva[m], desde: nuevoInicio[m], hasta: i };
+    if (mejor.distancia === 0) return mejor;
     fila = nueva;
+    inicio = nuevoInicio;
   }
   return mejor;
 }
@@ -277,12 +293,114 @@ const MAX_LETRAS_MENSAJE = 600; // tope de trabajo; nadie esconde un pedido en u
 function pareceLaFrasePegada(text, frase) {
   const frasePegada = soloLetras(frase);
   if (frasePegada.length < MIN_LETRAS_FRASE_PEGADA) return false;
-  const textoPegado = soloLetras(text).slice(0, MAX_LETRAS_MENSAJE);
+
+  // Se pega el mensaje recordando de qué palabra salió cada letra.
+  const palabrasMensaje = normalizeText(String(text || "")).split(/[^a-z0-9]+/).filter(Boolean);
+  let textoPegado = "";
+  const deQuePalabra = [];
+  palabrasMensaje.forEach((p, k) => {
+    textoPegado += p;
+    for (let c = 0; c < p.length; c++) deQuePalabra.push(k);
+  });
+  textoPegado = textoPegado.slice(0, MAX_LETRAS_MENSAJE);
   if (!textoPegado) return false;
 
-  // Hasta un 15% de letras de diferencia, y nunca más de 4.
-  const tope = Math.min(4, Math.max(1, Math.floor(frasePegada.length * 0.15)));
-  return distanciaComoSubcadena(textoPegado, frasePegada) <= tope;
+  const { distancia, desde, hasta } = distanciaComoSubcadena(textoPegado, frasePegada);
+
+  // Hasta un 15% de letras de diferencia, y nunca más de 4... pero solo si de
+  // verdad movieron los espacios. Si el pedazo que se parece tiene las mismas
+  // palabras que la frase, los espacios están donde van: lo distinto es una
+  // palabra CAMBIADA, no pegada. Ahí se perdona una sola letra.
+  //
+  // Sin esto, con los espacios bien puestos pasaban frases que no son el
+  // pedido: "Pendiente / Cobro de cliente", "Recibo de cliente", "Reclamo de
+  // cliente" (todas a 2 o 3 letras de las de verdad).
+  const palabrasDelPedazo = new Set(deQuePalabra.slice(desde, hasta)).size;
+  const palabrasDeLaFrase = normalizeText(frase).split(/[^a-z0-9]+/).filter(Boolean).length;
+  const espaciosEnSuLugar = palabrasDelPedazo === palabrasDeLaFrase;
+  const tope = espaciosEnSuLugar ? 1 : Math.min(4, Math.max(1, Math.floor(frasePegada.length * 0.15)));
+  return distancia <= tope;
+}
+
+// ---------- Una palabra mal tecleada ----------
+// Lo que todavía se escapaba: "Pendiente / Conrpw de cliente". En "Conrpw" hay
+// tres cambios en una palabra de seis letras (n por m, la r y la p al revés,
+// w por a): demasiados para las reglas de arriba. Pero no son cambios
+// cualquiera, son los que salen escribiendo apurado en el celular: una tecla
+// VECINA en vez de la correcta, o dos letras al revés.
+//
+// Así que acá se acepta UNA palabra con hasta la mitad de sus letras
+// cambiadas, siempre que cada cambio sea de esos (o un número que imita una
+// letra: 0 por o, 3 por e). Una tecla lejana no vale: por eso "recibo" no
+// pasa por "recojo" (la b y la j están lejos) ni "cambio" por "compra".
+//
+// Y solo para la palabra del MEDIO de una frase de tres palabras o más, con
+// las de las puntas bien escritas: en REPORTES, "pendiente" y "cliente"
+// tienen que estar. La central también escribe "Pendiente / Cantones",
+// "Pendiente / Borgo"... y esos no traen "cliente", así que no responden.
+const FILAS_TECLADO = ["qwertyuiop", "asdfghjkl", "zxcvbnm"];
+const PARECIDOS_NUMERO = ["0o", "1i", "1l", "3e", "4a", "5s", "7t"];
+
+const TECLAS_VECINAS = (() => {
+  const vecinas = {};
+  const unir = (a, b) => {
+    if (!a || !b) return;
+    (vecinas[a] = vecinas[a] || new Set()).add(b);
+    (vecinas[b] = vecinas[b] || new Set()).add(a);
+  };
+  FILAS_TECLADO.forEach((fila, f) => {
+    const abajo = FILAS_TECLADO[f + 1];
+    for (let i = 0; i < fila.length; i++) {
+      unir(fila[i], fila[i + 1]);
+      // La fila de abajo está corrida media tecla: la "a" toca a la "q" y a la
+      // "w"; la "n", a la "h" y a la "j".
+      if (abajo) {
+        unir(fila[i], abajo[i - 1]);
+        unir(fila[i], abajo[i]);
+      }
+    }
+  });
+  PARECIDOS_NUMERO.forEach(([a, b]) => unir(a, b));
+  return vecinas;
+})();
+
+// Cuántos "errores de dedo" separan dos palabras del mismo largo (tecla
+// vecina o dos letras al revés). Infinity si hay un cambio que no es de esos.
+function erroresDeDedo(a, b) {
+  if (a.length !== b.length) return Infinity;
+  const d = new Array(a.length + 1).fill(Infinity);
+  d[0] = 0;
+  for (let i = 1; i <= a.length; i++) {
+    const x = a[i - 1];
+    const y = b[i - 1];
+    const costo = x === y ? 0 : TECLAS_VECINAS[x]?.has(y) ? 1 : Infinity;
+    d[i] = d[i - 1] + costo;
+    if (i > 1 && x === b[i - 2] && a[i - 2] === y) d[i] = Math.min(d[i], d[i - 2] + 1);
+  }
+  return d[a.length];
+}
+
+function esPalabraMalTecleada(palabraMensaje, palabraFrase) {
+  if (palabraFrase.length < 5) return false; // en palabras cortas, la mitad es nada
+  return erroresDeDedo(palabraMensaje, palabraFrase) <= Math.floor(palabraFrase.length / 2);
+}
+
+function soloFaltaLaDelMedio(palabrasFrase, palabrasMensaje) {
+  if (palabrasFrase.length < 3) return false;
+  const faltan = [];
+  palabrasFrase.forEach((pf, i) => {
+    if (!palabrasMensaje.some((pm) => palabraSeParece(pm, pf))) faltan.push(i);
+  });
+  if (faltan.length !== 1) return false;
+  const i = faltan[0];
+  if (i === 0 || i === palabrasFrase.length - 1) return false;
+  const falta = palabrasFrase[i];
+  return palabrasMensaje.some(
+    (pm) =>
+      esPalabraMalTecleada(pm, falta) &&
+      // Que no sea una de las palabras que ya cuentan por otra.
+      !palabrasFrase.some((otra, k) => k !== i && palabraSeParece(pm, otra))
+  );
 }
 
 function matchPorPalabrasFlexible(text, frase) {
@@ -293,6 +411,9 @@ function matchPorPalabrasFlexible(text, frase) {
 
   const estanTodas = palabrasFrase.every((pf) => palabrasMensaje.some((pm) => palabraSeParece(pm, pf)));
   if (estanTodas) return { keyword: frase, index: 0, length: 0 };
+
+  // Todas menos la del medio, y esa con errores de dedo: "Conrpw" por "Compra".
+  if (soloFaltaLaDelMedio(palabrasFrase, palabrasMensaje)) return { keyword: frase, index: 0, length: 0 };
 
   // No estaban todas las palabras: puede ser que hayan movido los espacios.
   if (pareceLaFrasePegada(text, frase)) return { keyword: frase, index: 0, length: 0 };
