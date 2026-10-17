@@ -3156,16 +3156,17 @@ function renderMetasAutomaticas(m) {
   pintarRangoActivo();
   pintarConteoLibres(m);
 
-  // Los vencidos sin marcar NO suman a la meta (su efectivo de hoy ya
-  // refleja lo que pago). Pero se avisan para que no se le pasen.
+  // Los vencidos sin marcar SÍ suman a la meta: si no los pagó, los sigue
+  // debiendo. Se avisan igual, por si ya los pagó y le falta marcarlos.
   const atrasados = (m.detalle.atrasados && m.detalle.atrasados.items) || [];
   metaAutoAtrasados.classList.toggle("hidden", atrasados.length === 0);
   if (atrasados.length > 0) {
     const nombres = atrasados.map((p) => p.label).join(", ");
-    const plural = atrasados.length > 1 ? "s" : "";
+    const varios = atrasados.length > 1;
     metaAutoAtrasadosTxt.textContent =
-      atrasados.length + " pago" + plural + " con fecha ya vencida sin marcar como pagado (" + nombres + ", " +
-      formatSoles(m.detalle.atrasados.total) + "). No se cuentan en tu meta. Si de verdad no los pagaste, márcalos en Pendientes.";
+      atrasados.length + " pago" + (varios ? "s" : "") + " con fecha ya vencida sin marcar como pagado (" + nombres + ", " +
+      formatSoles(m.detalle.atrasados.total) + "). Ya " + (varios ? "están sumados" : "está sumado") +
+      " en tu meta. Si ya " + (varios ? "los" : "lo") + " pagaste, toca \"Ya pagué\" en Pendientes y tu meta baja.";
   }
 
   // Lo que le deben no entra en la cuenta, pero se avisa: si lo cobra,
@@ -3179,8 +3180,10 @@ function renderMetasAutomaticas(m) {
 
   metaAutoDesglose.innerHTML = "";
   [
+    ["Pagos atrasados", (m.detalle.atrasados && m.detalle.atrasados.total) || 0],
     ["Pendientes por pagar", m.detalle.pendientes.total],
     ["Gastos programados", m.detalle.programados.total],
+    ["Préstamos por devolver", (m.detalle.prestamos && m.detalle.prestamos.total) || 0],
     ["Tu meta de ahorro", m.detalle.ahorro.total],
   ]
     .filter(([, monto]) => monto > 0)
@@ -3410,6 +3413,10 @@ function renderGoalProgress(data) {
         const nombre = document.createElement("span");
         nombre.className = "text-slate-600";
         nombre.textContent = d.fecha ? `${d.label} · ${d.fecha.slice(8, 10)}/${d.fecha.slice(5, 7)}` : d.veces > 1 ? `${d.label} (x${d.veces})` : d.label;
+        if (d.atrasado) {
+          nombre.textContent += " · atrasado";
+          nombre.className = "text-brand-red";
+        }
         const monto = document.createElement("span");
         monto.className = "font-semibold text-slate-700";
         monto.textContent = formatSoles(d.subtotal);
@@ -5071,12 +5078,27 @@ function pintarConteoLibres(m) {
 const resumenMetaDia = document.getElementById("resumenMetaDia");
 const resumenMetaBarra = document.getElementById("resumenMetaBarra");
 const resumenMetaTexto = document.getElementById("resumenMetaTexto");
+const resumenMetaAtrasados = document.getElementById("resumenMetaAtrasados");
 
 function pintarMetaEnResumen(data) {
   if (!resumenMetaDia || !data) return;
   const m = data.automaticas;
   const ganadoHoy = (data.diaria && data.diaria.actual) || 0;
   if (!m) return;
+
+  // Lo vencido sin pagar ya está sumado en la meta: se dice, para que se
+  // entienda por qué subió y qué hacer si ya lo pagó.
+  if (resumenMetaAtrasados) {
+    const atrasados = (m.detalle && m.detalle.atrasados && m.detalle.atrasados.items) || [];
+    resumenMetaAtrasados.classList.toggle("hidden", atrasados.length === 0 || m.cubierto);
+    if (atrasados.length > 0) {
+      const varios = atrasados.length > 1;
+      resumenMetaAtrasados.textContent =
+        "⚠️ Incluye " + formatSoles(m.detalle.atrasados.total) + " de pago" + (varios ? "s" : "") + " atrasado" +
+        (varios ? "s" : "") + " (" + atrasados.map((p) => p.label).join(", ") + "). Si ya " + (varios ? "los" : "lo") +
+        " pagaste, toca \"Ya pagué\" en Pendientes.";
+    }
+  }
 
   if (m.cubierto) {
     resumenMetaDia.textContent = "Listo";
@@ -5202,7 +5224,7 @@ const GUIA = [
           ["Efectivo esperado", "Lo que deberías tener en la mano ahora. Es la caja inicial más lo que ganaste hoy menos lo que gastaste."],
           ["Caja inicial", "Con cuánto empezaste el día. Sale del cierre del día anterior."],
           ["Ganaste hoy / Gastaste hoy", "Solo del día en curso. El día corre de 7am a 7am, así que lo que anotes a la 1am cuenta para el día anterior."],
-          ["Tu meta de hoy", "Cuánto necesitas hacer hoy para cubrir todo lo que tienes que pagar. Baja sola cuando entra plata."],
+          ["Tu meta de hoy", "Cuánto necesitas hacer hoy para cubrir todo lo que tienes que pagar, incluso lo que ya se venció y no pagaste. Baja sola cuando entra plata."],
           ["Te deben", "Lo que otros te deben a ti. No es plata en mano, por eso va aparte."],
           ["Faltantes", "Todo lo que se ha perdido al cuadrar la caja, sumado."],
           ["Guardas de otros", "Plata que te dejaron a guardar. No es tuya y no entra a tu caja."],

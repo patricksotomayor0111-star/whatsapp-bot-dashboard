@@ -67,11 +67,13 @@ function calcular(hastaPedido) {
   const tengo = hoy.esperado || 0;
 
   // 2. Lo que tengo que gastar de HOY hasta la fecha limite.
-  //    Solo cuenta lo que vence dentro del periodo. Lo que quedo con
-  //    fecha vieja sin marcar como pagado NO entra: el efectivo que tiene
-  //    hoy ya refleja lo que pago antes, asi que sumarlo seria pedirle la
-  //    misma plata dos veces. Se devuelve aparte para poder avisarle, que
-  //    es distinto de ignorarlo en silencio.
+  //    Lo que vence dentro del periodo, y TAMBIEN lo que quedo con fecha
+  //    vieja sin marcar como pagado: si no lo pago, lo sigue debiendo.
+  //    Antes eso quedaba afuera (por si lo habia pagado y no lo marco), y
+  //    la meta salia mas baja que la real: la Junta del lunes vencida y sin
+  //    pagar no se pedia en ningun lado. Si ya lo pago, lo marca y la meta
+  //    baja sola; si se olvida de marcarlo, la meta pide de mas, que es el
+  //    lado seguro para equivocarse.
   const todosLosPagos = reminders.getPagosEnRango(offset);
   const pagos = todosLosPagos.filter((p) => !p.fecha || p.fecha >= hoyLabel);
   const atrasados = todosLosPagos.filter((p) => p.fecha && p.fecha < hoyLabel);
@@ -109,7 +111,7 @@ function calcular(hastaPedido) {
   const prestamos = require("./prestamos");
   const devolver = prestamos.aDevolverEn(hoyLabel, hasta);
 
-  const necesito = pendientes + programados + ahorro + devolver.total;
+  const necesito = pendientes + atrasadosTotal + programados + ahorro + devolver.total;
   const falta = Math.max(necesito - tengo, 0);
 
   // 3. Repartirlo en los dias que VA A TRABAJAR, no en todos los del
@@ -216,7 +218,7 @@ function calcular(hastaPedido) {
       porCobrar: { total: r2(porCobrar), items: porCobrarLista },
       ahorro: { total: r2(ahorro) },
       prestamos: { total: r2(devolver.total), items: devolver.detalle },
-      // No suman a la meta; solo para avisarle que los revise.
+      // Ya vencidos y sin marcar como pagados: SI suman a la meta.
       atrasados: { total: r2(atrasadosTotal), items: atrasados },
     },
   };

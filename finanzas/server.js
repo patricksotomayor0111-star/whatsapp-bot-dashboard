@@ -1594,9 +1594,13 @@ app.get("/api/finance/goals/progress", (req, res) => {
     ahorro: goals.ahorro,
     proyeccion: { finDeMes: proyeccionFinDeMes },
     mesAnterior,
+    // Lo atrasado va primero: es lo que ya se tendría que haber pagado.
     compromisos: {
-      total: metas.detalle.pendientes.total,
-      detalle: metas.detalle.pendientes.items.map((p) => ({ ...p, subtotal: p.monto })),
+      total: Math.round((metas.detalle.pendientes.total + metas.detalle.atrasados.total) * 100) / 100,
+      detalle: [
+        ...metas.detalle.atrasados.items.map((p) => ({ ...p, subtotal: p.monto, atrasado: true })),
+        ...metas.detalle.pendientes.items.map((p) => ({ ...p, subtotal: p.monto })),
+      ],
       necesidadTotal: metas.necesito,
       necesidadFaltante: metas.falta,
       metaDiariaReal: metas.diaria,
