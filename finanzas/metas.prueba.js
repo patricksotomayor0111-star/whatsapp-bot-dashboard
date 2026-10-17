@@ -80,6 +80,29 @@ correrComo("prueba", () => {
   r = metas.calcular("");
   ok(r.diasHabiles >= 1, "con todo marcado libre no divide entre cero");
   ok(Number.isFinite(r.diaria), "y la meta sigue siendo un número");
+  diasLibres.setSemanales([]);
+
+  // ---------- Lo vencido y sin pagar SÍ cuenta ----------
+  // El caso real: la Junta (S/ 100 cada lunes) vencida el lunes y sin
+  // pagar no se pedía en ningún lado. Si no la pagó, la sigue debiendo.
+  const reminders = require("./reminders");
+  const antes = metas.calcular("");
+  const ayerDow = businessDay.ymdToUtc(ayer).getUTCDay();
+  const junta = reminders.addReminder({ label: "Junta", monto: 100, tipo: "semanal", dia: ayerDow });
+  r = metas.calcular("");
+  const atrasada = r.detalle.atrasados.items.find((p) => p.id === junta);
+  ok(atrasada && atrasada.fecha === ayer, "la Junta de ayer, sin pagar, sale como atrasada");
+  ok(r.detalle.atrasados.total >= 100, "con su monto");
+  // Ayer + los lunes que quedan hasta fin de mes.
+  const proximas = r.detalle.pendientes.items.filter((p) => p.id === junta).length;
+  ok(Math.abs(r.necesito - antes.necesito - 100 * (1 + proximas)) < 0.01, "y SÍ suma a lo que necesitas (la atrasada y las que vienen)");
+  ok(r.diaria >= antes.diaria, "así que la meta de hoy sube");
+
+  // Marcarla como pagada la saca de la cuenta: la meta baja sola.
+  reminders.marcarPagado(junta, { monto: 100, origen: "panel" });
+  r = metas.calcular("");
+  ok(!r.detalle.atrasados.items.some((p) => p.id === junta), "al tocar \"Ya pagué\" deja de estar atrasada");
+  ok(Math.abs(r.necesito - antes.necesito - 100 * proximas) < 0.01, "y ya no la pide: solo quedan las que vienen");
 });
 
 fs.rmSync(CARPETA, { recursive: true, force: true });
