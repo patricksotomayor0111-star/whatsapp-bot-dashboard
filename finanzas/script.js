@@ -46,10 +46,21 @@ function formatSoles(n) {
 
 let esperadoActual = 0;
 
+// Lo que se anota por WhatsApp entra sin tocar el panel: la caja se pide
+// cada 15 segundos, y si cambió algo se recalculan también las metas y el
+// cierre del mes. Antes la caja cambiaba pero la meta de hoy no, hasta que
+// tocabas algo en el panel.
+let ultimaCajaVista = null;
+
 async function fetchCashboxToday() {
   try {
     const res = await fetch("/api/cashbox/today");
     const data = await res.json();
+    const firma = [data.esperado, data.ganancias, data.gastos, data.caja].join("|");
+    if (ultimaCajaVista !== null && firma !== ultimaCajaVista && typeof fetchGoalsAndProgress === "function") {
+      fetchGoalsAndProgress();
+    }
+    ultimaCajaVista = firma;
     esperadoActual = data.esperado || 0;
     statGanancias.textContent = formatSoles(data.ganancias);
     statGastos.textContent = "-" + formatSoles(data.gastos);
@@ -671,7 +682,12 @@ async function fetchReminderBadge() {
   try {
     const res = await fetch("/api/reminders");
     const data = await res.json();
+    const antes = pendientesPorPagar;
     pendientesPorPagar = (data.pendientes || []).length;
+    // Un pago marcado desde WhatsApp cambia la meta aunque la caja no se mueva.
+    if (antes !== null && antes !== undefined && antes !== pendientesPorPagar && typeof fetchGoalsAndProgress === "function") {
+      fetchGoalsAndProgress();
+    }
     actualizarBadges(pendientesPorPagar);
     if (typeof pintarBottomNav === "function") pintarBottomNav();
   } catch (err) {
@@ -3117,6 +3133,9 @@ async function fetchGoalsAndProgress() {
 let ahorroEditando = false;
 function renderGoalInputs(goals) {
   const plan = goals.ahorro || {};
+  if (minimoDiarioInput && !minimoEditando && goals.automaticas) {
+    minimoDiarioInput.value = goals.automaticas.minimoDiario > 0 ? goals.automaticas.minimoDiario : "";
+  }
   if (ahorroEditando) return;
   ahorroMontoInput.value = plan.monto || "";
   ahorroPlanDesde.value = plan.desde || "";
@@ -3126,6 +3145,45 @@ function renderGoalInputs(goals) {
 [ahorroMontoInput, ahorroPlanDesde, ahorroPlanHasta].forEach((el) => {
   if (el) el.addEventListener("input", () => { ahorroEditando = true; });
 });
+
+// ---------- Tu mínimo por día ----------
+const minimoDiarioInput = document.getElementById("minimoDiarioInput");
+const minimoDiarioBtn = document.getElementById("minimoDiarioBtn");
+const minimoDiarioMsg = document.getElementById("minimoDiarioMsg");
+let minimoEditando = false;
+if (minimoDiarioInput) minimoDiarioInput.addEventListener("input", () => { minimoEditando = true; });
+
+if (minimoDiarioBtn) {
+  minimoDiarioBtn.addEventListener("click", async () => {
+    const valor = minimoDiarioInput.value.trim();
+    const monto = valor === "" ? 0 : parseFloat(valor);
+    minimoDiarioMsg.classList.remove("hidden");
+    if (!Number.isFinite(monto) || monto < 0) {
+      minimoDiarioMsg.className = "text-xs mt-2 text-brand-red";
+      minimoDiarioMsg.textContent = "Escribe un monto (o 0 para no usar ninguno).";
+      return;
+    }
+    minimoDiarioBtn.disabled = true;
+    try {
+      const res = await fetch("/api/finance/minimo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ monto }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "No se pudo guardar.");
+      minimoEditando = false;
+      minimoDiarioMsg.className = "text-xs mt-2 text-emerald-700";
+      minimoDiarioMsg.textContent =
+        d.minimo > 0 ? "Guardado: tu mínimo es " + formatSoles(d.minimo) + " por día." : "Listo: ya no se usa ningún mínimo.";
+      fetchGoalsAndProgress();
+    } catch (err) {
+      minimoDiarioMsg.className = "text-xs mt-2 text-brand-red";
+      minimoDiarioMsg.textContent = err.message;
+    }
+    minimoDiarioBtn.disabled = false;
+  });
+}
 
 // Las tres metas y el desglose de donde sale el numero. Todo viene ya
 // calculado del servidor para que el panel y el bot digan lo mismo.
@@ -3145,6 +3203,19 @@ function renderMetasAutomaticas(m) {
   const habiles = m.diasHabiles || m.diasRestantes;
   metaAutoDias.textContent =
     habiles === m.diasRestantes ? m.diasRestantes : habiles + " que trabajas, de " + m.diasRestantes;
+  // "Te falta" ya descuenta lo de hoy; la meta de HOY no, porque lo de hoy
+  // es avance de esa meta. Se aclara para que los dos números no choquen.
+  const metaAutoHoyNota = document.getElementById("metaAutoHoyNota");
+  if (metaAutoHoyNota) {
+    const h = m.hoy;
+    const mostrar = h && !h.esLibre && h.ganado > 0;
+    metaAutoHoyNota.classList.toggle("hidden", !mostrar);
+    if (mostrar) {
+      metaAutoHoyNota.textContent =
+        "Ya descontado lo que hiciste hoy (" + formatSoles(h.ganado) + "), que cuenta como avance de tu meta de hoy de " +
+        formatSoles(h.meta) + ".";
+    }
+  }
 
   // El hoy viene del servidor: el reloj del celular puede estar corrido.
   metaHoyLabel = m.desde;
@@ -3306,6 +3377,7 @@ if (ahorroHasta) ahorroHasta.addEventListener("change", cargarAhorroRango);
 function renderGoalProgress(data) {
   renderMetasAutomaticas(data.automaticas);
   pintarMetaEnResumen(data);
+  pintarCierre(data);
   pintarRitmo(data);
   goalProgressList.innerHTML = "";
   // Una sola barra: cuanto de lo que necesita ya tiene cubierto.
@@ -5129,6 +5201,8 @@ function pintarMetaEnResumen(data) {
   resumenMetaDia.textContent = formatSoles(m.diaria);
   resumenMetaDia.className = "text-lg font-extrabold text-brand-green leading-none";
   const pct = m.diaria > 0 ? Math.min(Math.max(ganadoHoy / m.diaria, 0), 1) : 0;
+  // (m.diaria es la meta de hoy tal como era al empezar el día: lo que vas
+  // ganando es avance y no la achica. Ver metasAutomaticas.js.)
   resumenMetaBarra.style.width = Math.round(pct * 100) + "%";
   resumenMetaBarra.className =
     "h-full transition-all duration-500 " + (pct >= 1 ? "bg-emerald-500" : "bg-brand-green");
@@ -5138,6 +5212,135 @@ function pintarMetaEnResumen(data) {
     falta <= 0
       ? "Ya hiciste tu meta de hoy. Llevas " + formatSoles(ganadoHoy) + "."
       : "Llevas " + formatSoles(ganadoHoy) + ". Te faltan " + formatSoles(falta) + " para la meta de hoy.";
+}
+
+// ---------- Para cerrar el mes tranquilo ----------
+// Lo mismo que dice el mensaje de las 7am, pero en vivo: tres caminos lado a
+// lado (lo justo, tu mínimo y tu ritmo), lo atrasado, lo que vence hoy y
+// cuánto puedes gastar en gustos. Todo viene calculado del servidor.
+const cierreCard = document.getElementById("cierreCard");
+const cierreTitulo = document.getElementById("cierreTitulo");
+const cierreSub = document.getElementById("cierreSub");
+const cierreTengo = document.getElementById("cierreTengo");
+const cierreNecesito = document.getElementById("cierreNecesito");
+const cierreFalta = document.getElementById("cierreFalta");
+const cierreEscenarios = document.getElementById("cierreEscenarios");
+const cierreAvisos = document.getElementById("cierreAvisos");
+const cierreGustos = document.getElementById("cierreGustos");
+const NOMBRE_MES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "setiembre", "octubre", "noviembre", "diciembre"];
+
+function filaEscenario(icono, titulo, porDia, resultado, claseResultado) {
+  const fila = document.createElement("div");
+  fila.className = "flex items-start justify-between gap-2 text-xs";
+  const izq = document.createElement("div");
+  izq.className = "min-w-0";
+  const t = document.createElement("p");
+  t.className = "font-semibold text-slate-700";
+  t.textContent = icono + " " + titulo;
+  izq.appendChild(t);
+  if (porDia) {
+    const sub = document.createElement("p");
+    sub.className = "text-[11px] text-slate-400";
+    sub.textContent = porDia;
+    izq.appendChild(sub);
+  }
+  const der = document.createElement("p");
+  der.className = "shrink-0 text-right font-bold " + claseResultado;
+  der.textContent = resultado;
+  fila.appendChild(izq);
+  fila.appendChild(der);
+  return fila;
+}
+
+function textoSobra(sobra) {
+  return sobra >= 0 ? "te sobran " + formatSoles(sobra) : "te faltan " + formatSoles(Math.abs(sobra));
+}
+
+function pintarCierre(data) {
+  if (!cierreCard || !data || !data.automaticas || !data.automaticas.escenarios) return;
+  const m = data.automaticas;
+  cierreCard.classList.remove("hidden");
+
+  const mes = NOMBRE_MES[Number(m.hasta.slice(5, 7)) - 1] || "el mes";
+  cierreTitulo.textContent = m.esFinDeMes
+    ? "PARA CERRAR " + mes.toUpperCase() + " TRANQUILO"
+    : "PARA LLEGAR TRANQUILO AL " + ddmm(m.hasta);
+  cierreSub.textContent =
+    m.diasHabiles + (m.diasHabiles === 1 ? " día" : " días") + " de trabajo de hoy al " + ddmm(m.hasta) +
+    ". Cambia solo con cada ingreso o gasto.";
+  cierreTengo.textContent = formatSoles(m.tengo);
+  cierreNecesito.textContent = formatSoles(m.necesito);
+  cierreFalta.textContent = formatSoles(m.falta);
+  cierreFalta.className = m.falta > 0 ? "text-brand-red" : "text-emerald-600";
+
+  const e = m.escenarios;
+  cierreEscenarios.innerHTML = "";
+  if (m.cubierto) {
+    cierreEscenarios.appendChild(filaEscenario("✅", "Ya tienes todo cubierto", "", "listo", "text-emerald-600"));
+  } else {
+    cierreEscenarios.appendChild(
+      filaEscenario("🎯", "Lo justo", formatSoles(e.justo.porDia) + " por día", "sin sobrar nada", "text-slate-500")
+    );
+  }
+  if (e.minimo) {
+    cierreEscenarios.appendChild(
+      filaEscenario(
+        "💪",
+        "Tu mínimo",
+        formatSoles(e.minimo.porDia) + " por día" + (e.minimo.alcanza ? "" : " · necesitas al menos " + formatSoles(e.justo.porDia)),
+        textoSobra(e.minimo.sobra),
+        e.minimo.alcanza ? "text-emerald-600" : "text-brand-red"
+      )
+    );
+  } else {
+    cierreEscenarios.appendChild(filaEscenario("💪", "Tu mínimo", "Ponlo en Plan → Tu mínimo por día", "—", "text-slate-300"));
+  }
+  if (e.ritmo) {
+    cierreEscenarios.appendChild(
+      filaEscenario(
+        "📈",
+        "A tu ritmo",
+        formatSoles(e.ritmo.porDia) + " por día",
+        textoSobra(e.ritmo.sobra),
+        e.ritmo.alcanza ? "text-emerald-600" : "text-brand-red"
+      )
+    );
+  }
+
+  cierreAvisos.innerHTML = "";
+  const aviso = (texto, clase) => {
+    const p = document.createElement("p");
+    p.className = "text-[11px] " + clase;
+    p.textContent = texto;
+    cierreAvisos.appendChild(p);
+  };
+  const atrasados = (m.detalle.atrasados && m.detalle.atrasados.items) || [];
+  if (atrasados.length <= 3) {
+    atrasados.forEach((p) =>
+      aviso("⚠️ Atrasado: " + p.label + " " + formatSoles(p.monto) + (p.fecha ? " (venció " + ddmm(p.fecha) + ")" : ""), "text-amber-700")
+    );
+  } else {
+    aviso(
+      "⚠️ " + atrasados.length + " pagos atrasados por " + formatSoles(m.detalle.atrasados.total) + ": " +
+        atrasados.slice(0, 3).map((p) => p.label).join(", ") + " y " + (atrasados.length - 3) + " más",
+      "text-amber-700"
+    );
+  }
+  ((m.detalle.vencenHoy && m.detalle.vencenHoy.items) || []).forEach((p) =>
+    aviso("📌 Hoy vence: " + p.label + " " + formatSoles(p.monto), "text-slate-600")
+  );
+
+  cierreGustos.classList.toggle("hidden", !e.minimo);
+  if (e.minimo) {
+    if (m.gustosPorDia > 0) {
+      cierreGustos.className = "text-xs font-semibold mt-2 text-emerald-700";
+      cierreGustos.textContent =
+        "💸 Si haces tu mínimo, puedes darte gustos de hasta " + formatSoles(m.gustosPorDia) + " por día sin afectar nada.";
+    } else {
+      cierreGustos.className = "text-xs font-semibold mt-2 text-amber-700";
+      cierreGustos.textContent = "💸 Por ahora no hay margen para gustos: lo que hagas va a lo que tienes que pagar.";
+    }
+  }
 }
 
 // ---------- Guía: el manual de la app ----------
@@ -5224,7 +5427,8 @@ const GUIA = [
           ["Efectivo esperado", "Lo que deberías tener en la mano ahora. Es la caja inicial más lo que ganaste hoy menos lo que gastaste."],
           ["Caja inicial", "Con cuánto empezaste el día. Sale del cierre del día anterior."],
           ["Ganaste hoy / Gastaste hoy", "Solo del día en curso. El día corre de 7am a 7am, así que lo que anotes a la 1am cuenta para el día anterior."],
-          ["Tu meta de hoy", "Cuánto necesitas hacer hoy para cubrir todo lo que tienes que pagar, incluso lo que ya se venció y no pagaste. Baja sola cuando entra plata."],
+          ["Tu meta de hoy", "Cuánto necesitas hacer hoy para cubrir todo lo que tienes que pagar, incluso lo que ya se venció y no pagaste. Lo que ganas hoy cuenta como avance; si gastas algo de más, sube al toque."],
+          ["Para cerrar el mes tranquilo", "Lo que tienes, lo que te toca cubrir hasta fin de mes y tres caminos: lo justo, tu mínimo y tu ritmo. Te dice cuánto te sobraría y cuánto puedes gastar en gustos. Es lo mismo que el mensaje de las 7am, pero cambia solo con cada ingreso o gasto."],
           ["Te deben", "Lo que otros te deben a ti. No es plata en mano, por eso va aparte."],
           ["Faltantes", "Todo lo que se ha perdido al cuadrar la caja, sumado."],
           ["Guardas de otros", "Plata que te dejaron a guardar. No es tuya y no entra a tu caja."],
@@ -7224,7 +7428,7 @@ function pintarPlataDeVerdad(d) {
   if (!deVerdadCard || !d) return;
   // Si no le guardas plata a nadie y no debes nada, tu plata es tu plata
   // y la tarjeta solo estorbaría.
-  if (!d.deOtros && !d.prestado) {
+  if (!d.deOtros && !d.prestado && !d.tePusiste) {
     deVerdadCard.classList.add("hidden");
     return;
   }
@@ -7257,6 +7461,21 @@ function pintarPlataDeVerdad(d) {
   b.textContent = formatSoles(d.tuyo);
   total.appendChild(b);
   deVerdadLista.appendChild(total);
+
+  // Lo que pusiste de tu plata por otras personas: te lo deben, pero no
+  // está en tu mano, así que no suma a "tuyo de verdad".
+  if (d.tePusiste) {
+    const extra = document.createElement("div");
+    extra.className = "flex items-center justify-between gap-2 text-[11px] text-slate-400 pt-1";
+    const n = document.createElement("span");
+    n.textContent = "Pusiste de tu plata por otros (te lo deben, no suma)";
+    const v = document.createElement("span");
+    v.className = "shrink-0";
+    v.textContent = formatSoles(d.tePusiste);
+    extra.appendChild(n);
+    extra.appendChild(v);
+    deVerdadLista.appendChild(extra);
+  }
 
   deVerdadNota.textContent =
     d.tuyo < 0

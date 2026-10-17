@@ -19,7 +19,6 @@ const scheduledExpenses = require("./scheduledExpenses");
 const debts = require("./debts");
 const shortfalls = require("./shortfalls");
 const referenceAccounts = require("./referenceAccounts");
-const financeGoals = require("./financeGoals");
 const metasAutomaticas = require("./metasAutomaticas");
 const budgetCategories = require("./budgetCategories");
 const queryIntents = require("./queryIntents");
@@ -285,26 +284,82 @@ function formatearListaPagos(lista) {
   return lista.map((p) => `${p.label} (${p.fecha}): ${formatSoles(p.monto)}`).join("\n");
 }
 
-// "¿Voy bien?" no es "cuánto me queda para gastar" (gastar nunca ayuda a
-// cumplir una meta de ingreso). Se compara lo que ya se tiene más lo
-// proyectado a generar en lo que resta del mes, contra lo que de verdad
-// falta pagar (Pendientes reales, no todo el mes) más la meta de ahorro.
-// Compartido entre la consulta "gastarHoy" y el mensaje automático de las
-// 7am.
-function calcularMargenHoy() {
-  const hoy = cashbox.getToday();
-  const pendientes = reminders.getPendientes();
-  const pendientesTotal = pendientes.reduce((sum, p) => sum + p.monto, 0);
-  const goals = financeGoals.getGoals();
-  const mes = cashbox.getMonthSoFar();
-  const { diaActual, diasRestantes } = cashbox.getDiasDelMes();
+// "¿Voy bien?": lo que ya se tiene más lo que haría a su ritmo de aquí a
+// fin de mes, contra TODO lo que le toca cubrir hasta entonces. Es la misma
+// cuenta que la tarjeta "A tu ritmo" del panel (metasAutomaticas).
+//
+// Antes era otra cuenta aparte: solo restaba lo que vencía hoy o mañana (no
+// todo el mes) y le daba por gastable la plata que todavía no había ganado.
+// Así el mensaje de las 7am decía "puedes gastar hoy hasta S/ 697" en el
+// mismo texto que pedía S/ 110 por día.
+function calcularMargen() {
+  const metas = metasAutomaticas.calcular();
+  const ahorro = metas.detalle.ahorro.total || 0;
+  const margen = metas.escenarios.ritmo ? metas.escenarios.ritmo.sobra : metas.tengo - metas.necesito;
+  return { metas, ahorro, compromisos: Math.max(metas.necesito - ahorro, 0), margen };
+}
 
-  const promedioDiario = diaActual > 0 ? (mes.ganancias - mes.gastos) / diaActual : 0;
-  const gananciaProyectadaResto = promedioDiario * diasRestantes;
-  const recursos = hoy.esperado + gananciaProyectadaResto;
-  const necesidad = pendientesTotal + goals.ahorro.falta;
-  const margen = recursos - necesidad;
-  return { hoy, pendientesTotal, goals, margen };
+function diaDelMes(label) {
+  return Number(String(label || "").slice(8, 10)) || label;
+}
+
+const NOMBRE_MES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "setiembre", "octubre", "noviembre", "diciembre"];
+
+function ddmm(label) {
+  return label ? label.slice(8, 10) + "/" + label.slice(5, 7) : "";
+}
+
+// "Para cerrar el mes tranquilo", en texto de WhatsApp. Sale de la misma
+// cuenta que la tarjeta de Inicio, así el mensaje y el panel dicen lo mismo.
+function textoCierreMes(metas) {
+  const e = metas.escenarios;
+  const alDia = diaDelMes(metas.hasta);
+  const mes = NOMBRE_MES[Number(metas.hasta.slice(5, 7)) - 1] || "el mes";
+  const dias = metas.diasHabiles + (metas.diasHabiles === 1 ? " día" : " días") + " de trabajo";
+  const sobra = (n) => (n >= 0 ? `te sobran ${formatSoles(n)}` : `te faltan ${formatSoles(Math.abs(n))}`);
+
+  let t =
+    `📅 Para cerrar ${mes} tranquilo (${dias})\n` +
+    `💵 Tienes: ${formatSoles(metas.tengo)}\n` +
+    `🧾 Te toca cubrir: ${formatSoles(metas.necesito)}\n` +
+    (metas.cubierto ? `✅ Ya tienes todo cubierto hasta el ${alDia}.\n` : `➖ Te falta juntar: ${formatSoles(metas.falta)}\n`);
+
+  t += "\n";
+  if (metas.hoy.esLibre) t += `😴 Hoy descansas: no hay meta de hoy.\n`;
+  if (!metas.cubierto) t += `🎯 Lo justo: ${formatSoles(e.justo.porDia)} por día → llegas al ${alDia} sin sobrar nada\n`;
+  if (e.minimo) {
+    t += `💪 Tu mínimo (${formatSoles(e.minimo.porDia)} por día) → ${sobra(e.minimo.sobra)} al ${alDia}`;
+    t += e.minimo.alcanza ? "\n" : `: necesitas al menos ${formatSoles(e.justo.porDia)}\n`;
+  }
+  if (e.ritmo) t += `📈 A tu ritmo (${formatSoles(e.ritmo.porDia)} por día) → ${sobra(e.ritmo.sobra)} al ${alDia}\n`;
+
+  const atrasados = metas.detalle.atrasados.items || [];
+  const hoyVence = (metas.detalle.vencenHoy && metas.detalle.vencenHoy.items) || [];
+  if (atrasados.length || hoyVence.length) {
+    t += "\n";
+    // Uno por línea si son pocos; si son muchos, en una sola para que el
+    // mensaje no se vuelva una lista interminable.
+    if (atrasados.length <= 3) {
+      atrasados.forEach((p) => {
+        t += `⚠️ Atrasado: ${p.label} ${formatSoles(p.monto)}${p.fecha ? ` (venció ${ddmm(p.fecha)})` : ""}\n`;
+      });
+    } else {
+      const nombres = atrasados.slice(0, 3).map((p) => p.label).join(", ");
+      t += `⚠️ ${atrasados.length} pagos atrasados por ${formatSoles(metas.detalle.atrasados.total)}: ${nombres} y ${atrasados.length - 3} más\n`;
+    }
+    hoyVence.forEach((p) => {
+      t += `📌 Hoy vence: ${p.label} ${formatSoles(p.monto)}\n`;
+    });
+  }
+
+  if (e.minimo) {
+    t +=
+      "\n" +
+      (metas.gustosPorDia > 0
+        ? `💸 Si haces tu mínimo, puedes darte gustos de hasta ${formatSoles(metas.gustosPorDia)} por día sin afectar nada.`
+        : `💸 Por ahora no hay margen para gustos: lo que hagas va a lo que tienes que pagar.`);
+  }
+  return t.trim();
 }
 
 function calcularRespuestaConsulta(intent, variable) {
@@ -342,17 +397,26 @@ function calcularRespuestaConsulta(intent, variable) {
   }
 
   if (intent.id === "gastarHoy") {
-    const { hoy, pendientesTotal, goals, margen } = calcularMargenHoy();
-    const lineaAhorro = goals.ahorro.monto > 0 ? ` y tu meta de ahorro (${formatSoles(goals.ahorro.monto)})` : "";
+    const { metas, ahorro, compromisos, margen } = calcularMargen();
+    const lineaAhorro = ahorro > 0 ? ` y tu meta de ahorro (${formatSoles(ahorro)})` : "";
 
     const vars = {
-      caja: formatSoles(hoy.esperado),
-      pendientes: formatSoles(pendientesTotal),
+      caja: formatSoles(metas.tengo),
+      pendientes: formatSoles(compromisos),
       lineaAhorro,
       margen: formatSoles(Math.abs(margen)),
     };
-    if (margen >= 0) return aplicarPlantilla(intent.respuesta, vars);
-    return aplicarPlantilla(campo("respuestaFaltante", intent.respuesta), vars);
+    let respuesta =
+      margen >= 0 ? aplicarPlantilla(intent.respuesta, vars) : aplicarPlantilla(campo("respuestaFaltante", intent.respuesta), vars);
+    // Lo que de verdad contesta "cuánto puedo gastar hoy": lo que sobraría
+    // haciendo su mínimo, repartido por día (igual que en Inicio).
+    if (metas.escenarios.minimo) {
+      respuesta +=
+        metas.gustosPorDia > 0
+          ? `\n💸 Si haces tu mínimo (${formatSoles(metas.minimoDiario)} por día), puedes gastar en gustos hasta ${formatSoles(metas.gustosPorDia)} por día.`
+          : `\n💸 Con tu mínimo (${formatSoles(metas.minimoDiario)} por día) no queda margen para gustos.`;
+    }
+    return respuesta;
   }
 
   if (intent.id === "vendiHoy") {
@@ -368,20 +432,23 @@ function calcularRespuestaConsulta(intent, variable) {
   }
 
   if (intent.id === "metaHoy") {
-    const metaDiaria = financeGoals.getGoals().diaria;
-    if (metaDiaria <= 0) return aplicarPlantilla(campo("respuestaSinMeta", "No tienes una meta diaria configurada."), {});
-    const hoy = cashbox.getToday();
-    const falta = Math.max(metaDiaria - hoy.ganancias, 0);
-    if (falta === 0) {
+    // La misma meta de hoy que muestra Inicio: lo que ganas hoy es avance,
+    // no achica la meta (antes se contaba dos veces).
+    const metas = metasAutomaticas.calcular();
+    const h = metas.hoy;
+    if (h.esLibre) return "😴 Hoy es tu día de descanso: no hay meta de hoy.";
+    if (metas.cubierto && h.meta <= 0) return "✅ Ya tienes cubierto todo lo que tienes que pagar hasta fin de mes.";
+    if (h.meta <= 0) return aplicarPlantilla(campo("respuestaSinMeta", "No tienes una meta diaria configurada."), {});
+    if (h.falta <= 0) {
       return aplicarPlantilla(campo("respuestaCumplida", "¡Ya cumpliste tu meta de hoy! Llevas {ganancias} de {meta}. 🎉"), {
-        ganancias: formatSoles(hoy.ganancias),
-        meta: formatSoles(metaDiaria),
+        ganancias: formatSoles(h.ganado),
+        meta: formatSoles(h.meta),
       });
     }
     return aplicarPlantilla(intent.respuesta, {
-      meta: formatSoles(metaDiaria),
-      ganancias: formatSoles(hoy.ganancias),
-      falta: formatSoles(falta),
+      meta: formatSoles(h.meta),
+      ganancias: formatSoles(h.ganado),
+      falta: formatSoles(h.falta),
     });
   }
 
@@ -397,16 +464,17 @@ function calcularRespuestaConsulta(intent, variable) {
 
   if (intent.id === "resumenMes") {
     const mes = cashbox.getMonthSoFar();
-    const metaMensual = financeGoals.getGoals().mensual;
+    const metas = metasAutomaticas.calcular();
     let respuesta = aplicarPlantilla(intent.respuesta, {
       ganancias: formatSoles(mes.ganancias),
       gastos: formatSoles(mes.gastos),
       neto: formatSoles(mes.ganancias - mes.gastos),
     });
-    if (metaMensual > 0) {
-      const falta = Math.max(metaMensual - mes.ganancias, 0);
-      respuesta += `\n🎯 Meta: ${formatSoles(metaMensual)} (te faltan ${formatSoles(falta)})`;
-    }
+    // "mensual" ya ES lo que falta juntar: antes se le restaba otra vez lo
+    // ganado en el mes y el "te faltan" salía más bajo que el real.
+    respuesta += metas.cubierto
+      ? `\n✅ Ya tienes cubierto todo lo que tienes que pagar hasta fin de mes.`
+      : `\n🎯 Para cubrir todo hasta fin de mes te falta juntar ${formatSoles(metas.falta)} (${formatSoles(metas.diaria)} por día).`;
     return respuesta;
   }
 
@@ -536,7 +604,7 @@ function calcularRespuestaConsulta(intent, variable) {
   }
 
   if (intent.id === "cumplireMetas") {
-    const { margen } = calcularMargenHoy();
+    const { margen } = calcularMargen();
     if (margen >= 0) return aplicarPlantilla(intent.respuesta, { margen: formatSoles(margen) });
     return aplicarPlantilla(campo("respuestaFaltante", intent.respuesta), { margen: formatSoles(Math.abs(margen)) });
   }
@@ -941,6 +1009,9 @@ async function checkCashboxSchedule(bot) {
   // recalcularía la meta para el día siguiente en vez de la de hoy).
   const mesQueCierra = hoyLabel.slice(0, 7);
   const progresoAntes = productionGoals.getProgresoMes(mesQueCierra);
+  // Igual con la meta para cubrir los pagos: la del día que se cierra, con lo
+  // que se ganó ese día. Después de cerrar ya sería la de mañana.
+  const metaDelDia = metasAutomaticas.calcular().hoy;
 
   // Se cierra SIEMPRE. El aviso es un extra: si no hay chat configurado o
   // la conexion se cayo, los numeros ya quedaron bien de todas formas.
@@ -977,6 +1048,11 @@ async function checkCashboxSchedule(bot) {
       `\n\n🎯 Meta de producción de hoy: ${formatSoles(progresoAntes.metaHoy)} — ${cumplioMeta ? "cumplida ✅" : "no cumplida ⚠️"}\n` +
       `📈 Vas en ${formatSoles(progresoAntes.generadoAcumulado + resumenDia.ganancias)} de ${formatSoles(progresoAntes.metaMensualReferencia)} este mes.`;
   }
+  if (!eraDiaLibre && metaDelDia.meta > 0) {
+    textoDia +=
+      `\n\n🧾 Meta para cubrir tus pagos: ${formatSoles(metaDelDia.meta)} — ` +
+      (metaDelDia.falta <= 0 ? "cumplida ✅" : `te faltaron ${formatSoles(metaDelDia.falta)} ⚠️`);
+  }
   if (diasLibres.esLibre(businessDay.addDays(hoyLabel, 1))) {
     textoDia += `\n🌅 Mañana descansas.`;
   } else if (progresoSiguiente) {
@@ -989,14 +1065,14 @@ async function checkCashboxSchedule(bot) {
     console.error("Error al mandar el cierre diario de caja chica:", err.message);
   }
 
-  // Si hay meta diaria configurada y no se cumplió, avisa por notificación
-  // push (aparte del mensaje de WhatsApp de arriba).
-  const metaDiaria = financeGoals.getGoals().diaria;
-  if (!eraDiaLibre && metaDiaria > 0 && resumenDia.ganancias < metaDiaria) {
+  // Si había meta y no se cumplió, avisa por notificación push (aparte del
+  // mensaje de WhatsApp de arriba). Con la meta de ESE día: antes se
+  // calculaba después de cerrar, o sea la de mañana.
+  if (!eraDiaLibre && metaDelDia.meta > 0 && metaDelDia.falta > 0) {
     pushSubscriptions
       .notifyAll({
         title: "📉 No llegaste a la meta de hoy",
-        body: `Ganaste ${formatSoles(resumenDia.ganancias)} de tu meta de ${formatSoles(metaDiaria)}.`,
+        body: `Ganaste ${formatSoles(metaDelDia.ganado)} de tu meta de ${formatSoles(metaDelDia.meta)}.`,
       })
       .catch((err) => console.error("Error al notificar meta diaria no cumplida:", err.message));
   }
@@ -1037,12 +1113,11 @@ async function checkMorningSchedule(bot) {
   bot.lastMorningMessageLabel = hoyLabel;
 
   const progreso = productionGoals.getProgresoMes(cashbox.getMesActualLabel());
-  const { goals, margen } = calcularMargenHoy();
 
-  // Cuanto hay que generar por dia para cubrir todo lo que se debe pagar
-  // de aqui a fin de mes. Misma cuenta que muestra el panel, para que los
-  // dos digan siempre lo mismo. Es distinto de la meta de produccion: esa
-  // se configura a mano y no sabe nada de lo que se debe.
+  // Para cerrar el mes tranquilo: misma cuenta que la tarjeta de Inicio,
+  // para que el mensaje y el panel digan siempre lo mismo. Es distinto de
+  // la meta de produccion: esa se configura a mano y no sabe nada de lo
+  // que se debe.
   const metas = metasAutomaticas.calcular();
 
   // El saludo usa el nombre de la cuenta: estaba fijo como "Patrick", asi
@@ -1050,25 +1125,16 @@ async function checkMorningSchedule(bot) {
   const cuenta = users.getById(bot.userId);
   const saludo = cuenta && cuenta.nombre ? ", " + cuenta.nombre : "";
 
-  let texto = `☀️ Buenos días${saludo}.\n\n`;
+  let texto = `☀️ Buenos días${saludo}.\n\n` + textoCierreMes(metas);
+
+  // La meta de producción solo si la configuró: si no, era una línea que
+  // solo decía que no había nada.
   if (progreso) {
     const faltaMes = Math.max(progreso.metaMensualReferencia - progreso.generadoAcumulado, 0);
     texto +=
-      `🎯 Hoy tu meta de producción es: ${formatSoles(progreso.metaHoy)}\n` +
-      `📅 Te faltan ${formatSoles(faltaMes)} para completar la meta del mes.\n`;
-  } else {
-    texto += `No tienes una meta de producción configurada para este mes.\n`;
+      `\n\n🏁 Meta de producción de hoy: ${formatSoles(progreso.metaHoy)}` +
+      ` (te faltan ${formatSoles(faltaMes)} para la del mes)`;
   }
-  if (metas.necesito > 0) {
-    texto += `🧾 Para cubrir todo lo que debes pagar necesitas: ${formatSoles(metas.diaria)} por día\n`;
-  }
-  if (goals.ahorro.activo) {
-    texto += `💰 Deberías ahorrar hoy: ${formatSoles(goals.ahorro.porDia)}\n`;
-  }
-  texto +=
-    margen >= 0
-      ? `✅ Puedes gastar hoy hasta ${formatSoles(margen)} sin afectar tus objetivos.`
-      : `⚠️ Todavía no tienes margen para gastar de más: te faltan ${formatSoles(Math.abs(margen))} para cubrir tus compromisos y tu ahorro.`;
 
   try {
     await enviarMensaje(bot, chatId, { text: texto });
@@ -1460,4 +1526,6 @@ module.exports = {
   parseCashboxLine,
   parseCashboxMessage,
   aUnErrorDe,
+  textoCierreMes,
+  responderConsultaFinanciera,
 };

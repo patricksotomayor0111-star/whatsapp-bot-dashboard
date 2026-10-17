@@ -72,7 +72,9 @@ correrComo("prueba", () => {
   diasLibres.removeFecha(HOY);
   r = metas.calcular("");
   ok(r.hoyEsLibre === false, "sacándole la marca, hoy vuelve a ser día de trabajo");
-  ok(r.ritmo.promedioDiario === 120, "y ahora sí promedia los dos días (200 y 40)");
+  // Hoy todavía no terminó: lo de hoy no entra al promedio (un día a medias
+  // lo bajaría). Cuenta en la caja y como avance de la meta de hoy.
+  ok(r.ritmo.promedioDiario === 200, "y el día de hoy, que no terminó, no entra al promedio");
   ok(r.ganadoEnDiasLibres === 0, "ya no hay nada contado como extra");
 
   // ---------- Si marca TODO libre no se rompe ----------

@@ -806,13 +806,23 @@ app.delete("/api/finance/lugares/:id", (req, res) => {
 // De lo que tienes en la mano, cuánto es tuyo de verdad: sin la plata
 // que le guardas a otros y sin lo que debes.
 function plataDeVerdad(esperado) {
-  const custodia = custodias.getPersonas().reduce((s, p) => s + (p.saldo || 0), 0);
+  // Solo es "de otros" lo que te dejaron y todavía no se gastó. Si alguien
+  // gastó MÁS de lo que te dejó, su saldo queda negativo: esa diferencia la
+  // pusiste tú y te la deben, pero no está en tu mano. Antes se sumaba (restar
+  // un negativo) y "tuyo de verdad" salía más alto que lo que tienes:
+  // S/ 754.86 en la mano y S/ 1,429.86 "tuyos".
+  const personas = custodias.getPersonas();
+  const custodia = personas.reduce((s, p) => s + Math.max(p.saldo || 0, 0), 0);
+  const tePusiste = personas.reduce((s, p) => s + Math.max(-(p.saldo || 0), 0), 0);
   const debes = prestamos.getTotales().debes;
+  const r2 = (n) => Math.round(n * 100) / 100;
   return {
-    esperado: Math.round(esperado * 100) / 100,
-    deOtros: Math.round(custodia * 100) / 100,
+    esperado: r2(esperado),
+    deOtros: r2(custodia),
     prestado: debes,
-    tuyo: Math.round((esperado - custodia - debes) * 100) / 100,
+    // Lo que pusiste de tu plata por otras personas: te lo deben, no suma.
+    tePusiste: r2(tePusiste),
+    tuyo: r2(esperado - custodia - debes),
   };
 }
 
@@ -1552,6 +1562,17 @@ app.delete("/api/finance/dias-libres/fechas/:fecha", (req, res) => {
 
 // El plan de ahorro: cuanto y hasta cuando. Lo unico que se escribe a
 // mano; el resto de las metas sale de aca calculado.
+// Tu mínimo por día (ej. S/ 100): con él se calcula cómo cerrarías el mes
+// haciendo al menos eso cada día. Un solo número para todos los meses.
+app.post("/api/finance/minimo", (req, res) => {
+  try {
+    const minimo = financeGoals.setMinimoDiario(req.body?.monto);
+    res.json({ ok: true, minimo, goals: financeGoals.getGoals() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 app.post("/api/finance/ahorro", (req, res) => {
   try {
     const plan = financeGoals.setAhorro(req.body || {});
