@@ -225,7 +225,11 @@ function registrarPagoPorRecordatorio(recordatorioId, monto) {
   if (!recordatorioId) return null;
   const p = datos().prestamos.find((x) => x.recordatorioId === recordatorioId && x.activo !== false);
   if (!p) return null;
-  return registrarPago(p.id, { monto, origen: "pendiente", descripcion: "cuota" });
+  const hecho = registrarPago(p.id, { monto, origen: "pendiente", descripcion: "cuota" });
+  // Se devuelve qué pago se creó, para poder borrarlo si se deshace el
+  // "Ya pagué" (si no, el saldo del préstamo quedaba descontado igual).
+  const ultimo = p.pagos[p.pagos.length - 1];
+  return hecho ? { ...hecho, prestamoId: p.id, pagoId: ultimo ? ultimo.id : null } : null;
 }
 
 // ---------- Totales ----------

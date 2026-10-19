@@ -1780,14 +1780,63 @@ app.post("/api/reminders/:id/pagado", (req, res) => {
   }
 });
 
+// Pagar por adelantado una o varias cuotas (la Junta de los próximos 3
+// martes, o un pago único antes de su fecha). Igual que "Ya pagué": registra
+// el gasto UNA vez por el total, salvo que ya esté escrito en la caja.
+function listaFechas(fechas) {
+  const f = fechas.map((x) => x.slice(8, 10) + "/" + x.slice(5, 7));
+  return f.length > 1 ? f.slice(0, -1).join(", ") + " y " + f[f.length - 1] : f[0] || "";
+}
+
+app.post("/api/reminders/:id/adelantar", (req, res) => {
+  try {
+    const recordatorio = reminders.getById(req.params.id);
+    if (!recordatorio) return res.status(404).json({ error: "Recordatorio inexistente." });
+
+    const cuotas = Math.max(1, Math.min(Math.floor(Number(req.body?.cuotas) || 1), reminders.MAX_CUOTAS_ADELANTO));
+    const ciclos = reminders.ciclosPorPagar(recordatorio, cashbox.getHoyLabel(), cuotas);
+    if (!ciclos.length) return res.status(400).json({ error: "Este pago no tiene cuotas por pagar." });
+
+    const montoNum = Number(req.body?.monto);
+    const monto = Number.isFinite(montoNum) && montoNum > 0 ? montoNum : recordatorio.monto * ciclos.length;
+
+    const gastoExistente = reminders.buscarGastoDelPago(req.params.id, cashbox.getMovimientos(), monto);
+    const registrado = !gastoExistente;
+    if (registrado) {
+      cashbox.addGasto(monto, recordatorio.label + (ciclos.length > 1 ? ` (${ciclos.length} cuotas)` : ""));
+    }
+
+    const r = reminders.adelantarPagos(req.params.id, ciclos.length, {
+      monto,
+      registrado,
+      gastoExistente: gastoExistente ? gastoExistente.descripcion || "" : null,
+      origen: "panel",
+    });
+
+    const cuantas = r.ciclos.length === 1 ? `la cuota del ${listaFechas(r.ciclos)}` : `${r.ciclos.length} cuotas (${listaFechas(r.ciclos)})`;
+    const aviso =
+      `✅ Pagaste por adelantado ${cuantas} de "${recordatorio.label}".\n` +
+      (registrado
+        ? `📉 Registré el gasto por ${formatSoles(monto)}. No hace falta que lo escribas acá.`
+        : `Ese gasto ya estaba registrado, así que no registré nada para no duplicarlo.`) +
+      (r.siguiente ? `\nNo te vuelvo a avisar hasta el ${listaFechas([r.siguiente])}.` : "");
+    avisarAlGrupo(req.userId, aviso).catch((err) => console.error("No se pudo avisar al grupo:", err.message));
+
+    res.json({ ok: true, registrado, gastoExistente, ciclos: r.ciclos, total: r.total, siguiente: r.siguiente });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // Historial de pagos marcados, con si su gasto se registró en la caja o ya
 // estaba escrito. Con ?id=xxx devuelve solo el de ese pago.
 app.get("/api/reminders/historial", (req, res) => {
   res.json({ historial: reminders.getHistorialPagos(req.query.id) });
 });
 
-// Deshace un "Ya pagué" marcado por error (solo reabre el aviso; el gasto
-// que haya quedado en la caja se corrige aparte desde Movimientos).
+// Deshace el último "Ya pagué" (con todas sus cuotas, si fue adelantado). Solo
+// reabre el aviso; el gasto que haya quedado en la caja se corrige aparte
+// desde Movimientos.
 app.post("/api/reminders/:id/desmarcar", (req, res) => {
   try {
     reminders.desmarcarPagado(req.params.id);

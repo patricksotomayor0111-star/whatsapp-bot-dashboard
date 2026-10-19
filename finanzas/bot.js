@@ -682,7 +682,22 @@ function handleCashboxEntries(entradas, idsCreados) {
       // igual anotarlo acá o tocar "Ya pagué" en el panel, los dos lados
       // quedan sincronizados.
       const encontrado = reminders.buscarPendientePorGasto(entrada.descripcion, entrada.monto);
-      if (encontrado) {
+      // "menos 300 junta" con una Junta de S/ 100: son 3 cuotas pagadas de
+      // una, no una sola.
+      const cuotas = encontrado ? reminders.cuotasQueCubre(encontrado.reminder, entrada.monto) : 1;
+      if (encontrado && cuotas > 1) {
+        const r = reminders.adelantarPagos(encontrado.reminder.id, cuotas, {
+          monto: entrada.monto,
+          registrado: false, // el gasto ya quedó registrado en la línea de arriba
+          origen: "grupo",
+        });
+        const fechas = r.ciclos.map((f) => f.slice(8, 10) + "/" + f.slice(5, 7));
+        avisos.push(
+          `✅ También marqué ${r.ciclos.length} cuotas de "${encontrado.reminder.label}" como pagadas ` +
+            `(${fechas.slice(0, -1).join(", ")} y ${fechas[fechas.length - 1]}).` +
+            (r.siguiente ? `\nNo te vuelvo a avisar hasta el ${r.siguiente.slice(8, 10)}/${r.siguiente.slice(5, 7)}.` : "")
+        );
+      } else if (encontrado) {
         reminders.marcarPagado(encontrado.reminder.id, {
           monto: entrada.monto,
           registrado: false, // el gasto ya quedó registrado en la línea de arriba
@@ -1528,4 +1543,5 @@ module.exports = {
   aUnErrorDe,
   textoCierreMes,
   responderConsultaFinanciera,
+  handleCashboxEntries,
 };

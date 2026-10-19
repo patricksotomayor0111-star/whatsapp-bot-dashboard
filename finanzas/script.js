@@ -720,9 +720,13 @@ async function renderReminders() {
         : "bg-white border-slate-200");
 
     let estado;
-    if (!r.activo) estado = "Desactivado";
+    const unicaPagada = r.tipo === "unica" && !r.activo && r.ultimoPago;
+    if (unicaPagada) estado = `✅ Pagado el ${fmtFecha(r.ultimoPago.fecha)}`;
+    else if (!r.activo) estado = "Desactivado";
     else if (pendiente) estado = `⚠️ Pendiente · vence ${fmtFecha(r.vence)}`;
     else if (r.termino) estado = `Terminado el ${fmtFecha(r.fechaFin)}`;
+    else if (r.pagadoHasta)
+      estado = `✅ Pagado hasta ${fmtFecha(r.pagadoHasta)}` + (r.proxima ? ` · próximo ${fmtFecha(r.proxima)}` : " · hasta el final");
     else estado = `Al día · próximo ${fmtFecha(r.proxima)}`;
     // Si tiene final, se dice: es la diferencia entre "esto sigue" y
     // "esto ya se acabó".
@@ -768,6 +772,22 @@ async function renderReminders() {
       acciones.appendChild(btnPay);
     }
 
+    // Pagar por adelantado: una o varias cuotas de una vez.
+    const adelantoContainer = document.createElement("div");
+    adelantoContainer.className = "hidden mt-3 pt-3 border-t border-slate-100";
+    if (r.activo && !r.termino && (r.siguientes || []).length) {
+      const btnAdelantar = document.createElement("button");
+      btnAdelantar.className = "w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 active:scale-90 transition-all";
+      btnAdelantar.title = r.tipo === "unica" ? "Pagar por adelantado" : "Adelantar cuotas";
+      btnAdelantar.innerHTML = '<i class="fa-solid fa-forward"></i>';
+      btnAdelantar.addEventListener("click", () => {
+        const abrir = adelantoContainer.classList.contains("hidden");
+        adelantoContainer.classList.toggle("hidden", !abrir);
+        if (abrir && !adelantoContainer.childElementCount) armarAdelanto(adelantoContainer, r);
+      });
+      acciones.appendChild(btnAdelantar);
+    }
+
     const btnEditar = document.createElement("button");
     btnEditar.className = "w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 active:scale-90 transition-all";
     btnEditar.title = "Editar";
@@ -789,17 +809,25 @@ async function renderReminders() {
     });
     acciones.appendChild(btnToggle);
 
-    // Si ya está pagado este ciclo, se puede deshacer (por si se marcó por
-    // error, o el bot lo marcó solo desde el grupo y no correspondía).
-    if (r.activo && !pendiente) {
+    // Deshacer el último pago (con todas sus cuotas si fue adelantado), por
+    // si se marcó por error o el bot lo marcó solo y no correspondía.
+    if ((r.activo && !pendiente) || unicaPagada) {
       const btnUndo = document.createElement("button");
       btnUndo.className = "w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 active:scale-90 transition-all";
-      btnUndo.title = "Marcar como NO pagado";
+      btnUndo.title = "Deshacer el último pago";
       btnUndo.innerHTML = '<i class="fa-solid fa-rotate-left"></i>';
       btnUndo.addEventListener("click", async () => {
-        if (!confirm(`¿Volver a marcar "${r.label}" como pendiente?\n\nEl gasto que haya quedado en la caja no se borra: eso se corrige desde Movimientos.`)) return;
+        const u = r.ultimoPago;
+        const que = u
+          ? u.cuotas > 1
+            ? `las ${u.cuotas} cuotas que pagaste el ${fmtFecha(u.fecha)} (${formatSoles(u.monto)})`
+            : `el pago del ${fmtFecha(u.fecha)} (${formatSoles(u.monto)})`
+          : "el último pago";
+        if (!confirm(`¿Deshacer ${que} de "${r.label}"?\n\nEl gasto que haya quedado en la caja no se borra: eso se corrige desde Movimientos.`)) return;
         await fetch(`/api/reminders/${encodeURIComponent(r.id)}/desmarcar`, { method: "POST" });
         renderReminders();
+        renderHistorialPagos();
+        if (typeof fetchGoalsAndProgress === "function") fetchGoalsAndProgress();
       });
       acciones.appendChild(btnUndo);
     }
@@ -839,6 +867,7 @@ async function renderReminders() {
 
     card.appendChild(top);
     top.appendChild(acciones);
+    card.appendChild(adelantoContainer);
     card.appendChild(historialContainer);
     remindersList.appendChild(card);
   });
@@ -1072,9 +1101,127 @@ const historialPagosEmpty = document.getElementById("historialPagosEmpty");
 
 // Qué pasó con el gasto de ese pago, según por dónde se marcó.
 function textoDetallePago(p) {
-  if (p.origen === "grupo") return "lo escribiste en el grupo y marqué el pendiente solo";
-  if (p.registrado) return "se registró en la caja (te lo habías olvidado)";
-  return `ya estaba registrado${p.gastoExistente ? ` como "${p.gastoExistente}"` : ""}`;
+  let base;
+  if (p.origen === "grupo") base = "lo escribiste en el grupo y marqué el pendiente solo";
+  else if (p.registrado) base = "se registró en la caja";
+  else base = `ya estaba registrado${p.gastoExistente ? ` como "${p.gastoExistente}"` : ""}`;
+  const cuota = p.vence ? `cuota del ${fmtFecha(p.vence)}` : "";
+  const extra = [];
+  if (p.adelantado) extra.push("pagada por adelantado");
+  if (p.cuotasLote > 1) extra.push(`parte de un pago de ${p.cuotasLote} cuotas por ${formatSoles(p.montoLote)}`);
+  return [cuota, ...extra, base].filter(Boolean).join(" · ");
+}
+
+// El panel para adelantar: cuántas cuotas, qué fechas cubre y por cuánto.
+function armarAdelanto(cont, r) {
+  cont.innerHTML = "";
+  const siguientes = r.siguientes || [];
+  const unica = r.tipo === "unica";
+  let elegidas = 1;
+
+  const titulo = document.createElement("p");
+  titulo.className = "text-xs font-semibold text-slate-700";
+  titulo.textContent = unica ? "Pagar por adelantado" : "¿Cuántas cuotas adelantas?";
+  cont.appendChild(titulo);
+
+  const opciones = document.createElement("div");
+  opciones.className = "flex flex-wrap gap-1.5 mt-2";
+  const resumen = document.createElement("p");
+  resumen.className = "text-xs text-slate-500 mt-2";
+  const fila = document.createElement("div");
+  fila.className = "flex gap-2 mt-2";
+  const monto = document.createElement("input");
+  monto.type = "number";
+  monto.inputMode = "decimal";
+  monto.min = "0";
+  monto.step = "any";
+  monto.className = "flex-1 min-w-0 bg-white rounded-xl px-3 py-2 text-sm border border-slate-200";
+  const confirmar = document.createElement("button");
+  confirmar.className = "shrink-0 rounded-xl px-4 py-2 text-sm font-semibold bg-brand-green text-white active:scale-95 transition-all";
+  confirmar.textContent = "Confirmar";
+  const msg = document.createElement("p");
+  msg.className = "hidden text-xs mt-2";
+  let montoTocado = false;
+  monto.addEventListener("input", () => { montoTocado = true; });
+
+  const fechasTexto = (lista) => {
+    const f = lista.map(fmtFecha);
+    return f.length > 1 ? f.slice(0, -1).join(", ") + " y " + f[f.length - 1] : f[0] || "";
+  };
+
+  function pintar() {
+    opciones.innerHTML = "";
+    if (!unica) {
+      const valores = [1, 2, 3, 4].filter((n) => n <= siguientes.length);
+      const conFinDeMes = r.hastaFinDeMes > 0 && !valores.includes(r.hastaFinDeMes);
+      valores.forEach((n) => opciones.appendChild(chip(String(n), n)));
+      if (conFinDeMes) opciones.appendChild(chip("Hasta fin de mes (" + r.hastaFinDeMes + ")", r.hastaFinDeMes));
+    }
+    const cubre = siguientes.slice(0, elegidas);
+    const total = Math.round((Number(r.monto) || 0) * cubre.length * 100) / 100;
+    resumen.textContent = unica
+      ? "Vence el " + fmtFecha(cubre[0]) + " · " + formatSoles(total)
+      : "Cubre: " + fechasTexto(cubre) + " · Total " + formatSoles(total);
+    if (!montoTocado) monto.value = total;
+  }
+
+  function chip(texto, n) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = texto;
+    b.className =
+      "rounded-lg px-3 py-1.5 text-xs font-semibold border active:scale-95 transition-all " +
+      (n === elegidas ? "bg-brand-green text-white border-brand-green" : "bg-white text-slate-600 border-slate-200");
+    b.addEventListener("click", () => {
+      elegidas = n;
+      montoTocado = false;
+      pintar();
+    });
+    return b;
+  }
+
+  confirmar.addEventListener("click", async () => {
+    const m = parseFloat(monto.value);
+    if (!Number.isFinite(m) || m <= 0) {
+      msg.className = "text-xs mt-2 text-brand-red";
+      msg.textContent = "Escribe cuánto pagaste.";
+      return;
+    }
+    confirmar.disabled = true;
+    try {
+      const res = await fetch(`/api/reminders/${encodeURIComponent(r.id)}/adelantar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cuotas: elegidas, monto: m }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "No se pudo guardar.");
+      const caja = d.registrado
+        ? "Registré el gasto de " + formatSoles(m) + " en tu caja."
+        : "Ese gasto ya estaba registrado, no lo dupliqué.";
+      alert("Listo: pagaste " + (d.ciclos.length > 1 ? d.ciclos.length + " cuotas" : "la cuota") + " de " + r.label + ". " + caja);
+      renderReminders();
+      renderHistorialPagos();
+      fetchCashboxToday();
+      if (typeof fetchGoalsAndProgress === "function") fetchGoalsAndProgress();
+    } catch (err) {
+      msg.className = "text-xs mt-2 text-brand-red";
+      msg.textContent = err.message;
+      confirmar.disabled = false;
+    }
+  });
+
+  cont.appendChild(opciones);
+  cont.appendChild(resumen);
+  const etiqueta = document.createElement("p");
+  etiqueta.className = "text-[11px] text-slate-400 mt-2";
+  etiqueta.textContent = "Lo que pagaste (S/):";
+  cont.appendChild(etiqueta);
+  fila.appendChild(monto);
+  fila.appendChild(confirmar);
+  cont.appendChild(fila);
+  cont.appendChild(msg);
+  pintar();
 }
 
 async function renderHistorialPagos() {
