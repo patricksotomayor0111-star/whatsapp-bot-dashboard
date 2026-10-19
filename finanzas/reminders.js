@@ -230,6 +230,12 @@ function getAll() {
       const due = estaPendiente(r, hoy);
       const prox = proximaFecha(r, hoy);
       const termino = yaTermino(r, hoy);
+      // Lo próximo que de verdad falta pagar: si se adelantaron cuotas, la
+      // "próxima" ya no es la fecha que viene sino la primera sin pagar.
+      const porPagar = ciclosPorPagar(r, hoy, MAX_CUOTAS_ADELANTO);
+      const adelantado = r.tipo !== "unica" && r.lastPaidCycle && prox && r.lastPaidCycle >= prox;
+      const finDeMes = hoy.slice(0, 7) + "-" + String(diasEnMes(...hoy.split("-").slice(0, 2).map(Number))).padStart(2, "0");
+      const ultimo = ultimoLote(r.id);
       return {
         id: r.id,
         label: r.label,
@@ -242,8 +248,15 @@ function getAll() {
         pendiente: !!due,
         vence: due || null,
         // Pasado el final no hay próxima: el pago se acabó.
-        proxima: termino ? null : prox,
+        proxima: termino ? null : adelantado ? porPagar[0] || null : prox,
         termino,
+        // Hasta qué fecha está pagado por adelantado (null si no se adelantó).
+        pagadoHasta: adelantado ? r.lastPaidCycle : null,
+        // Las cuotas que se pueden adelantar, y cuántas caen en este mes.
+        siguientes: porPagar,
+        hastaFinDeMes: porPagar.filter((f) => f <= finDeMes).length,
+        // El último pago marcado, para poder decir qué se deshace.
+        ultimoPago: ultimo ? { fecha: ultimo.fecha, cuotas: ultimo.cuotas, monto: ultimo.monto, hasta: ultimo.hasta } : null,
       };
     })
     .sort(porCercania);
@@ -413,16 +426,159 @@ function buscarPendientePorGasto(descripcion, monto) {
 // Vuelve a dejar un pago como no pagado (por si se marcó por error). Ojo:
 // solo reabre el aviso; el gasto que haya quedado en la caja se corrige
 // aparte desde Movimientos.
+// Deshace el ÚLTIMO pago marcado (con todas sus cuotas, si fue adelantado):
+// vuelve el pendiente a como estaba antes y, si ese pago había descontado de
+// un préstamo, lo devuelve. Los pagos viejos (de antes de guardar el "antes")
+// se deshacen como siempre: el pendiente vuelve a quedar sin pagar.
 function desmarcarPagado(id) {
   const r = datos().reminders.find((x) => x.id === id);
   if (!r) throw new Error("Recordatorio inexistente: " + id);
-  r.lastPaidCycle = null;
-  if (r.tipo === "unica") r.activo = true;
+  const ultimo = ultimoLote(id);
+  const primero = ultimo ? datos().pagosMarcados.find((p) => p.lote === ultimo.lote && p.antes) : null;
+  if (primero) {
+    r.lastPaidCycle = primero.antes.lastPaidCycle;
+    r.activo = primero.antes.activo;
+    if (primero.prestamo) {
+      try {
+        require("./prestamos").quitarPago(primero.prestamo.id, primero.prestamo.pagoId);
+      } catch (err) {
+        console.error("No se pudo devolver el pago al préstamo:", err.message);
+      }
+    }
+    datos().pagosMarcados = datos().pagosMarcados.filter((p) => p.lote !== ultimo.lote);
+  } else {
+    r.lastPaidCycle = null;
+    if (r.tipo === "unica") r.activo = true;
+  }
   save();
   return r;
 }
 
 const MAX_PAGOS_MARCADOS = 100;
+
+// ---------- Pagar por adelantado ----------
+// Las próximas cuotas que faltan pagar, en orden: la que está abierta (vencida
+// o que vence mañana) si no se pagó, y después las que vienen. Nunca más allá
+// del final del pago (fechaFin). Un pago de una sola vez tiene una sola.
+const MAX_CUOTAS_ADELANTO = 12;
+
+function ciclosPorPagar(r, hoy, n) {
+  if (!r || r.activo === false) return [];
+  if (r.tipo === "unica") return r.fecha ? [r.fecha] : [];
+  const lista = [];
+  let cursor = estaPendiente(r, hoy);
+  if (!cursor) {
+    let desde = hoy;
+    if (r.lastPaidCycle && r.lastPaidCycle >= desde) desde = addDays(r.lastPaidCycle, 1);
+    cursor = proximaFecha(r, desde);
+  }
+  let vueltas = 0; // tope de seguridad: nunca un bucle sin fin
+  while (cursor && lista.length < n && vueltas < 400) {
+    vueltas++;
+    if (r.fechaFin && cursor > r.fechaFin) break;
+    if (!(r.lastPaidCycle && r.lastPaidCycle >= cursor)) lista.push(cursor);
+    cursor = proximaFecha(r, addDays(cursor, 1));
+  }
+  return lista;
+}
+
+let contadorLote = 0;
+function nuevoLote() {
+  contadorLote += 1;
+  return "lot_" + Date.now().toString(36) + "_" + contadorLote;
+}
+
+// Anota en el historial un pago de una o varias cuotas. Todas las cuotas de
+// un mismo pago comparten "lote", y la primera guarda cómo estaba antes, para
+// que "Deshacer" vuelva exactamente a eso.
+function anotarLote(r, ciclos, total, info, antes) {
+  const hoy = fechaLabelPeru();
+  const hora = horaLabel(peruAhora());
+  const porCuota = Math.round((total / ciclos.length) * 100) / 100;
+  const lote = nuevoLote();
+
+  // Si este pendiente está pagando un préstamo, su saldo baja solo. Se pide
+  // adentro para no armar un require circular al arrancar.
+  let prestamo = null;
+  if (total > 0) {
+    try {
+      const hecho = require("./prestamos").registrarPagoPorRecordatorio(r.id, total);
+      if (hecho && hecho.prestamoId && hecho.pagoId) prestamo = { id: hecho.prestamoId, pagoId: hecho.pagoId };
+    } catch (err) {
+      console.error("No se pudo descontar del préstamo:", err.message);
+    }
+  }
+
+  ciclos.forEach((vence, i) => {
+    datos().pagosMarcados.push({
+      id: r.id,
+      label: r.label,
+      vence,
+      fecha: hoy,
+      hora,
+      monto: porCuota,
+      registrado: !!info.registrado,
+      gastoExistente: info.gastoExistente || null,
+      origen: info.origen === "grupo" ? "grupo" : "panel",
+      adelantado: vence > hoy,
+      lote,
+      cuotasLote: ciclos.length,
+      montoLote: Math.round(total * 100) / 100,
+      ...(i === 0 ? { antes, prestamo } : {}),
+    });
+  });
+  if (datos().pagosMarcados.length > MAX_PAGOS_MARCADOS) {
+    datos().pagosMarcados.splice(0, datos().pagosMarcados.length - MAX_PAGOS_MARCADOS);
+  }
+  return { lote, total };
+}
+
+// Paga de una vez las próximas "cuotas" cuotas (la Junta de 3 martes, o un
+// pago único antes de su fecha). Deja el pendiente apagado hasta la cuota
+// siguiente. Devuelve qué cuotas cubrió y por cuánto.
+function adelantarPagos(id, cuotas, info = {}) {
+  const r = datos().reminders.find((x) => x.id === id);
+  if (!r) throw new Error("Recordatorio inexistente: " + id);
+  const hoy = fechaLabelPeru();
+  const n = Math.max(1, Math.min(Math.floor(Number(cuotas) || 1), MAX_CUOTAS_ADELANTO));
+  const ciclos = ciclosPorPagar(r, hoy, n);
+  if (!ciclos.length) throw new Error("Este pago no tiene cuotas por pagar.");
+
+  const antes = { lastPaidCycle: r.lastPaidCycle || null, activo: r.activo !== false };
+  if (r.tipo === "unica") r.activo = false;
+  else r.lastPaidCycle = ciclos[ciclos.length - 1];
+  const total = Number(info.monto) > 0 ? Number(info.monto) : (Number(r.monto) || 0) * ciclos.length;
+  anotarLote(r, ciclos, total, info, antes);
+  save();
+  return { ciclos, total, siguiente: ciclosPorPagar(r, hoy, 1)[0] || null };
+}
+
+// Cuántas cuotas paga un monto: "menos 300 junta" con una Junta de S/ 100
+// son 3. Solo si el monto es justo un múltiplo (con un sol de margen); si no,
+// es una sola cuota como siempre.
+function cuotasQueCubre(r, monto) {
+  if (!r || r.tipo === "unica" || !(Number(r.monto) > 0)) return 1;
+  const m = Number(monto) || 0;
+  const k = Math.round(m / r.monto);
+  if (k < 2) return 1;
+  if (Math.abs(m - k * r.monto) > Math.max(1, 0.02 * k * r.monto)) return 1;
+  return Math.max(1, Math.min(k, ciclosPorPagar(r, fechaLabelPeru(), MAX_CUOTAS_ADELANTO).length));
+}
+
+// El último pago marcado de este pendiente (todas sus cuotas juntas).
+function ultimoLote(id) {
+  const lista = datos().pagosMarcados.filter((p) => p.id === id && p.lote);
+  if (!lista.length) return null;
+  const lote = lista[lista.length - 1].lote;
+  const delLote = lista.filter((p) => p.lote === lote);
+  return {
+    lote,
+    fecha: delLote[0].fecha,
+    cuotas: delLote.length,
+    monto: delLote[0].montoLote || delLote.reduce((s, p) => s + (p.monto || 0), 0),
+    hasta: delLote[delLote.length - 1].vence,
+  };
+}
 
 // "info" queda guardado como historial de qué pasó cada vez que se marcó
 // un pago desde el panel: cuánto fue, y si el gasto se registró en la caja
@@ -435,6 +591,7 @@ function marcarPagado(id, info) {
   // ser un ciclo adelantado (que todavía no abrió su ventana); si no viene,
   // se usa el ciclo abierto de siempre.
   const due = (info && info.vence) || ultimaVentanaAbierta(r, hoy);
+  const antes = { lastPaidCycle: r.lastPaidCycle || null, activo: r.activo !== false };
   if (r.tipo === "unica") {
     r.activo = false; // pago único: no vuelve a aparecer
   } else if (due) {
@@ -442,28 +599,9 @@ function marcarPagado(id, info) {
   }
 
   if (info) {
-    datos().pagosMarcados.push({
-      id: r.id,
-      label: r.label,
-      vence: due || hoy,
-      fecha: hoy,
-      hora: horaLabel(peruAhora()),
-      monto: Number(info.monto) || 0,
-      registrado: !!info.registrado,
-      gastoExistente: info.gastoExistente || null,
-      origen: info.origen === "grupo" ? "grupo" : "panel",
-    });
-    if (datos().pagosMarcados.length > MAX_PAGOS_MARCADOS) {
-      datos().pagosMarcados.splice(0, datos().pagosMarcados.length - MAX_PAGOS_MARCADOS);
-    }
-
-    // Si este pendiente esta pagando un prestamo, su saldo baja solo. Se
-    // pide adentro para no armar un require circular al arrancar.
-    try {
-      require("./prestamos").registrarPagoPorRecordatorio(r.id, Number(info.monto) || 0);
-    } catch (err) {
-      console.error("No se pudo descontar del préstamo:", err.message);
-    }
+    // Un pago de una cuota es un lote de una: así "Deshacer" funciona igual
+    // para los dos.
+    anotarLote(r, [due || hoy], Number(info.monto) || 0, info, antes);
   }
 
   save();
@@ -684,6 +822,11 @@ module.exports = {
   getHistorialPagos,
   marcarPagado,
   desmarcarPagado,
+  adelantarPagos,
+  cuotasQueCubre,
+  ciclosPorPagar,
+  ultimoLote,
+  MAX_CUOTAS_ADELANTO,
   setActivo,
   addReminder,
   editReminder,
