@@ -677,7 +677,8 @@ function handleCashboxEntries(entradas, idsCreados) {
       );
     }
     if (entrada.type === "gasto") {
-      anotarId(cashbox.addGasto(entrada.monto, entrada.descripcion));
+      const gastoId = cashbox.addGasto(entrada.monto, entrada.descripcion);
+      anotarId(gastoId);
       // Si ese gasto corresponde a un pago pendiente, se marca solo: así da
       // igual anotarlo acá o tocar "Ya pagué" en el panel, los dos lados
       // quedan sincronizados.
@@ -689,6 +690,7 @@ function handleCashboxEntries(entradas, idsCreados) {
         const r = reminders.adelantarPagos(encontrado.reminder.id, cuotas, {
           monto: entrada.monto,
           registrado: false, // el gasto ya quedó registrado en la línea de arriba
+          gastoId,
           origen: "grupo",
         });
         const fechas = r.ciclos.map((f) => f.slice(8, 10) + "/" + f.slice(5, 7));
@@ -701,6 +703,7 @@ function handleCashboxEntries(entradas, idsCreados) {
         reminders.marcarPagado(encontrado.reminder.id, {
           monto: entrada.monto,
           registrado: false, // el gasto ya quedó registrado en la línea de arriba
+          gastoId,
           origen: "grupo",
           vence: encontrado.vence,
         });

@@ -754,16 +754,37 @@ async function renderReminders() {
         if (montoStr === null) return;
         const monto = parseFloat(montoStr);
         if (!Number.isFinite(monto) || monto <= 0) return;
-        const res = await fetch(`/api/reminders/${encodeURIComponent(r.id)}/pagado`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ monto }),
-        });
-        const data = await res.json();
+        btnPay.disabled = true;
+        const enviar = async (extra) => {
+          const res = await fetch(`/api/reminders/${encodeURIComponent(r.id)}/pagado`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ monto, ...extra }),
+          });
+          const d = await res.json();
+          if (!res.ok) throw new Error(d.error || "No se pudo guardar.");
+          return d;
+        };
+        let data;
+        try {
+          data = await enviar({});
+          if (data.preguntar) {
+            const eleccion = await preguntarGastoExistente(preguntaContainer, data.candidatos, r.label);
+            if (!eleccion) {
+              btnPay.disabled = false;
+              return;
+            }
+            data = await enviar(eleccion);
+          }
+        } catch (err) {
+          alert(err.message);
+          btnPay.disabled = false;
+          return;
+        }
         if (data.registrado) {
           alert(`Registré el gasto de ${r.label} por S/ ${monto} en la caja.`);
         } else if (data.gastoExistente) {
-          alert(`Ese gasto ya estaba registrado ("${data.gastoExistente.descripcion || "sin descripción"}"), no lo dupliqué.`);
+          alert(`Listo: quedó como pagado con el gasto que ya estaba ("${data.gastoExistente.descripcion || "sin descripción"}"), no lo dupliqué.`);
         }
         renderReminders();
         renderHistorialPagos();
@@ -771,6 +792,10 @@ async function renderReminders() {
       });
       acciones.appendChild(btnPay);
     }
+
+    // Si en la caja hay un gasto que podría ser este pago, se pregunta acá.
+    const preguntaContainer = document.createElement("div");
+    preguntaContainer.className = "hidden mt-3 pt-3 border-t border-slate-100";
 
     // Pagar por adelantado: una o varias cuotas de una vez.
     const adelantoContainer = document.createElement("div");
@@ -867,6 +892,7 @@ async function renderReminders() {
 
     card.appendChild(top);
     top.appendChild(acciones);
+    card.appendChild(preguntaContainer);
     card.appendChild(adelantoContainer);
     card.appendChild(historialContainer);
     remindersList.appendChild(card);
@@ -875,6 +901,66 @@ async function renderReminders() {
   if (lista.length === 0) {
     remindersList.innerHTML = '<p class="text-sm text-slate-400">No hay pagos cargados.</p>';
   }
+}
+
+// ---------- ¿Este pago ya estaba anotado? ----------
+// El servidor encontró en la caja gastos que podrían ser este mismo pago.
+// Antes decidía solo y se equivocaba con nombres parecidos (tomó "banco
+// mibanco Patrick" como el pago de MI BANCO); ahora se le muestra cada uno
+// con su monto y su fecha para que diga cuál es, o que ninguno.
+// Devuelve { decision: "ya_estaba", movimientoId } | { decision: "registrar" }
+// | null si cancela.
+function preguntarGastoExistente(cont, candidatos, label) {
+  return new Promise((resolve) => {
+    const terminar = (valor) => {
+      cont.innerHTML = "";
+      cont.classList.add("hidden");
+      resolve(valor);
+    };
+    cont.innerHTML = "";
+    cont.classList.remove("hidden");
+
+    const titulo = document.createElement("p");
+    titulo.className = "text-xs font-semibold text-slate-700";
+    titulo.textContent =
+      candidatos.length > 1
+        ? `¿Ya anotaste este pago? Encontré estos gastos parecidos a "${label}":`
+        : `¿Ya anotaste este pago? Encontré este gasto parecido a "${label}":`;
+    cont.appendChild(titulo);
+
+    candidatos.forEach((c) => {
+      const fila = document.createElement("div");
+      fila.className = "flex items-center justify-between gap-2 mt-2 rounded-lg bg-slate-50 border border-slate-200 px-2.5 py-2";
+      const texto = document.createElement("p");
+      texto.className = "text-xs text-slate-700 min-w-0 break-words";
+      texto.textContent = `"${c.descripcion || "sin descripción"}" · ${formatSoles(c.monto)} · ${fmtFecha(c.fecha)}${c.hora ? " " + c.hora : ""}`;
+      const si = document.createElement("button");
+      si.type = "button";
+      si.className = "shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-semibold bg-brand-green text-white active:scale-95 transition-all";
+      si.textContent = "Sí, es este";
+      si.addEventListener("click", () => terminar({ decision: "ya_estaba", movimientoId: c.id }));
+      fila.appendChild(texto);
+      fila.appendChild(si);
+      cont.appendChild(fila);
+    });
+
+    const botones = document.createElement("div");
+    botones.className = "flex flex-wrap gap-2 mt-2";
+    const no = document.createElement("button");
+    no.type = "button";
+    no.className = "rounded-lg px-2.5 py-1.5 text-xs font-semibold bg-white text-slate-700 border border-slate-300 active:scale-95 transition-all";
+    no.textContent = candidatos.length > 1 ? "No es ninguno: regístralo aparte" : "No es ese: regístralo aparte";
+    no.addEventListener("click", () => terminar({ decision: "registrar" }));
+    const cancelar = document.createElement("button");
+    cancelar.type = "button";
+    cancelar.className = "rounded-lg px-2.5 py-1.5 text-xs text-slate-500 active:scale-95 transition-all";
+    cancelar.textContent = "Cancelar";
+    cancelar.addEventListener("click", () => terminar(null));
+    botones.appendChild(no);
+    botones.appendChild(cancelar);
+    cont.appendChild(botones);
+    cont.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  });
 }
 
 // ---------- Elegir el día del mes tocándolo ----------
@@ -1141,6 +1227,8 @@ function armarAdelanto(cont, r) {
   confirmar.textContent = "Confirmar";
   const msg = document.createElement("p");
   msg.className = "hidden text-xs mt-2";
+  const pregunta = document.createElement("div");
+  pregunta.className = "hidden mt-3";
   let montoTocado = false;
   monto.addEventListener("input", () => { montoTocado = true; });
 
@@ -1189,16 +1277,28 @@ function armarAdelanto(cont, r) {
     }
     confirmar.disabled = true;
     try {
-      const res = await fetch(`/api/reminders/${encodeURIComponent(r.id)}/adelantar`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cuotas: elegidas, monto: m }),
-      });
-      const d = await res.json();
-      if (!res.ok) throw new Error(d.error || "No se pudo guardar.");
+      const enviar = async (extra) => {
+        const res = await fetch(`/api/reminders/${encodeURIComponent(r.id)}/adelantar`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cuotas: elegidas, monto: m, ...extra }),
+        });
+        const d = await res.json();
+        if (!res.ok) throw new Error(d.error || "No se pudo guardar.");
+        return d;
+      };
+      let d = await enviar({});
+      if (d.preguntar) {
+        const eleccion = await preguntarGastoExistente(pregunta, d.candidatos, r.label);
+        if (!eleccion) {
+          confirmar.disabled = false;
+          return;
+        }
+        d = await enviar(eleccion);
+      }
       const caja = d.registrado
         ? "Registré el gasto de " + formatSoles(m) + " en tu caja."
-        : "Ese gasto ya estaba registrado, no lo dupliqué.";
+        : "Quedó con el gasto que ya estaba anotado, no lo dupliqué.";
       alert("Listo: pagaste " + (d.ciclos.length > 1 ? d.ciclos.length + " cuotas" : "la cuota") + " de " + r.label + ". " + caja);
       renderReminders();
       renderHistorialPagos();
@@ -1221,6 +1321,7 @@ function armarAdelanto(cont, r) {
   fila.appendChild(confirmar);
   cont.appendChild(fila);
   cont.appendChild(msg);
+  cont.appendChild(pregunta);
   pintar();
 }
 

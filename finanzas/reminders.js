@@ -293,11 +293,30 @@ function palabrasClaveDe(label) {
 // texto entero, asi que "Ana pasaje" pasaba por "Compartimos banco Ana"
 // solo por compartir la palabra "ana", y "mia colegio sip" pasaba por
 // "Sip credito".
+//
+// El nombre entero tambien cuenta junto ("mibanco") o separado ("mi
+// banco"). Y si el nombre tiene palabras cortas que no se buscan, como el
+// "mi" de "MI BANCO", la palabra que queda sola no alcanza para decir que
+// es ese pago: "banco" la tienen varios gastos ("banco ana", "Compartimos
+// banco"), y por eso "banco mibanco Patrick" se tomaba como el pago de MI
+// BANCO sin mirar el monto.
 function coincidenciaConPendiente(label, descripcion) {
   const claves = palabrasClaveDe(label);
   const palabras = normalizeText(descripcion).split(/[^a-z0-9]+/).filter(Boolean);
+  const delNombre = normalizeText(label).split(/[^a-z0-9]+/).filter(Boolean);
+  const nombreEntero =
+    delNombre.length > 0 &&
+    ((delNombre.length > 1 && palabras.includes(delNombre.join(""))) ||
+      (" " + palabras.join(" ") + " ").includes(" " + delNombre.join(" ") + " "));
+  if (nombreEntero) return { claves, encontradas: claves.length ? claves : delNombre, todas: true };
+
   const encontradas = claves.filter((k) => palabras.includes(k));
-  return { claves, encontradas, todas: claves.length > 0 && encontradas.length === claves.length };
+  const tienePalabrasCortas = delNombre.some((p) => p.length < 3);
+  return {
+    claves,
+    encontradas,
+    todas: claves.length > 0 && encontradas.length === claves.length && !tienePalabrasCortas,
+  };
 }
 
 // Margen para los recibos que varian un poco mes a mes.
@@ -333,9 +352,34 @@ function ocurrenciaAnterior(r, dueLabel) {
   return null; // "unica" no se repite: no hay ciclo anterior
 }
 
-function buscarGastoDelPago(id, movimientos, montoPagado) {
+// Cuántos días antes del vencimiento puede estar anotado el pago. Antes se
+// miraba todo el ciclo (un mes entero) y aparecían gastos de otras cosas.
+const DIAS_ANTES_DEL_VENCIMIENTO = 10;
+
+// Los gastos que ya quedaron como el pago de algún pendiente: no pueden
+// contar también como el pago de otro.
+function gastosYaUsados() {
+  return new Set(
+    datos()
+      .pagosMarcados.map((p) => p.gastoId)
+      .filter(Boolean)
+      .map(String)
+  );
+}
+
+// Los gastos de la caja que podrían ser este mismo pago, el más probable
+// primero. No decide nada: el panel le pregunta al dueño cuál es (o si
+// ninguno), porque adivinar se equivocaba con nombres parecidos.
+//
+// Para aparecer, el gasto tiene que:
+//   - tener el nombre del pago (entero o en parte),
+//   - tener un monto parecido a lo que dice que pagó (siempre: antes con
+//     el nombre entero alcanzaba, aunque fuera S/ 50 contra S/ 574),
+//   - estar cerca del vencimiento y después del último pago marcado,
+//   - no ser ya el pago de otro pendiente.
+function buscarGastosDelPago(id, movimientos, montoPagado) {
   const r = getById(id);
-  if (!r) return null;
+  if (!r) return [];
   const hoy = fechaLabelPeru();
   const due = ultimaVentanaAbierta(r, hoy) || hoy;
 
@@ -357,22 +401,29 @@ function buscarGastoDelPago(id, movimientos, montoPagado) {
     .reduce((a, p) => (!a || p.fecha > a.fecha ? p : a), null);
   if (ultimoPago && ultimoPago.fecha >= desde) desde = addDays(ultimoPago.fecha, 1);
 
+  const cerca = addDays(due, -DIAS_ANTES_DEL_VENCIMIENTO);
+  if (cerca > desde) desde = cerca;
+
   // Contra lo que dice que pago, no contra el monto configurado: algunos
   // recibos cambian mes a mes.
   const referencia = Number(montoPagado) > 0 ? Number(montoPagado) : r.monto;
+  const usados = gastosYaUsados();
 
-  return (
-    movimientos.find((m) => {
-      if (m.tipo !== "gasto") return false;
-      if (m.fecha < desde || m.fecha > hoy) return false;
-      const { encontradas, todas } = coincidenciaConPendiente(r.label, m.descripcion);
-      if (!encontradas.length) return false;
-      // Si aparece el nombre entero alcanza, aunque el monto no cuadre.
-      if (todas) return true;
-      // Si solo aparece parte del nombre, el monto tiene que respaldarlo.
-      return montoParecido(m.monto, referencia);
-    }) || null
-  );
+  return movimientos
+    .filter((m) => m.tipo === "gasto" && m.fecha >= desde && m.fecha <= hoy && !usados.has(String(m.id)))
+    .map((m) => ({ m, c: coincidenciaConPendiente(r.label, m.descripcion) }))
+    .filter(({ m, c }) => c.encontradas.length && montoParecido(Number(m.monto) || 0, referencia))
+    .sort(
+      (a, b) =>
+        Number(b.c.todas) - Number(a.c.todas) ||
+        Math.abs(a.m.monto - referencia) - Math.abs(b.m.monto - referencia) ||
+        String(b.m.fecha).localeCompare(String(a.m.fecha))
+    )
+    .map(({ m }) => m);
+}
+
+function buscarGastoDelPago(id, movimientos, montoPagado) {
+  return buscarGastosDelPago(id, movimientos, montoPagado)[0] || null;
 }
 
 // Cuántos días antes del vencimiento se acepta un pago adelantado, y qué
@@ -519,6 +570,9 @@ function anotarLote(r, ciclos, total, info, antes) {
       monto: porCuota,
       registrado: !!info.registrado,
       gastoExistente: info.gastoExistente || null,
+      // El gasto de la caja que es este pago (el que se registró o el que
+      // ya estaba): así no se ofrece después como el pago de otra cosa.
+      gastoId: info.gastoId || null,
       origen: info.origen === "grupo" ? "grupo" : "panel",
       adelantado: vence > hoy,
       lote,
@@ -818,6 +872,7 @@ module.exports = {
   getAll,
   getById,
   buscarGastoDelPago,
+  buscarGastosDelPago,
   buscarPendientePorGasto,
   getHistorialPagos,
   marcarPagado,
@@ -841,4 +896,5 @@ module.exports = {
   getPagosMesRestante,
   // Para pruebas.
   _alinearCicloPagado: alinearCicloPagado,
+  coincidenciaConPendiente,
 };
