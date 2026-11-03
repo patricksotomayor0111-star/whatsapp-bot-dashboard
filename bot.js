@@ -1019,6 +1019,47 @@ function guardarLidMap() {
   }
 }
 
+// ---------- La última lista de grupos, guardada ----------
+// Al reconectarse el bot le pide a WhatsApp la lista de grupos. Si WhatsApp
+// no responde (lo frena un rato cuando el bot se reconectó varias veces
+// seguidas), antes el panel quedaba en "Grupos (0)" y todo lo que reconoce
+// a un grupo por su NOMBRE dejaba de andar: los grupos ignorados, el de
+// cotización, los de "solo autorizados", las imágenes/contactos/audios.
+// Los grupos casi nunca cambian, así que se guarda la última lista buena y
+// se usa mientras WhatsApp no conteste.
+const GRUPOS_GUARDADOS_PATH = dataPath("grupos-guardados.json");
+
+function leerGruposGuardados() {
+  try {
+    const datos = JSON.parse(fs.readFileSync(GRUPOS_GUARDADOS_PATH, "utf8"));
+    return Array.isArray(datos.grupos) ? datos : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+function guardarGrupos() {
+  try {
+    fs.writeFileSync(
+      GRUPOS_GUARDADOS_PATH,
+      JSON.stringify({ guardadoEn: botState.gruposActualizados || Date.now(), grupos: botState.groups })
+    );
+  } catch (err) {
+    console.error("No se pudo guardar la lista de grupos:", err.message);
+  }
+}
+
+// Si no hay lista, usa la guardada. No pisa una lista que ya se tiene.
+function usarGruposGuardados() {
+  if (botState.groups.length) return;
+  const guardados = leerGruposGuardados();
+  if (!guardados || !guardados.grupos.length) return;
+  botState.groups = guardados.grupos;
+  botState.gruposOrigen = "guardada";
+  botState.gruposActualizados = guardados.guardadoEn || null;
+  applyGroupSeed();
+}
+
 function recordLidMapping(lidJid, pnJid) {
   const lid = String(lidJid || "").replace(/@.*/, "");
   const pn = canonicalNumber(String(pnJid || "").replace(/@.*/, ""));
@@ -1070,6 +1111,11 @@ const botState = {
   lastActivity: null,
   history: [],
   groups: [],
+  // De dónde salió la lista de grupos: "whatsapp" (recién pedida), "guardada"
+  // (WhatsApp no respondió y se usa la última que se guardó) o null (no hay
+  // ninguna todavía). Y cuándo se trajo de WhatsApp por última vez.
+  gruposOrigen: null,
+  gruposActualizados: null,
   active: false, // arranca inactivo: hay que activarlo manualmente desde el panel tras vincular
   recentSenders: [], // diagnóstico temporal: últimos remitentes vistos por grupo
 };
@@ -1194,6 +1240,34 @@ let refreshEnCurso = false;
 let ultimoFalloTs = 0;
 const ENFRIAMIENTO_TRAS_FALLO_MS = 5 * 60 * 1000; // 5 minutos
 
+// La lista que dio WhatsApp pasa a ser la del bot, y se guarda.
+function aplicarListaDeGrupos(groupsMap) {
+  botState.groups = Object.values(groupsMap)
+    .map((g) => ({
+      id: g.id,
+      name: g.subject || "(sin nombre)",
+      participants: g.participants?.length || 0,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  botState.gruposOrigen = "whatsapp";
+  botState.gruposActualizados = Date.now();
+  guardarGrupos();
+
+  // Si Baileys v7 trae el número real junto al LID de cada participante,
+  // se aprenden todas las equivalencias de una vez (sin esperar a que
+  // cada persona escriba un mensaje).
+  Object.values(groupsMap).forEach((g) => {
+    (g.participants || []).forEach((p) => {
+      const id = p.id || "";
+      const alterno = p.phoneNumber || p.jid || "";
+      if (esJidLid(id) && alterno && !esJidLid(alterno)) recordLidMapping(id, alterno);
+      if (!esJidLid(id) && p.lid) recordLidMapping(p.lid, id);
+    });
+  });
+
+  applyGroupSeed();
+}
+
 async function refreshGroups(sock, intento = 0) {
   if (intento === 0) {
     if (refreshEnCurso) return;
@@ -1202,28 +1276,7 @@ async function refreshGroups(sock, intento = 0) {
   }
 
   try {
-    const groupsMap = await sock.groupFetchAllParticipating();
-    botState.groups = Object.values(groupsMap)
-      .map((g) => ({
-        id: g.id,
-        name: g.subject || "(sin nombre)",
-        participants: g.participants?.length || 0,
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-
-    // Si Baileys v7 trae el número real junto al LID de cada participante,
-    // se aprenden todas las equivalencias de una vez (sin esperar a que
-    // cada persona escriba un mensaje).
-    Object.values(groupsMap).forEach((g) => {
-      (g.participants || []).forEach((p) => {
-        const id = p.id || "";
-        const alterno = p.phoneNumber || p.jid || "";
-        if (esJidLid(id) && alterno && !esJidLid(alterno)) recordLidMapping(id, alterno);
-        if (!esJidLid(id) && p.lid) recordLidMapping(p.lid, id);
-      });
-    });
-
-    applyGroupSeed();
+    aplicarListaDeGrupos(await sock.groupFetchAllParticipating());
     refreshEnCurso = false;
   } catch (err) {
     console.error("No se pudo obtener la lista de grupos:", err.message);
@@ -1237,7 +1290,59 @@ async function refreshGroups(sock, intento = 0) {
     } else {
       refreshEnCurso = false;
       ultimoFalloTs = Date.now();
+      usarGruposGuardados();
+      // Antes se rendía acá hasta la próxima reconexión. Ahora sigue
+      // probando cada 10 minutos mientras siga conectado.
+      setTimeout(() => {
+        if (sock === currentSock && botState.connected) refreshGroups(sock);
+      }, REINTENTO_LARGO_GRUPOS_MS);
     }
+  }
+}
+
+const REINTENTO_LARGO_GRUPOS_MS = 10 * 60 * 1000;
+
+// "Reintentar" del panel: pide la lista ya, sin esperar los reintentos
+// automáticos (que siguen igual por su lado). Devuelve si WhatsApp la dio.
+async function reintentarGrupos() {
+  if (!currentSock || !botState.connected) return false;
+  try {
+    aplicarListaDeGrupos(await currentSock.groupFetchAllParticipating());
+    return true;
+  } catch (err) {
+    console.error("Reintentar: WhatsApp tampoco dio la lista de grupos:", err.message);
+    return false;
+  }
+}
+
+// Llega un mensaje de un grupo que no está en la lista (WhatsApp no la dio,
+// o el bot recién entró): se le pregunta a WhatsApp solo por ese grupo, para
+// saber su nombre antes de decidir qué hacer con el mensaje. Si no contesta
+// en 5 segundos se sigue sin él, como antes, y no se vuelve a preguntar por
+// ese grupo durante 10 minutos.
+const GRUPO_SUELTO_ESPERA_MS = 5000;
+const GRUPO_SUELTO_ENFRIAMIENTO_MS = 10 * 60 * 1000;
+const grupoSueltoFallo = new Map(); // id del grupo -> cuándo falló
+
+async function buscarGrupoSuelto(sock, chatId) {
+  if (!chatId || !chatId.endsWith("@g.us")) return null;
+  if (Date.now() - (grupoSueltoFallo.get(chatId) || 0) < GRUPO_SUELTO_ENFRIAMIENTO_MS) return null;
+  try {
+    const meta = await Promise.race([
+      sock.groupMetadata(chatId),
+      new Promise((_, rechazar) => setTimeout(() => rechazar(new Error("no contestó a tiempo")), GRUPO_SUELTO_ESPERA_MS)),
+    ]);
+    const grupo = { id: chatId, name: meta?.subject || "(sin nombre)", participants: meta?.participants?.length || 0 };
+    if (!botState.groups.some((g) => g.id === chatId)) {
+      botState.groups = [...botState.groups, grupo].sort((a, b) => a.name.localeCompare(b.name));
+      guardarGrupos();
+      applyGroupSeed();
+    }
+    return grupo;
+  } catch (err) {
+    grupoSueltoFallo.set(chatId, Date.now());
+    console.error(`No se pudo saber qué grupo es ${chatId}:`, err.message);
+    return null;
   }
 }
 
@@ -1309,6 +1414,8 @@ function programarReconexion(motivo) {
 }
 
 async function startBot() {
+  // Mientras conecta, el panel ya muestra la última lista de grupos.
+  usarGruposGuardados();
   const { state, saveCreds } = await useMultiFileAuthState(SESSION_PATH);
   const { version } = await fetchLatestBaileysVersion();
 
@@ -1339,7 +1446,10 @@ async function startBot() {
 
     if (connection === "close") {
       botState.connected = false;
-      botState.groups = [];
+      // No se vacía: se queda con la última lista buena (guardada en disco),
+      // para que el panel no muestre "Grupos (0)" mientras reconecta.
+      if (botState.gruposOrigen === "whatsapp") botState.gruposOrigen = "guardada";
+      usarGruposGuardados();
       const shouldReconnect =
         lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
 
@@ -1380,7 +1490,7 @@ async function startBot() {
       if (esMensajeViejo(msg)) continue;
 
       const chatId = msg.key.remoteJid;
-      const grupoActual = botState.groups.find((g) => g.id === chatId);
+      const grupoActual = botState.groups.find((g) => g.id === chatId) || (await buscarGrupoSuelto(sock, chatId));
       const rawText = extractText(msg).trim();
 
       // Grupos que este bot no debe tocar en absoluto (ver
@@ -2196,6 +2306,7 @@ function probarFrase(textoCrudo, chatId, numeroCrudo) {
 module.exports = {
   startBot,
   botState,
+  reintentarGrupos,
   logoutBot,
   getSock,
   setBotActivo,

@@ -754,6 +754,12 @@
         <span class="text-xs text-slate-400" id="visibleCount">Mostrando todos</span>
       </section>
 
+      <!-- Aviso: WhatsApp no dio la lista de grupos -->
+      <section id="avisoGrupos" class="hidden rounded-2xl border border-amber-200 bg-amber-50 p-3 text-[13px] text-amber-900">
+        <p id="avisoGruposTexto"></p>
+        <button id="avisoGruposReintentar" class="mt-2 rounded-xl px-3 py-1.5 text-xs font-semibold bg-amber-500 text-white active:scale-95 transition-all">Reintentar</button>
+      </section>
+
       <!-- Lista de grupos agrupados por sector -->
       <section id="sectorList" class="space-y-2 fade-in" style="animation-delay:.25s">
         <!-- Los sectores se inyectan dinámicamente desde script.js -->

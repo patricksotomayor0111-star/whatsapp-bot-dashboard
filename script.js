@@ -93,6 +93,10 @@ const exceptionKeywordInput = document.getElementById("exceptionKeywordInput");
 const addExceptionKeywordBtn = document.getElementById("addExceptionKeywordBtn");
 
 let groupsData = [];
+// De dónde salió la lista de grupos ("whatsapp" | "guardada" | null) y cuándo
+// se trajo de WhatsApp por última vez.
+let gruposOrigen = null;
+let gruposActualizados = null;
 let focusedGroups = [];
 let sectorDefs = [];
 let sectorActiveMap = {};
@@ -371,6 +375,9 @@ async function fetchGroups(force = false) {
     const nuevosGrupos = data.groups || [];
     const cambio = JSON.stringify(nuevosGrupos) !== JSON.stringify(groupsData);
     groupsData = nuevosGrupos;
+    gruposOrigen = data.origen || null;
+    gruposActualizados = data.actualizados || null;
+    pintarAvisoGrupos();
     focusedGroups = data.focusedGroups || [];
     updateFocusUI();
     if (sectorDefs.length === 0) await fetchSectors();
@@ -379,6 +386,42 @@ async function fetchGroups(force = false) {
     console.error("No se pudo obtener la lista de grupos:", err);
   }
 }
+
+// ---------- Aviso: la lista de grupos no es la de ahora ----------
+// Si WhatsApp no da la lista (lo frena un rato tras varias reconexiones), el
+// bot usa la última que guardó. Se avisa para que se sepa por qué, y se
+// puede volver a pedir sin esperar los 10 minutos.
+const avisoGrupos = document.getElementById("avisoGrupos");
+const avisoGruposTexto = document.getElementById("avisoGruposTexto");
+
+function pintarAvisoGrupos() {
+  let texto = "";
+  if (isConnected && gruposOrigen === "guardada") {
+    const cuando = gruposActualizados
+      ? new Date(gruposActualizados).toLocaleString("es-PE", { day: "2-digit", month: "2-digit", hour: "numeric", minute: "2-digit" })
+      : "antes";
+    texto = `⚠️ WhatsApp no me dio la lista de grupos. Estoy usando la que guardé (${cuando}), así que igual reconozco tus grupos. Lo vuelvo a intentar solo cada 10 minutos.`;
+  } else if (isConnected && !groupsData.length) {
+    texto = "⚠️ WhatsApp todavía no me da la lista de grupos. Lo sigo intentando solo cada 10 minutos.";
+  }
+  avisoGruposTexto.textContent = texto;
+  avisoGrupos.classList.toggle("hidden", !texto);
+}
+
+document.getElementById("avisoGruposReintentar").addEventListener("click", async (e) => {
+  const boton = e.currentTarget;
+  boton.disabled = true;
+  boton.textContent = "Pidiendo la lista…";
+  try {
+    const res = await fetch("/api/groups/reintentar", { method: "POST" });
+    const data = await res.json().catch(() => ({}));
+    await fetchGroups(true);
+    if (!data.ok) avisoGruposTexto.textContent = "WhatsApp todavía no la da. Sigo intentando solo cada 10 minutos.";
+  } finally {
+    boton.disabled = false;
+    boton.textContent = "Reintentar";
+  }
+});
 
 // ---------- Búsqueda ----------
 searchInput.addEventListener("input", (e) => {
@@ -622,7 +665,12 @@ async function pollStatus() {
       // Se desconectó: limpia la lista una vez, no en cada poll.
       groupsData = [];
       renderSectors(searchInput.value);
+    } else if (isConnected && (data.groupsCount !== groupsData.length || (data.gruposOrigen || null) !== gruposOrigen)) {
+      // La lista cambió en el servidor (por ejemplo, WhatsApp por fin la dio
+      // en un reintento): se vuelve a pedir, sin recargar la página.
+      fetchGroups();
     }
+    pintarAvisoGrupos();
     // Si sigue conectado sin cambios, no se vuelve a dibujar la lista entera
     // en cada poll (eso es lo que causaba el salto de scroll).
   } catch (err) {
