@@ -46,10 +46,21 @@ function formatSoles(n) {
 
 let esperadoActual = 0;
 
+// Lo que se anota por WhatsApp entra sin tocar el panel: la caja se pide
+// cada 15 segundos, y si cambió algo se recalculan también las metas y el
+// cierre del mes. Antes la caja cambiaba pero la meta de hoy no, hasta que
+// tocabas algo en el panel.
+let ultimaCajaVista = null;
+
 async function fetchCashboxToday() {
   try {
     const res = await fetch("/api/cashbox/today");
     const data = await res.json();
+    const firma = [data.esperado, data.ganancias, data.gastos, data.caja].join("|");
+    if (ultimaCajaVista !== null && firma !== ultimaCajaVista && typeof fetchGoalsAndProgress === "function") {
+      fetchGoalsAndProgress();
+    }
+    ultimaCajaVista = firma;
     esperadoActual = data.esperado || 0;
     statGanancias.textContent = formatSoles(data.ganancias);
     statGastos.textContent = "-" + formatSoles(data.gastos);
@@ -671,7 +682,12 @@ async function fetchReminderBadge() {
   try {
     const res = await fetch("/api/reminders");
     const data = await res.json();
+    const antes = pendientesPorPagar;
     pendientesPorPagar = (data.pendientes || []).length;
+    // Un pago marcado desde WhatsApp cambia la meta aunque la caja no se mueva.
+    if (antes !== null && antes !== undefined && antes !== pendientesPorPagar && typeof fetchGoalsAndProgress === "function") {
+      fetchGoalsAndProgress();
+    }
     actualizarBadges(pendientesPorPagar);
     if (typeof pintarBottomNav === "function") pintarBottomNav();
   } catch (err) {
@@ -704,9 +720,13 @@ async function renderReminders() {
         : "bg-white border-slate-200");
 
     let estado;
-    if (!r.activo) estado = "Desactivado";
+    const unicaPagada = r.tipo === "unica" && !r.activo && r.ultimoPago;
+    if (unicaPagada) estado = `✅ Pagado el ${fmtFecha(r.ultimoPago.fecha)}`;
+    else if (!r.activo) estado = "Desactivado";
     else if (pendiente) estado = `⚠️ Pendiente · vence ${fmtFecha(r.vence)}`;
     else if (r.termino) estado = `Terminado el ${fmtFecha(r.fechaFin)}`;
+    else if (r.pagadoHasta)
+      estado = `✅ Pagado hasta ${fmtFecha(r.pagadoHasta)}` + (r.proxima ? ` · próximo ${fmtFecha(r.proxima)}` : " · hasta el final");
     else estado = `Al día · próximo ${fmtFecha(r.proxima)}`;
     // Si tiene final, se dice: es la diferencia entre "esto sigue" y
     // "esto ya se acabó".
@@ -734,22 +754,63 @@ async function renderReminders() {
         if (montoStr === null) return;
         const monto = parseFloat(montoStr);
         if (!Number.isFinite(monto) || monto <= 0) return;
-        const res = await fetch(`/api/reminders/${encodeURIComponent(r.id)}/pagado`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ monto }),
-        });
-        const data = await res.json();
+        btnPay.disabled = true;
+        const enviar = async (extra) => {
+          const res = await fetch(`/api/reminders/${encodeURIComponent(r.id)}/pagado`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ monto, ...extra }),
+          });
+          const d = await res.json();
+          if (!res.ok) throw new Error(d.error || "No se pudo guardar.");
+          return d;
+        };
+        let data;
+        try {
+          data = await enviar({});
+          if (data.preguntar) {
+            const eleccion = await preguntarGastoExistente(preguntaContainer, data.candidatos, r.label);
+            if (!eleccion) {
+              btnPay.disabled = false;
+              return;
+            }
+            data = await enviar(eleccion);
+          }
+        } catch (err) {
+          alert(err.message);
+          btnPay.disabled = false;
+          return;
+        }
         if (data.registrado) {
           alert(`Registré el gasto de ${r.label} por S/ ${monto} en la caja.`);
         } else if (data.gastoExistente) {
-          alert(`Ese gasto ya estaba registrado ("${data.gastoExistente.descripcion || "sin descripción"}"), no lo dupliqué.`);
+          alert(`Listo: quedó como pagado con el gasto que ya estaba ("${data.gastoExistente.descripcion || "sin descripción"}"), no lo dupliqué.`);
         }
         renderReminders();
         renderHistorialPagos();
         fetchCashboxToday();
       });
       acciones.appendChild(btnPay);
+    }
+
+    // Si en la caja hay un gasto que podría ser este pago, se pregunta acá.
+    const preguntaContainer = document.createElement("div");
+    preguntaContainer.className = "hidden mt-3 pt-3 border-t border-slate-100";
+
+    // Pagar por adelantado: una o varias cuotas de una vez.
+    const adelantoContainer = document.createElement("div");
+    adelantoContainer.className = "hidden mt-3 pt-3 border-t border-slate-100";
+    if (r.activo && !r.termino && (r.siguientes || []).length) {
+      const btnAdelantar = document.createElement("button");
+      btnAdelantar.className = "w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 active:scale-90 transition-all";
+      btnAdelantar.title = r.tipo === "unica" ? "Pagar por adelantado" : "Adelantar cuotas";
+      btnAdelantar.innerHTML = '<i class="fa-solid fa-forward"></i>';
+      btnAdelantar.addEventListener("click", () => {
+        const abrir = adelantoContainer.classList.contains("hidden");
+        adelantoContainer.classList.toggle("hidden", !abrir);
+        if (abrir && !adelantoContainer.childElementCount) armarAdelanto(adelantoContainer, r);
+      });
+      acciones.appendChild(btnAdelantar);
     }
 
     const btnEditar = document.createElement("button");
@@ -773,17 +834,25 @@ async function renderReminders() {
     });
     acciones.appendChild(btnToggle);
 
-    // Si ya está pagado este ciclo, se puede deshacer (por si se marcó por
-    // error, o el bot lo marcó solo desde el grupo y no correspondía).
-    if (r.activo && !pendiente) {
+    // Deshacer el último pago (con todas sus cuotas si fue adelantado), por
+    // si se marcó por error o el bot lo marcó solo y no correspondía.
+    if ((r.activo && !pendiente) || unicaPagada) {
       const btnUndo = document.createElement("button");
       btnUndo.className = "w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 active:scale-90 transition-all";
-      btnUndo.title = "Marcar como NO pagado";
+      btnUndo.title = "Deshacer el último pago";
       btnUndo.innerHTML = '<i class="fa-solid fa-rotate-left"></i>';
       btnUndo.addEventListener("click", async () => {
-        if (!confirm(`¿Volver a marcar "${r.label}" como pendiente?\n\nEl gasto que haya quedado en la caja no se borra: eso se corrige desde Movimientos.`)) return;
+        const u = r.ultimoPago;
+        const que = u
+          ? u.cuotas > 1
+            ? `las ${u.cuotas} cuotas que pagaste el ${fmtFecha(u.fecha)} (${formatSoles(u.monto)})`
+            : `el pago del ${fmtFecha(u.fecha)} (${formatSoles(u.monto)})`
+          : "el último pago";
+        if (!confirm(`¿Deshacer ${que} de "${r.label}"?\n\nEl gasto que haya quedado en la caja no se borra: eso se corrige desde Movimientos.`)) return;
         await fetch(`/api/reminders/${encodeURIComponent(r.id)}/desmarcar`, { method: "POST" });
         renderReminders();
+        renderHistorialPagos();
+        if (typeof fetchGoalsAndProgress === "function") fetchGoalsAndProgress();
       });
       acciones.appendChild(btnUndo);
     }
@@ -823,6 +892,8 @@ async function renderReminders() {
 
     card.appendChild(top);
     top.appendChild(acciones);
+    card.appendChild(preguntaContainer);
+    card.appendChild(adelantoContainer);
     card.appendChild(historialContainer);
     remindersList.appendChild(card);
   });
@@ -830,6 +901,66 @@ async function renderReminders() {
   if (lista.length === 0) {
     remindersList.innerHTML = '<p class="text-sm text-slate-400">No hay pagos cargados.</p>';
   }
+}
+
+// ---------- ¿Este pago ya estaba anotado? ----------
+// El servidor encontró en la caja gastos que podrían ser este mismo pago.
+// Antes decidía solo y se equivocaba con nombres parecidos (tomó "banco
+// mibanco Patrick" como el pago de MI BANCO); ahora se le muestra cada uno
+// con su monto y su fecha para que diga cuál es, o que ninguno.
+// Devuelve { decision: "ya_estaba", movimientoId } | { decision: "registrar" }
+// | null si cancela.
+function preguntarGastoExistente(cont, candidatos, label) {
+  return new Promise((resolve) => {
+    const terminar = (valor) => {
+      cont.innerHTML = "";
+      cont.classList.add("hidden");
+      resolve(valor);
+    };
+    cont.innerHTML = "";
+    cont.classList.remove("hidden");
+
+    const titulo = document.createElement("p");
+    titulo.className = "text-xs font-semibold text-slate-700";
+    titulo.textContent =
+      candidatos.length > 1
+        ? `¿Ya anotaste este pago? Encontré estos gastos parecidos a "${label}":`
+        : `¿Ya anotaste este pago? Encontré este gasto parecido a "${label}":`;
+    cont.appendChild(titulo);
+
+    candidatos.forEach((c) => {
+      const fila = document.createElement("div");
+      fila.className = "flex items-center justify-between gap-2 mt-2 rounded-lg bg-slate-50 border border-slate-200 px-2.5 py-2";
+      const texto = document.createElement("p");
+      texto.className = "text-xs text-slate-700 min-w-0 break-words";
+      texto.textContent = `"${c.descripcion || "sin descripción"}" · ${formatSoles(c.monto)} · ${fmtFecha(c.fecha)}${c.hora ? " " + c.hora : ""}`;
+      const si = document.createElement("button");
+      si.type = "button";
+      si.className = "shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-semibold bg-brand-green text-white active:scale-95 transition-all";
+      si.textContent = "Sí, es este";
+      si.addEventListener("click", () => terminar({ decision: "ya_estaba", movimientoId: c.id }));
+      fila.appendChild(texto);
+      fila.appendChild(si);
+      cont.appendChild(fila);
+    });
+
+    const botones = document.createElement("div");
+    botones.className = "flex flex-wrap gap-2 mt-2";
+    const no = document.createElement("button");
+    no.type = "button";
+    no.className = "rounded-lg px-2.5 py-1.5 text-xs font-semibold bg-white text-slate-700 border border-slate-300 active:scale-95 transition-all";
+    no.textContent = candidatos.length > 1 ? "No es ninguno: regístralo aparte" : "No es ese: regístralo aparte";
+    no.addEventListener("click", () => terminar({ decision: "registrar" }));
+    const cancelar = document.createElement("button");
+    cancelar.type = "button";
+    cancelar.className = "rounded-lg px-2.5 py-1.5 text-xs text-slate-500 active:scale-95 transition-all";
+    cancelar.textContent = "Cancelar";
+    cancelar.addEventListener("click", () => terminar(null));
+    botones.appendChild(no);
+    botones.appendChild(cancelar);
+    cont.appendChild(botones);
+    cont.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  });
 }
 
 // ---------- Elegir el día del mes tocándolo ----------
@@ -1056,9 +1187,142 @@ const historialPagosEmpty = document.getElementById("historialPagosEmpty");
 
 // Qué pasó con el gasto de ese pago, según por dónde se marcó.
 function textoDetallePago(p) {
-  if (p.origen === "grupo") return "lo escribiste en el grupo y marqué el pendiente solo";
-  if (p.registrado) return "se registró en la caja (te lo habías olvidado)";
-  return `ya estaba registrado${p.gastoExistente ? ` como "${p.gastoExistente}"` : ""}`;
+  let base;
+  if (p.origen === "grupo") base = "lo escribiste en el grupo y marqué el pendiente solo";
+  else if (p.registrado) base = "se registró en la caja";
+  else base = `ya estaba registrado${p.gastoExistente ? ` como "${p.gastoExistente}"` : ""}`;
+  const cuota = p.vence ? `cuota del ${fmtFecha(p.vence)}` : "";
+  const extra = [];
+  if (p.adelantado) extra.push("pagada por adelantado");
+  if (p.cuotasLote > 1) extra.push(`parte de un pago de ${p.cuotasLote} cuotas por ${formatSoles(p.montoLote)}`);
+  return [cuota, ...extra, base].filter(Boolean).join(" · ");
+}
+
+// El panel para adelantar: cuántas cuotas, qué fechas cubre y por cuánto.
+function armarAdelanto(cont, r) {
+  cont.innerHTML = "";
+  const siguientes = r.siguientes || [];
+  const unica = r.tipo === "unica";
+  let elegidas = 1;
+
+  const titulo = document.createElement("p");
+  titulo.className = "text-xs font-semibold text-slate-700";
+  titulo.textContent = unica ? "Pagar por adelantado" : "¿Cuántas cuotas adelantas?";
+  cont.appendChild(titulo);
+
+  const opciones = document.createElement("div");
+  opciones.className = "flex flex-wrap gap-1.5 mt-2";
+  const resumen = document.createElement("p");
+  resumen.className = "text-xs text-slate-500 mt-2";
+  const fila = document.createElement("div");
+  fila.className = "flex gap-2 mt-2";
+  const monto = document.createElement("input");
+  monto.type = "number";
+  monto.inputMode = "decimal";
+  monto.min = "0";
+  monto.step = "any";
+  monto.className = "flex-1 min-w-0 bg-white rounded-xl px-3 py-2 text-sm border border-slate-200";
+  const confirmar = document.createElement("button");
+  confirmar.className = "shrink-0 rounded-xl px-4 py-2 text-sm font-semibold bg-brand-green text-white active:scale-95 transition-all";
+  confirmar.textContent = "Confirmar";
+  const msg = document.createElement("p");
+  msg.className = "hidden text-xs mt-2";
+  const pregunta = document.createElement("div");
+  pregunta.className = "hidden mt-3";
+  let montoTocado = false;
+  monto.addEventListener("input", () => { montoTocado = true; });
+
+  const fechasTexto = (lista) => {
+    const f = lista.map(fmtFecha);
+    return f.length > 1 ? f.slice(0, -1).join(", ") + " y " + f[f.length - 1] : f[0] || "";
+  };
+
+  function pintar() {
+    opciones.innerHTML = "";
+    if (!unica) {
+      const valores = [1, 2, 3, 4].filter((n) => n <= siguientes.length);
+      const conFinDeMes = r.hastaFinDeMes > 0 && !valores.includes(r.hastaFinDeMes);
+      valores.forEach((n) => opciones.appendChild(chip(String(n), n)));
+      if (conFinDeMes) opciones.appendChild(chip("Hasta fin de mes (" + r.hastaFinDeMes + ")", r.hastaFinDeMes));
+    }
+    const cubre = siguientes.slice(0, elegidas);
+    const total = Math.round((Number(r.monto) || 0) * cubre.length * 100) / 100;
+    resumen.textContent = unica
+      ? "Vence el " + fmtFecha(cubre[0]) + " · " + formatSoles(total)
+      : "Cubre: " + fechasTexto(cubre) + " · Total " + formatSoles(total);
+    if (!montoTocado) monto.value = total;
+  }
+
+  function chip(texto, n) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = texto;
+    b.className =
+      "rounded-lg px-3 py-1.5 text-xs font-semibold border active:scale-95 transition-all " +
+      (n === elegidas ? "bg-brand-green text-white border-brand-green" : "bg-white text-slate-600 border-slate-200");
+    b.addEventListener("click", () => {
+      elegidas = n;
+      montoTocado = false;
+      pintar();
+    });
+    return b;
+  }
+
+  confirmar.addEventListener("click", async () => {
+    const m = parseFloat(monto.value);
+    if (!Number.isFinite(m) || m <= 0) {
+      msg.className = "text-xs mt-2 text-brand-red";
+      msg.textContent = "Escribe cuánto pagaste.";
+      return;
+    }
+    confirmar.disabled = true;
+    try {
+      const enviar = async (extra) => {
+        const res = await fetch(`/api/reminders/${encodeURIComponent(r.id)}/adelantar`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cuotas: elegidas, monto: m, ...extra }),
+        });
+        const d = await res.json();
+        if (!res.ok) throw new Error(d.error || "No se pudo guardar.");
+        return d;
+      };
+      let d = await enviar({});
+      if (d.preguntar) {
+        const eleccion = await preguntarGastoExistente(pregunta, d.candidatos, r.label);
+        if (!eleccion) {
+          confirmar.disabled = false;
+          return;
+        }
+        d = await enviar(eleccion);
+      }
+      const caja = d.registrado
+        ? "Registré el gasto de " + formatSoles(m) + " en tu caja."
+        : "Quedó con el gasto que ya estaba anotado, no lo dupliqué.";
+      alert("Listo: pagaste " + (d.ciclos.length > 1 ? d.ciclos.length + " cuotas" : "la cuota") + " de " + r.label + ". " + caja);
+      renderReminders();
+      renderHistorialPagos();
+      fetchCashboxToday();
+      if (typeof fetchGoalsAndProgress === "function") fetchGoalsAndProgress();
+    } catch (err) {
+      msg.className = "text-xs mt-2 text-brand-red";
+      msg.textContent = err.message;
+      confirmar.disabled = false;
+    }
+  });
+
+  cont.appendChild(opciones);
+  cont.appendChild(resumen);
+  const etiqueta = document.createElement("p");
+  etiqueta.className = "text-[11px] text-slate-400 mt-2";
+  etiqueta.textContent = "Lo que pagaste (S/):";
+  cont.appendChild(etiqueta);
+  fila.appendChild(monto);
+  fila.appendChild(confirmar);
+  cont.appendChild(fila);
+  cont.appendChild(msg);
+  cont.appendChild(pregunta);
+  pintar();
 }
 
 async function renderHistorialPagos() {
@@ -3117,6 +3381,9 @@ async function fetchGoalsAndProgress() {
 let ahorroEditando = false;
 function renderGoalInputs(goals) {
   const plan = goals.ahorro || {};
+  if (minimoDiarioInput && !minimoEditando && goals.automaticas) {
+    minimoDiarioInput.value = goals.automaticas.minimoDiario > 0 ? goals.automaticas.minimoDiario : "";
+  }
   if (ahorroEditando) return;
   ahorroMontoInput.value = plan.monto || "";
   ahorroPlanDesde.value = plan.desde || "";
@@ -3126,6 +3393,45 @@ function renderGoalInputs(goals) {
 [ahorroMontoInput, ahorroPlanDesde, ahorroPlanHasta].forEach((el) => {
   if (el) el.addEventListener("input", () => { ahorroEditando = true; });
 });
+
+// ---------- Tu mínimo por día ----------
+const minimoDiarioInput = document.getElementById("minimoDiarioInput");
+const minimoDiarioBtn = document.getElementById("minimoDiarioBtn");
+const minimoDiarioMsg = document.getElementById("minimoDiarioMsg");
+let minimoEditando = false;
+if (minimoDiarioInput) minimoDiarioInput.addEventListener("input", () => { minimoEditando = true; });
+
+if (minimoDiarioBtn) {
+  minimoDiarioBtn.addEventListener("click", async () => {
+    const valor = minimoDiarioInput.value.trim();
+    const monto = valor === "" ? 0 : parseFloat(valor);
+    minimoDiarioMsg.classList.remove("hidden");
+    if (!Number.isFinite(monto) || monto < 0) {
+      minimoDiarioMsg.className = "text-xs mt-2 text-brand-red";
+      minimoDiarioMsg.textContent = "Escribe un monto (o 0 para no usar ninguno).";
+      return;
+    }
+    minimoDiarioBtn.disabled = true;
+    try {
+      const res = await fetch("/api/finance/minimo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ monto }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "No se pudo guardar.");
+      minimoEditando = false;
+      minimoDiarioMsg.className = "text-xs mt-2 text-emerald-700";
+      minimoDiarioMsg.textContent =
+        d.minimo > 0 ? "Guardado: tu mínimo es " + formatSoles(d.minimo) + " por día." : "Listo: ya no se usa ningún mínimo.";
+      fetchGoalsAndProgress();
+    } catch (err) {
+      minimoDiarioMsg.className = "text-xs mt-2 text-brand-red";
+      minimoDiarioMsg.textContent = err.message;
+    }
+    minimoDiarioBtn.disabled = false;
+  });
+}
 
 // Las tres metas y el desglose de donde sale el numero. Todo viene ya
 // calculado del servidor para que el panel y el bot digan lo mismo.
@@ -3145,6 +3451,19 @@ function renderMetasAutomaticas(m) {
   const habiles = m.diasHabiles || m.diasRestantes;
   metaAutoDias.textContent =
     habiles === m.diasRestantes ? m.diasRestantes : habiles + " que trabajas, de " + m.diasRestantes;
+  // "Te falta" ya descuenta lo de hoy; la meta de HOY no, porque lo de hoy
+  // es avance de esa meta. Se aclara para que los dos números no choquen.
+  const metaAutoHoyNota = document.getElementById("metaAutoHoyNota");
+  if (metaAutoHoyNota) {
+    const h = m.hoy;
+    const mostrar = h && !h.esLibre && h.ganado > 0;
+    metaAutoHoyNota.classList.toggle("hidden", !mostrar);
+    if (mostrar) {
+      metaAutoHoyNota.textContent =
+        "Ya descontado lo que hiciste hoy (" + formatSoles(h.ganado) + "), que cuenta como avance de tu meta de hoy de " +
+        formatSoles(h.meta) + ".";
+    }
+  }
 
   // El hoy viene del servidor: el reloj del celular puede estar corrido.
   metaHoyLabel = m.desde;
@@ -3156,16 +3475,17 @@ function renderMetasAutomaticas(m) {
   pintarRangoActivo();
   pintarConteoLibres(m);
 
-  // Los vencidos sin marcar NO suman a la meta (su efectivo de hoy ya
-  // refleja lo que pago). Pero se avisan para que no se le pasen.
+  // Los vencidos sin marcar SÍ suman a la meta: si no los pagó, los sigue
+  // debiendo. Se avisan igual, por si ya los pagó y le falta marcarlos.
   const atrasados = (m.detalle.atrasados && m.detalle.atrasados.items) || [];
   metaAutoAtrasados.classList.toggle("hidden", atrasados.length === 0);
   if (atrasados.length > 0) {
     const nombres = atrasados.map((p) => p.label).join(", ");
-    const plural = atrasados.length > 1 ? "s" : "";
+    const varios = atrasados.length > 1;
     metaAutoAtrasadosTxt.textContent =
-      atrasados.length + " pago" + plural + " con fecha ya vencida sin marcar como pagado (" + nombres + ", " +
-      formatSoles(m.detalle.atrasados.total) + "). No se cuentan en tu meta. Si de verdad no los pagaste, márcalos en Pendientes.";
+      atrasados.length + " pago" + (varios ? "s" : "") + " con fecha ya vencida sin marcar como pagado (" + nombres + ", " +
+      formatSoles(m.detalle.atrasados.total) + "). Ya " + (varios ? "están sumados" : "está sumado") +
+      " en tu meta. Si ya " + (varios ? "los" : "lo") + " pagaste, toca \"Ya pagué\" en Pendientes y tu meta baja.";
   }
 
   // Lo que le deben no entra en la cuenta, pero se avisa: si lo cobra,
@@ -3179,8 +3499,10 @@ function renderMetasAutomaticas(m) {
 
   metaAutoDesglose.innerHTML = "";
   [
+    ["Pagos atrasados", (m.detalle.atrasados && m.detalle.atrasados.total) || 0],
     ["Pendientes por pagar", m.detalle.pendientes.total],
     ["Gastos programados", m.detalle.programados.total],
+    ["Préstamos por devolver", (m.detalle.prestamos && m.detalle.prestamos.total) || 0],
     ["Tu meta de ahorro", m.detalle.ahorro.total],
   ]
     .filter(([, monto]) => monto > 0)
@@ -3303,6 +3625,7 @@ if (ahorroHasta) ahorroHasta.addEventListener("change", cargarAhorroRango);
 function renderGoalProgress(data) {
   renderMetasAutomaticas(data.automaticas);
   pintarMetaEnResumen(data);
+  pintarCierre(data);
   pintarRitmo(data);
   goalProgressList.innerHTML = "";
   // Una sola barra: cuanto de lo que necesita ya tiene cubierto.
@@ -3410,6 +3733,10 @@ function renderGoalProgress(data) {
         const nombre = document.createElement("span");
         nombre.className = "text-slate-600";
         nombre.textContent = d.fecha ? `${d.label} · ${d.fecha.slice(8, 10)}/${d.fecha.slice(5, 7)}` : d.veces > 1 ? `${d.label} (x${d.veces})` : d.label;
+        if (d.atrasado) {
+          nombre.textContent += " · atrasado";
+          nombre.className = "text-brand-red";
+        }
         const monto = document.createElement("span");
         monto.className = "font-semibold text-slate-700";
         monto.textContent = formatSoles(d.subtotal);
@@ -5071,12 +5398,27 @@ function pintarConteoLibres(m) {
 const resumenMetaDia = document.getElementById("resumenMetaDia");
 const resumenMetaBarra = document.getElementById("resumenMetaBarra");
 const resumenMetaTexto = document.getElementById("resumenMetaTexto");
+const resumenMetaAtrasados = document.getElementById("resumenMetaAtrasados");
 
 function pintarMetaEnResumen(data) {
   if (!resumenMetaDia || !data) return;
   const m = data.automaticas;
   const ganadoHoy = (data.diaria && data.diaria.actual) || 0;
   if (!m) return;
+
+  // Lo vencido sin pagar ya está sumado en la meta: se dice, para que se
+  // entienda por qué subió y qué hacer si ya lo pagó.
+  if (resumenMetaAtrasados) {
+    const atrasados = (m.detalle && m.detalle.atrasados && m.detalle.atrasados.items) || [];
+    resumenMetaAtrasados.classList.toggle("hidden", atrasados.length === 0 || m.cubierto);
+    if (atrasados.length > 0) {
+      const varios = atrasados.length > 1;
+      resumenMetaAtrasados.textContent =
+        "⚠️ Incluye " + formatSoles(m.detalle.atrasados.total) + " de pago" + (varios ? "s" : "") + " atrasado" +
+        (varios ? "s" : "") + " (" + atrasados.map((p) => p.label).join(", ") + "). Si ya " + (varios ? "los" : "lo") +
+        " pagaste, toca \"Ya pagué\" en Pendientes.";
+    }
+  }
 
   if (m.cubierto) {
     resumenMetaDia.textContent = "Listo";
@@ -5107,6 +5449,8 @@ function pintarMetaEnResumen(data) {
   resumenMetaDia.textContent = formatSoles(m.diaria);
   resumenMetaDia.className = "text-lg font-extrabold text-brand-green leading-none";
   const pct = m.diaria > 0 ? Math.min(Math.max(ganadoHoy / m.diaria, 0), 1) : 0;
+  // (m.diaria es la meta de hoy tal como era al empezar el día: lo que vas
+  // ganando es avance y no la achica. Ver metasAutomaticas.js.)
   resumenMetaBarra.style.width = Math.round(pct * 100) + "%";
   resumenMetaBarra.className =
     "h-full transition-all duration-500 " + (pct >= 1 ? "bg-emerald-500" : "bg-brand-green");
@@ -5116,6 +5460,135 @@ function pintarMetaEnResumen(data) {
     falta <= 0
       ? "Ya hiciste tu meta de hoy. Llevas " + formatSoles(ganadoHoy) + "."
       : "Llevas " + formatSoles(ganadoHoy) + ". Te faltan " + formatSoles(falta) + " para la meta de hoy.";
+}
+
+// ---------- Para cerrar el mes tranquilo ----------
+// Lo mismo que dice el mensaje de las 7am, pero en vivo: tres caminos lado a
+// lado (lo justo, tu mínimo y tu ritmo), lo atrasado, lo que vence hoy y
+// cuánto puedes gastar en gustos. Todo viene calculado del servidor.
+const cierreCard = document.getElementById("cierreCard");
+const cierreTitulo = document.getElementById("cierreTitulo");
+const cierreSub = document.getElementById("cierreSub");
+const cierreTengo = document.getElementById("cierreTengo");
+const cierreNecesito = document.getElementById("cierreNecesito");
+const cierreFalta = document.getElementById("cierreFalta");
+const cierreEscenarios = document.getElementById("cierreEscenarios");
+const cierreAvisos = document.getElementById("cierreAvisos");
+const cierreGustos = document.getElementById("cierreGustos");
+const NOMBRE_MES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "setiembre", "octubre", "noviembre", "diciembre"];
+
+function filaEscenario(icono, titulo, porDia, resultado, claseResultado) {
+  const fila = document.createElement("div");
+  fila.className = "flex items-start justify-between gap-2 text-xs";
+  const izq = document.createElement("div");
+  izq.className = "min-w-0";
+  const t = document.createElement("p");
+  t.className = "font-semibold text-slate-700";
+  t.textContent = icono + " " + titulo;
+  izq.appendChild(t);
+  if (porDia) {
+    const sub = document.createElement("p");
+    sub.className = "text-[11px] text-slate-400";
+    sub.textContent = porDia;
+    izq.appendChild(sub);
+  }
+  const der = document.createElement("p");
+  der.className = "shrink-0 text-right font-bold " + claseResultado;
+  der.textContent = resultado;
+  fila.appendChild(izq);
+  fila.appendChild(der);
+  return fila;
+}
+
+function textoSobra(sobra) {
+  return sobra >= 0 ? "te sobran " + formatSoles(sobra) : "te faltan " + formatSoles(Math.abs(sobra));
+}
+
+function pintarCierre(data) {
+  if (!cierreCard || !data || !data.automaticas || !data.automaticas.escenarios) return;
+  const m = data.automaticas;
+  cierreCard.classList.remove("hidden");
+
+  const mes = NOMBRE_MES[Number(m.hasta.slice(5, 7)) - 1] || "el mes";
+  cierreTitulo.textContent = m.esFinDeMes
+    ? "PARA CERRAR " + mes.toUpperCase() + " TRANQUILO"
+    : "PARA LLEGAR TRANQUILO AL " + ddmm(m.hasta);
+  cierreSub.textContent =
+    m.diasHabiles + (m.diasHabiles === 1 ? " día" : " días") + " de trabajo de hoy al " + ddmm(m.hasta) +
+    ". Cambia solo con cada ingreso o gasto.";
+  cierreTengo.textContent = formatSoles(m.tengo);
+  cierreNecesito.textContent = formatSoles(m.necesito);
+  cierreFalta.textContent = formatSoles(m.falta);
+  cierreFalta.className = m.falta > 0 ? "text-brand-red" : "text-emerald-600";
+
+  const e = m.escenarios;
+  cierreEscenarios.innerHTML = "";
+  if (m.cubierto) {
+    cierreEscenarios.appendChild(filaEscenario("✅", "Ya tienes todo cubierto", "", "listo", "text-emerald-600"));
+  } else {
+    cierreEscenarios.appendChild(
+      filaEscenario("🎯", "Lo justo", formatSoles(e.justo.porDia) + " por día", "sin sobrar nada", "text-slate-500")
+    );
+  }
+  if (e.minimo) {
+    cierreEscenarios.appendChild(
+      filaEscenario(
+        "💪",
+        "Tu mínimo",
+        formatSoles(e.minimo.porDia) + " por día" + (e.minimo.alcanza ? "" : " · necesitas al menos " + formatSoles(e.justo.porDia)),
+        textoSobra(e.minimo.sobra),
+        e.minimo.alcanza ? "text-emerald-600" : "text-brand-red"
+      )
+    );
+  } else {
+    cierreEscenarios.appendChild(filaEscenario("💪", "Tu mínimo", "Ponlo en Plan → Tu mínimo por día", "—", "text-slate-300"));
+  }
+  if (e.ritmo) {
+    cierreEscenarios.appendChild(
+      filaEscenario(
+        "📈",
+        "A tu ritmo",
+        formatSoles(e.ritmo.porDia) + " por día",
+        textoSobra(e.ritmo.sobra),
+        e.ritmo.alcanza ? "text-emerald-600" : "text-brand-red"
+      )
+    );
+  }
+
+  cierreAvisos.innerHTML = "";
+  const aviso = (texto, clase) => {
+    const p = document.createElement("p");
+    p.className = "text-[11px] " + clase;
+    p.textContent = texto;
+    cierreAvisos.appendChild(p);
+  };
+  const atrasados = (m.detalle.atrasados && m.detalle.atrasados.items) || [];
+  if (atrasados.length <= 3) {
+    atrasados.forEach((p) =>
+      aviso("⚠️ Atrasado: " + p.label + " " + formatSoles(p.monto) + (p.fecha ? " (venció " + ddmm(p.fecha) + ")" : ""), "text-amber-700")
+    );
+  } else {
+    aviso(
+      "⚠️ " + atrasados.length + " pagos atrasados por " + formatSoles(m.detalle.atrasados.total) + ": " +
+        atrasados.slice(0, 3).map((p) => p.label).join(", ") + " y " + (atrasados.length - 3) + " más",
+      "text-amber-700"
+    );
+  }
+  ((m.detalle.vencenHoy && m.detalle.vencenHoy.items) || []).forEach((p) =>
+    aviso("📌 Hoy vence: " + p.label + " " + formatSoles(p.monto), "text-slate-600")
+  );
+
+  cierreGustos.classList.toggle("hidden", !e.minimo);
+  if (e.minimo) {
+    if (m.gustosPorDia > 0) {
+      cierreGustos.className = "text-xs font-semibold mt-2 text-emerald-700";
+      cierreGustos.textContent =
+        "💸 Si haces tu mínimo, puedes darte gustos de hasta " + formatSoles(m.gustosPorDia) + " por día sin afectar nada.";
+    } else {
+      cierreGustos.className = "text-xs font-semibold mt-2 text-amber-700";
+      cierreGustos.textContent = "💸 Por ahora no hay margen para gustos: lo que hagas va a lo que tienes que pagar.";
+    }
+  }
 }
 
 // ---------- Guía: el manual de la app ----------
@@ -5202,7 +5675,8 @@ const GUIA = [
           ["Efectivo esperado", "Lo que deberías tener en la mano ahora. Es la caja inicial más lo que ganaste hoy menos lo que gastaste."],
           ["Caja inicial", "Con cuánto empezaste el día. Sale del cierre del día anterior."],
           ["Ganaste hoy / Gastaste hoy", "Solo del día en curso. El día corre de 7am a 7am, así que lo que anotes a la 1am cuenta para el día anterior."],
-          ["Tu meta de hoy", "Cuánto necesitas hacer hoy para cubrir todo lo que tienes que pagar. Baja sola cuando entra plata."],
+          ["Tu meta de hoy", "Cuánto necesitas hacer hoy para cubrir todo lo que tienes que pagar, incluso lo que ya se venció y no pagaste. Lo que ganas hoy cuenta como avance; si gastas algo de más, sube al toque."],
+          ["Para cerrar el mes tranquilo", "Lo que tienes, lo que te toca cubrir hasta fin de mes y tres caminos: lo justo, tu mínimo y tu ritmo. Te dice cuánto te sobraría y cuánto puedes gastar en gustos. Es lo mismo que el mensaje de las 7am, pero cambia solo con cada ingreso o gasto."],
           ["Te deben", "Lo que otros te deben a ti. No es plata en mano, por eso va aparte."],
           ["Faltantes", "Todo lo que se ha perdido al cuadrar la caja, sumado."],
           ["Guardas de otros", "Plata que te dejaron a guardar. No es tuya y no entra a tu caja."],
@@ -7202,7 +7676,7 @@ function pintarPlataDeVerdad(d) {
   if (!deVerdadCard || !d) return;
   // Si no le guardas plata a nadie y no debes nada, tu plata es tu plata
   // y la tarjeta solo estorbaría.
-  if (!d.deOtros && !d.prestado) {
+  if (!d.deOtros && !d.prestado && !d.tePusiste) {
     deVerdadCard.classList.add("hidden");
     return;
   }
@@ -7235,6 +7709,21 @@ function pintarPlataDeVerdad(d) {
   b.textContent = formatSoles(d.tuyo);
   total.appendChild(b);
   deVerdadLista.appendChild(total);
+
+  // Lo que pusiste de tu plata por otras personas: te lo deben, pero no
+  // está en tu mano, así que no suma a "tuyo de verdad".
+  if (d.tePusiste) {
+    const extra = document.createElement("div");
+    extra.className = "flex items-center justify-between gap-2 text-[11px] text-slate-400 pt-1";
+    const n = document.createElement("span");
+    n.textContent = "Pusiste de tu plata por otros (te lo deben, no suma)";
+    const v = document.createElement("span");
+    v.className = "shrink-0";
+    v.textContent = formatSoles(d.tePusiste);
+    extra.appendChild(n);
+    extra.appendChild(v);
+    deVerdadLista.appendChild(extra);
+  }
 
   deVerdadNota.textContent =
     d.tuyo < 0
