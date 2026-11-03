@@ -1,6 +1,6 @@
 const express = require("express");
 const path = require("path");
-const { startBot, botState, logoutBot, getSock, setBotActivo, probarFrase, marcarPendienteAhora, marcarFrenadoAhora } = require("./bot");
+const { startBot, botState, logoutBot, getSock, setBotActivo, probarFrase, marcarPendienteAhora, marcarFrenadoAhora, reintentarGrupos } = require("./bot");
 const quoteConfig = require("./quoteConfig");
 const sectors = require("./sectors");
 const dynamicKeywords = require("./dynamicKeywords");
@@ -143,6 +143,7 @@ app.get("/api/status", (req, res) => {
     qr: botState.qr,
     lastActivity: botState.lastActivity,
     groupsCount: botState.groups.length,
+    gruposOrigen: botState.gruposOrigen,
     build: "lid-v7", // marcador para verificar desde afuera qué versión del código está corriendo
   });
 });
@@ -162,7 +163,14 @@ app.get("/api/groups", (req, res) => {
       sinRemarcarEfectivo: sectors.isGroupSinRemarcarEfectivo(g.id, sectorId), // combina override + sector (para el ícono en la lista)
     };
   });
-  res.json({ groups, focusedGroups });
+  // origen: "whatsapp" | "guardada" | null, para avisar en el panel si la
+  // lista no es la recién pedida a WhatsApp.
+  res.json({ groups, focusedGroups, origen: botState.gruposOrigen, actualizados: botState.gruposActualizados });
+});
+
+// "Reintentar" del aviso de la lista de grupos.
+app.post("/api/groups/reintentar", async (req, res) => {
+  res.json({ ok: await reintentarGrupos() });
 });
 
 // Lista de sectores y su estado ON/OFF (los dos interruptores)
@@ -318,14 +326,75 @@ app.post("/api/probar-frase", (req, res) => {
 // puede ver qué decidió y corregirlo: una correción a mano queda marcada
 // para que la IA no la vuelva a mirar nunca.
 app.get("/api/ai-decisions", (req, res) => {
-  res.json({ configurado: aiClassifier.estaConfigurado(), modelo: aiClassifier.MODELO, decisiones: aiClassifier.getAll() });
+  res.json({
+    configurado: aiClassifier.estaConfigurado(),
+    modelo: aiClassifier.MODELO,
+    motivos: aiClassifier.MOTIVOS,
+    decisiones: aiClassifier.getAll(),
+  });
 });
 
 app.post("/api/ai-decisions", (req, res) => {
+  // Desde la lista se corrige ESA entrada (así una aprendida para un local
+  // sigue siendo de ese local). Sin clave, la corrección vale para todos.
+  const clave = String(req.body?.clave || "");
+  if (clave && aiClassifier.corregir(clave, req.body?.esPedido)) {
+    return res.json({ ok: true, decisiones: aiClassifier.getAll() });
+  }
   const texto = String(req.body?.texto || "").trim();
   if (!texto) return res.status(400).json({ error: "Falta la frase." });
   aiClassifier.guardarDecision(texto, req.body?.esPedido, true);
   res.json({ ok: true, decisiones: aiClassifier.getAll() });
+});
+
+// "Preguntar al filtro": qué haría el filtro con esa frase en ese grupo, y
+// por qué. Si no la sabe le pregunta de verdad a la IA, pero no guarda nada
+// ni manda nada a WhatsApp.
+app.post("/api/probar-filtro", async (req, res) => {
+  try {
+    const groupId = String(req.body?.groupId || "");
+    if (groupId && !botState.groups.some((g) => g.id === groupId)) {
+      return res.status(400).json({ error: "No encuentro ese grupo. ¿El bot sigue adentro?" });
+    }
+    const keyword = req.body?.keyword ? String(req.body.keyword).slice(0, 100) : null;
+    res.json(
+      await aiClassifier.probar(String(req.body?.texto || "").slice(0, 1000), keyword, groupId || null, {
+        fresco: Boolean(req.body?.fresco),
+      })
+    );
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ---------- Frases enseñadas al filtro ----------
+// "Esto SÍ / NO es pedido", para todos los locales o solo para uno. La frase
+// exacta decide sola, y las demás le sirven de ejemplo a la IA.
+app.get("/api/ai-ejemplos", (req, res) => {
+  res.json({ ejemplos: aiClassifier.getEjemplos() });
+});
+
+app.post("/api/ai-ejemplos", (req, res) => {
+  try {
+    const groupId = req.body?.groupId ? String(req.body.groupId) : null;
+    const grupo = groupId ? botState.groups.find((g) => g.id === groupId) : null;
+    if (groupId && !grupo) return res.status(400).json({ error: "No encuentro ese grupo. ¿El bot sigue adentro?" });
+    const r = aiClassifier.ensenar({
+      texto: req.body?.texto,
+      esPedido: req.body?.esPedido,
+      groupId,
+      grupoNombre: grupo?.name,
+    });
+    res.json({ ok: true, ...r, ejemplos: aiClassifier.getEjemplos(), decisiones: aiClassifier.getAll() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/ai-ejemplos/:id/remove", (req, res) => {
+  const r = aiClassifier.desensenar(req.params.id);
+  if (!r) return res.status(404).json({ error: "Esa frase ya no está." });
+  res.json({ ok: true, olvidadas: r.olvidadas, ejemplos: aiClassifier.getEjemplos(), decisiones: aiClassifier.getAll() });
 });
 
 // Mensajes que el filtro frenó. "Sí era pedido" corrige la memoria para

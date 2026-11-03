@@ -82,10 +82,18 @@ async function fetchCashboxToday() {
 
 
 // ---------- Estado real del bot ----------
+// Conectado no alcanza: si el bot no sabe cuál es el chat de la caja chica
+// (WhatsApp no le dio la lista de grupos), lo que escribas ahí no se anota.
+// Antes decía "Conectado" igual, y no había cómo darse cuenta.
+let botVeoCaja = null;
+
 function updateBotUI() {
   if (!isConnected) {
     botStatusText.textContent = "Bot ⛔ Desconectado";
     qrCard.classList.remove("hidden");
+  } else if (botVeoCaja === false) {
+    botStatusText.textContent = "Bot ⚠️ Conectado, pero no veo tu grupo GANANCIAS";
+    qrCard.classList.add("hidden");
   } else {
     botStatusText.textContent = "Bot ✅ Conectado";
     qrCard.classList.add("hidden");
@@ -109,6 +117,7 @@ async function pollStatus() {
     const res = await fetch("/api/status");
     const data = await res.json();
     isConnected = Boolean(data.connected);
+    botVeoCaja = data.veoCaja ?? null;
 
     if (isConnected) {
       qrHint.textContent = "";

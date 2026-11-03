@@ -23,6 +23,7 @@ const ARCHIVOS = [
   "group-time-windows.json", // ventana de tiempo propia de un local
   "ai-decisions-data.json", // frases que el filtro inteligente ya aprendió
   "ai-blocked-data.json", // avisos de mensajes que el filtro freno
+  "ai-examples-data.json", // frases que le enseñaste al filtro (sí / no es pedido)
   "scheduled-broadcasts-data.json", // mensajes programados
   "quote-config-data.json", // configuración de cotizaciones
   "contact-trigger-groups.json", // legado (ya migrado a media-triggers, va por si acaso)

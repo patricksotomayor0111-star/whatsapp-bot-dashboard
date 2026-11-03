@@ -20,7 +20,9 @@ const groupTimeWindows = require("./groupTimeWindows");
 const scheduledBroadcasts = require("./scheduledBroadcasts");
 const pendingTimeMatches = require("./pendingTimeMatches");
 const aiClassifier = require("./aiClassifier");
+const aiEjemplos = require("./aiEjemplos");
 const aiBlocked = require("./aiBlocked");
+const datosReenviados = require("./datosReenviados");
 const { dataPath } = require("./dataDir");
 const { sectorSeedByName, specialSeedByName, numberExceptionSeed } = require("./groupSeed");
 const {
@@ -226,6 +228,181 @@ function palabraSeParece(palabraMensaje, palabraFrase) {
   return editDistanceAcotada(palabraMensaje, palabraFrase, tolerancia) <= tolerancia;
 }
 
+// ---------- Comparación sin espacios ----------
+// El de arriba compara palabra por palabra, así que se le escapaba el truco
+// de jugar con los espacios: "comprde" (pegar "compra de" comiéndose letras),
+// "pendientecompradecliente" (todo junto) o "P E N D I E N T E" (separado).
+// Cambiar letras sueltas ya lo aguantaba; los espacios no.
+//
+// Acá se pega TODO (mensaje y frase) en una sola tira de letras y se busca
+// la frase adentro del mensaje aceptando unas pocas letras de diferencia.
+// Así caen los cuatro trucos de una, y también los que no se inventaron
+// todavía.
+//
+// Solo corre en los grupos de "solo autorizados", donde el bot ignora a todos
+// menos al número autorizado: un falso positivo solo puede venir de esa misma
+// persona, que es justo la que está jugando a esconder el pedido.
+function soloLetras(s) {
+  return normalizeText(String(s || "")).replace(/[^a-z0-9]/g, "");
+}
+
+// Distancia de la frase contra el pedazo que más se le parezca del mensaje:
+// empezar y terminar en cualquier lado del mensaje sale gratis. Además dice
+// dónde está ese pedazo (desde/hasta), para poder ver qué palabras toca.
+function distanciaComoSubcadena(texto, frase) {
+  const n = texto.length;
+  const m = frase.length;
+  if (m === 0) return { distancia: 0, desde: 0, hasta: 0 };
+  let fila = new Array(m + 1);
+  let inicio = new Array(m + 1).fill(0); // dónde arrancó cada camino
+  for (let j = 0; j <= m; j++) fila[j] = j;
+  let mejor = { distancia: fila[m], desde: 0, hasta: 0 };
+  for (let i = 1; i <= n; i++) {
+    const nueva = new Array(m + 1);
+    const nuevoInicio = new Array(m + 1);
+    nueva[0] = 0; // arrancar en cualquier punto del mensaje no cuesta
+    nuevoInicio[0] = i;
+    for (let j = 1; j <= m; j++) {
+      const costo = texto[i - 1] === frase[j - 1] ? 0 : 1;
+      let d = fila[j - 1] + costo;
+      let desde = inicio[j - 1];
+      if (fila[j] + 1 < d) {
+        d = fila[j] + 1;
+        desde = inicio[j];
+      }
+      if (nueva[j - 1] + 1 < d) {
+        d = nueva[j - 1] + 1;
+        desde = nuevoInicio[j - 1];
+      }
+      nueva[j] = d;
+      nuevoInicio[j] = desde;
+    }
+    if (nueva[m] < mejor.distancia) mejor = { distancia: nueva[m], desde: nuevoInicio[m], hasta: i };
+    if (mejor.distancia === 0) return mejor;
+    fila = nueva;
+    inicio = nuevoInicio;
+  }
+  return mejor;
+}
+
+// Frases muy cortas no entran acá: con 4 o 5 letras, "unas pocas de
+// diferencia" es cualquier cosa.
+const MIN_LETRAS_FRASE_PEGADA = 8;
+const MAX_LETRAS_MENSAJE = 600; // tope de trabajo; nadie esconde un pedido en una parrafada
+
+function pareceLaFrasePegada(text, frase) {
+  const frasePegada = soloLetras(frase);
+  if (frasePegada.length < MIN_LETRAS_FRASE_PEGADA) return false;
+
+  // Se pega el mensaje recordando de qué palabra salió cada letra.
+  const palabrasMensaje = normalizeText(String(text || "")).split(/[^a-z0-9]+/).filter(Boolean);
+  let textoPegado = "";
+  const deQuePalabra = [];
+  palabrasMensaje.forEach((p, k) => {
+    textoPegado += p;
+    for (let c = 0; c < p.length; c++) deQuePalabra.push(k);
+  });
+  textoPegado = textoPegado.slice(0, MAX_LETRAS_MENSAJE);
+  if (!textoPegado) return false;
+
+  const { distancia, desde, hasta } = distanciaComoSubcadena(textoPegado, frasePegada);
+
+  // Hasta un 15% de letras de diferencia, y nunca más de 4... pero solo si de
+  // verdad movieron los espacios. Si el pedazo que se parece tiene las mismas
+  // palabras que la frase, los espacios están donde van: lo distinto es una
+  // palabra CAMBIADA, no pegada. Ahí se perdona una sola letra.
+  //
+  // Sin esto, con los espacios bien puestos pasaban frases que no son el
+  // pedido: "Pendiente / Cobro de cliente", "Recibo de cliente", "Reclamo de
+  // cliente" (todas a 2 o 3 letras de las de verdad).
+  const palabrasDelPedazo = new Set(deQuePalabra.slice(desde, hasta)).size;
+  const palabrasDeLaFrase = normalizeText(frase).split(/[^a-z0-9]+/).filter(Boolean).length;
+  const espaciosEnSuLugar = palabrasDelPedazo === palabrasDeLaFrase;
+  const tope = espaciosEnSuLugar ? 1 : Math.min(4, Math.max(1, Math.floor(frasePegada.length * 0.15)));
+  return distancia <= tope;
+}
+
+// ---------- Una palabra mal tecleada ----------
+// Lo que todavía se escapaba: "Pendiente / Conrpw de cliente". En "Conrpw" hay
+// tres cambios en una palabra de seis letras (n por m, la r y la p al revés,
+// w por a): demasiados para las reglas de arriba. Pero no son cambios
+// cualquiera, son los que salen escribiendo apurado en el celular: una tecla
+// VECINA en vez de la correcta, o dos letras al revés.
+//
+// Así que acá se acepta UNA palabra con hasta la mitad de sus letras
+// cambiadas, siempre que cada cambio sea de esos (o un número que imita una
+// letra: 0 por o, 3 por e). Una tecla lejana no vale: por eso "recibo" no
+// pasa por "recojo" (la b y la j están lejos) ni "cambio" por "compra".
+//
+// Y solo para la palabra del MEDIO de una frase de tres palabras o más, con
+// las de las puntas bien escritas: en REPORTES, "pendiente" y "cliente"
+// tienen que estar. La central también escribe "Pendiente / Cantones",
+// "Pendiente / Borgo"... y esos no traen "cliente", así que no responden.
+const FILAS_TECLADO = ["qwertyuiop", "asdfghjkl", "zxcvbnm"];
+const PARECIDOS_NUMERO = ["0o", "1i", "1l", "3e", "4a", "5s", "7t"];
+
+const TECLAS_VECINAS = (() => {
+  const vecinas = {};
+  const unir = (a, b) => {
+    if (!a || !b) return;
+    (vecinas[a] = vecinas[a] || new Set()).add(b);
+    (vecinas[b] = vecinas[b] || new Set()).add(a);
+  };
+  FILAS_TECLADO.forEach((fila, f) => {
+    const abajo = FILAS_TECLADO[f + 1];
+    for (let i = 0; i < fila.length; i++) {
+      unir(fila[i], fila[i + 1]);
+      // La fila de abajo está corrida media tecla: la "a" toca a la "q" y a la
+      // "w"; la "n", a la "h" y a la "j".
+      if (abajo) {
+        unir(fila[i], abajo[i - 1]);
+        unir(fila[i], abajo[i]);
+      }
+    }
+  });
+  PARECIDOS_NUMERO.forEach(([a, b]) => unir(a, b));
+  return vecinas;
+})();
+
+// Cuántos "errores de dedo" separan dos palabras del mismo largo (tecla
+// vecina o dos letras al revés). Infinity si hay un cambio que no es de esos.
+function erroresDeDedo(a, b) {
+  if (a.length !== b.length) return Infinity;
+  const d = new Array(a.length + 1).fill(Infinity);
+  d[0] = 0;
+  for (let i = 1; i <= a.length; i++) {
+    const x = a[i - 1];
+    const y = b[i - 1];
+    const costo = x === y ? 0 : TECLAS_VECINAS[x]?.has(y) ? 1 : Infinity;
+    d[i] = d[i - 1] + costo;
+    if (i > 1 && x === b[i - 2] && a[i - 2] === y) d[i] = Math.min(d[i], d[i - 2] + 1);
+  }
+  return d[a.length];
+}
+
+function esPalabraMalTecleada(palabraMensaje, palabraFrase) {
+  if (palabraFrase.length < 5) return false; // en palabras cortas, la mitad es nada
+  return erroresDeDedo(palabraMensaje, palabraFrase) <= Math.floor(palabraFrase.length / 2);
+}
+
+function soloFaltaLaDelMedio(palabrasFrase, palabrasMensaje) {
+  if (palabrasFrase.length < 3) return false;
+  const faltan = [];
+  palabrasFrase.forEach((pf, i) => {
+    if (!palabrasMensaje.some((pm) => palabraSeParece(pm, pf))) faltan.push(i);
+  });
+  if (faltan.length !== 1) return false;
+  const i = faltan[0];
+  if (i === 0 || i === palabrasFrase.length - 1) return false;
+  const falta = palabrasFrase[i];
+  return palabrasMensaje.some(
+    (pm) =>
+      esPalabraMalTecleada(pm, falta) &&
+      // Que no sea una de las palabras que ya cuentan por otra.
+      !palabrasFrase.some((otra, k) => k !== i && palabraSeParece(pm, otra))
+  );
+}
+
 function matchPorPalabrasFlexible(text, frase) {
   const palabrasFrase = getSignificantWords(frase);
   if (palabrasFrase.length === 0) return null;
@@ -233,8 +410,14 @@ function matchPorPalabrasFlexible(text, frase) {
   if (palabrasMensaje.length === 0) return null;
 
   const estanTodas = palabrasFrase.every((pf) => palabrasMensaje.some((pm) => palabraSeParece(pm, pf)));
-  if (!estanTodas) return null;
-  return { keyword: frase, index: 0, length: 0 };
+  if (estanTodas) return { keyword: frase, index: 0, length: 0 };
+
+  // Todas menos la del medio, y esa con errores de dedo: "Conrpw" por "Compra".
+  if (soloFaltaLaDelMedio(palabrasFrase, palabrasMensaje)) return { keyword: frase, index: 0, length: 0 };
+
+  // No estaban todas las palabras: puede ser que hayan movido los espacios.
+  if (pareceLaFrasePegada(text, frase)) return { keyword: frase, index: 0, length: 0 };
+  return null;
 }
 
 // ---------- Detección: qué activa al bot, y por qué ----------
@@ -836,6 +1019,47 @@ function guardarLidMap() {
   }
 }
 
+// ---------- La última lista de grupos, guardada ----------
+// Al reconectarse el bot le pide a WhatsApp la lista de grupos. Si WhatsApp
+// no responde (lo frena un rato cuando el bot se reconectó varias veces
+// seguidas), antes el panel quedaba en "Grupos (0)" y todo lo que reconoce
+// a un grupo por su NOMBRE dejaba de andar: los grupos ignorados, el de
+// cotización, los de "solo autorizados", las imágenes/contactos/audios.
+// Los grupos casi nunca cambian, así que se guarda la última lista buena y
+// se usa mientras WhatsApp no conteste.
+const GRUPOS_GUARDADOS_PATH = dataPath("grupos-guardados.json");
+
+function leerGruposGuardados() {
+  try {
+    const datos = JSON.parse(fs.readFileSync(GRUPOS_GUARDADOS_PATH, "utf8"));
+    return Array.isArray(datos.grupos) ? datos : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+function guardarGrupos() {
+  try {
+    fs.writeFileSync(
+      GRUPOS_GUARDADOS_PATH,
+      JSON.stringify({ guardadoEn: botState.gruposActualizados || Date.now(), grupos: botState.groups })
+    );
+  } catch (err) {
+    console.error("No se pudo guardar la lista de grupos:", err.message);
+  }
+}
+
+// Si no hay lista, usa la guardada. No pisa una lista que ya se tiene.
+function usarGruposGuardados() {
+  if (botState.groups.length) return;
+  const guardados = leerGruposGuardados();
+  if (!guardados || !guardados.grupos.length) return;
+  botState.groups = guardados.grupos;
+  botState.gruposOrigen = "guardada";
+  botState.gruposActualizados = guardados.guardadoEn || null;
+  applyGroupSeed();
+}
+
 function recordLidMapping(lidJid, pnJid) {
   const lid = String(lidJid || "").replace(/@.*/, "");
   const pn = canonicalNumber(String(pnJid || "").replace(/@.*/, ""));
@@ -887,6 +1111,11 @@ const botState = {
   lastActivity: null,
   history: [],
   groups: [],
+  // De dónde salió la lista de grupos: "whatsapp" (recién pedida), "guardada"
+  // (WhatsApp no respondió y se usa la última que se guardó) o null (no hay
+  // ninguna todavía). Y cuándo se trajo de WhatsApp por última vez.
+  gruposOrigen: null,
+  gruposActualizados: null,
   active: false, // arranca inactivo: hay que activarlo manualmente desde el panel tras vincular
   recentSenders: [], // diagnóstico temporal: últimos remitentes vistos por grupo
 };
@@ -1011,6 +1240,34 @@ let refreshEnCurso = false;
 let ultimoFalloTs = 0;
 const ENFRIAMIENTO_TRAS_FALLO_MS = 5 * 60 * 1000; // 5 minutos
 
+// La lista que dio WhatsApp pasa a ser la del bot, y se guarda.
+function aplicarListaDeGrupos(groupsMap) {
+  botState.groups = Object.values(groupsMap)
+    .map((g) => ({
+      id: g.id,
+      name: g.subject || "(sin nombre)",
+      participants: g.participants?.length || 0,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  botState.gruposOrigen = "whatsapp";
+  botState.gruposActualizados = Date.now();
+  guardarGrupos();
+
+  // Si Baileys v7 trae el número real junto al LID de cada participante,
+  // se aprenden todas las equivalencias de una vez (sin esperar a que
+  // cada persona escriba un mensaje).
+  Object.values(groupsMap).forEach((g) => {
+    (g.participants || []).forEach((p) => {
+      const id = p.id || "";
+      const alterno = p.phoneNumber || p.jid || "";
+      if (esJidLid(id) && alterno && !esJidLid(alterno)) recordLidMapping(id, alterno);
+      if (!esJidLid(id) && p.lid) recordLidMapping(p.lid, id);
+    });
+  });
+
+  applyGroupSeed();
+}
+
 async function refreshGroups(sock, intento = 0) {
   if (intento === 0) {
     if (refreshEnCurso) return;
@@ -1019,28 +1276,7 @@ async function refreshGroups(sock, intento = 0) {
   }
 
   try {
-    const groupsMap = await sock.groupFetchAllParticipating();
-    botState.groups = Object.values(groupsMap)
-      .map((g) => ({
-        id: g.id,
-        name: g.subject || "(sin nombre)",
-        participants: g.participants?.length || 0,
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-
-    // Si Baileys v7 trae el número real junto al LID de cada participante,
-    // se aprenden todas las equivalencias de una vez (sin esperar a que
-    // cada persona escriba un mensaje).
-    Object.values(groupsMap).forEach((g) => {
-      (g.participants || []).forEach((p) => {
-        const id = p.id || "";
-        const alterno = p.phoneNumber || p.jid || "";
-        if (esJidLid(id) && alterno && !esJidLid(alterno)) recordLidMapping(id, alterno);
-        if (!esJidLid(id) && p.lid) recordLidMapping(p.lid, id);
-      });
-    });
-
-    applyGroupSeed();
+    aplicarListaDeGrupos(await sock.groupFetchAllParticipating());
     refreshEnCurso = false;
   } catch (err) {
     console.error("No se pudo obtener la lista de grupos:", err.message);
@@ -1054,7 +1290,59 @@ async function refreshGroups(sock, intento = 0) {
     } else {
       refreshEnCurso = false;
       ultimoFalloTs = Date.now();
+      usarGruposGuardados();
+      // Antes se rendía acá hasta la próxima reconexión. Ahora sigue
+      // probando cada 10 minutos mientras siga conectado.
+      setTimeout(() => {
+        if (sock === currentSock && botState.connected) refreshGroups(sock);
+      }, REINTENTO_LARGO_GRUPOS_MS);
     }
+  }
+}
+
+const REINTENTO_LARGO_GRUPOS_MS = 10 * 60 * 1000;
+
+// "Reintentar" del panel: pide la lista ya, sin esperar los reintentos
+// automáticos (que siguen igual por su lado). Devuelve si WhatsApp la dio.
+async function reintentarGrupos() {
+  if (!currentSock || !botState.connected) return false;
+  try {
+    aplicarListaDeGrupos(await currentSock.groupFetchAllParticipating());
+    return true;
+  } catch (err) {
+    console.error("Reintentar: WhatsApp tampoco dio la lista de grupos:", err.message);
+    return false;
+  }
+}
+
+// Llega un mensaje de un grupo que no está en la lista (WhatsApp no la dio,
+// o el bot recién entró): se le pregunta a WhatsApp solo por ese grupo, para
+// saber su nombre antes de decidir qué hacer con el mensaje. Si no contesta
+// en 5 segundos se sigue sin él, como antes, y no se vuelve a preguntar por
+// ese grupo durante 10 minutos.
+const GRUPO_SUELTO_ESPERA_MS = 5000;
+const GRUPO_SUELTO_ENFRIAMIENTO_MS = 10 * 60 * 1000;
+const grupoSueltoFallo = new Map(); // id del grupo -> cuándo falló
+
+async function buscarGrupoSuelto(sock, chatId) {
+  if (!chatId || !chatId.endsWith("@g.us")) return null;
+  if (Date.now() - (grupoSueltoFallo.get(chatId) || 0) < GRUPO_SUELTO_ENFRIAMIENTO_MS) return null;
+  try {
+    const meta = await Promise.race([
+      sock.groupMetadata(chatId),
+      new Promise((_, rechazar) => setTimeout(() => rechazar(new Error("no contestó a tiempo")), GRUPO_SUELTO_ESPERA_MS)),
+    ]);
+    const grupo = { id: chatId, name: meta?.subject || "(sin nombre)", participants: meta?.participants?.length || 0 };
+    if (!botState.groups.some((g) => g.id === chatId)) {
+      botState.groups = [...botState.groups, grupo].sort((a, b) => a.name.localeCompare(b.name));
+      guardarGrupos();
+      applyGroupSeed();
+    }
+    return grupo;
+  } catch (err) {
+    grupoSueltoFallo.set(chatId, Date.now());
+    console.error(`No se pudo saber qué grupo es ${chatId}:`, err.message);
+    return null;
   }
 }
 
@@ -1126,6 +1414,8 @@ function programarReconexion(motivo) {
 }
 
 async function startBot() {
+  // Mientras conecta, el panel ya muestra la última lista de grupos.
+  usarGruposGuardados();
   const { state, saveCreds } = await useMultiFileAuthState(SESSION_PATH);
   const { version } = await fetchLatestBaileysVersion();
 
@@ -1156,7 +1446,10 @@ async function startBot() {
 
     if (connection === "close") {
       botState.connected = false;
-      botState.groups = [];
+      // No se vacía: se queda con la última lista buena (guardada en disco),
+      // para que el panel no muestre "Grupos (0)" mientras reconecta.
+      if (botState.gruposOrigen === "whatsapp") botState.gruposOrigen = "guardada";
+      usarGruposGuardados();
       const shouldReconnect =
         lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
 
@@ -1197,7 +1490,7 @@ async function startBot() {
       if (esMensajeViejo(msg)) continue;
 
       const chatId = msg.key.remoteJid;
-      const grupoActual = botState.groups.find((g) => g.id === chatId);
+      const grupoActual = botState.groups.find((g) => g.id === chatId) || (await buscarGrupoSuelto(sock, chatId));
       const rawText = extractText(msg).trim();
 
       // Grupos que este bot no debe tocar en absoluto (ver
@@ -1271,6 +1564,33 @@ async function startBot() {
         esNotaDeVozCorta(msg, mediaTriggers.getAudioMaxSegundos());
       if (!text && !esImagenTrigger && !esContactoTrigger && !esAudioTrigger) continue;
 
+      // Datos del cliente reenviados + número (ver datosReenviados.js). En
+      // los grupos prendidos en el panel, un local a veces no manda palabra
+      // clave: reenvía la dirección y después manda el número del cliente.
+      // El número confirma el pedido y el "Voy" cita la dirección.
+      //
+      // Va ANTES del corte de reenviados: justo esos son los que hay que
+      // guardar. Y no le abre la puerta a nada más — un reenviado sigue sin
+      // contar para las palabras clave.
+      const escritoMs = fechaDelMensajeMs(msg) ?? Date.now();
+      const datosClienteActivo = !bloqueadoGlobal && mediaTriggers.isEnabled("datosCliente", grupoActual?.name);
+      if (datosClienteActivo) {
+        if (datosReenviados.esNumeroDeCliente(rawText)) {
+          const datos = datosReenviados.tomarDatos(chatId, senderNumber, escritoMs);
+          if (datos) {
+            const marcado = await despacharDatosCliente(sock, { chatId, grupoActual, senderNumber, datos });
+            if (marcado) break;
+            continue;
+          }
+        } else if (esMensajeReenviado(msg) && rawText) {
+          datosReenviados.guardarDatos(chatId, senderNumber, {
+            ms: escritoMs,
+            rawText,
+            quotedStub: construirQuotedStub(msg, chatId, senderJid, rawText),
+          });
+        }
+      }
+
       // Los mensajes reenviados no cuentan nunca (ni para keywords, ni
       // especiales, ni excepciones): suelen ser direcciones o pedidos
       // copiados de otro chat, no un pedido directo.
@@ -1284,6 +1604,14 @@ async function startBot() {
       });
 
       if (!match) continue;
+
+      // Se anota la palabra clave para la regla de datos reenviados: si en
+      // este mismo minuto llegan datos + número, ese pedido ya se marcó con
+      // esta palabra y no hay que responder de nuevo. Una foto, un contacto
+      // o una nota de voz no son "palabra clave".
+      if (datosClienteActivo && !MATCHES_DE_ARCHIVO.has(match.keyword)) {
+        datosReenviados.registrarClave(chatId, senderNumber, escritoMs);
+      }
 
       // Si el mensaje menciona una hora o una cantidad de minutos fuera de
       // la ventana del sector, no responde todavía. Si la espera automática
@@ -1356,9 +1684,17 @@ async function startBot() {
       // inequívocas, no hay nada que preguntar.
       const esLlamadoCorto = esSoloLaClave(text, match) || esFraseInequivoca(text, match);
 
+      // Las frases que le enseñaste al filtro valen SIEMPRE que llegue esa
+      // frase exacta, aunque sea un llamado corto o un grupo de "Otros": no
+      // cuestan nada (no se le pregunta a nadie) y es lo que decidiste tú.
+      // Solo no se meten con fotos/contactos/notas de voz ni con lo que
+      // autorizaste a mano para ese número o grupo, que es más específico.
+      const ensenada = esTriggerDeArchivo || configuradoAMano ? null : aiEjemplos.buscarExacto(rawText, chatId);
+      if (ensenada && !ensenada.esPedido) continue;
+
       let horaIA = null;
-      if (!esTriggerDeArchivo && !esSectorOlvidado && !configuradoAMano && !esLlamadoCorto) {
-        const veredicto = await aiClassifier.analizar(rawText, match.keyword);
+      if (!ensenada && !esTriggerDeArchivo && !esSectorOlvidado && !configuradoAMano && !esLlamadoCorto) {
+        const veredicto = await aiClassifier.analizar(rawText, match.keyword, chatId);
         if (!veredicto.esPedido) {
           // Un bot callado se ve igual que un bot que no vio nada, así que un
           // error del filtro se descubre perdiendo un pedido. Por eso se avisa
@@ -1381,59 +1717,116 @@ async function startBot() {
         horaIA = veredicto.hora;
       }
 
-      const ventana = evaluarVentanaTiempo(text, sectorId, getPeruNow(), grupoActual?.name, horaIA);
-      if (!ventana.enVentana) {
-        // El pedido se guarda SIEMPRE, aunque la espera automática esté
-        // apagada. Antes solo se guardaba con el interruptor prendido, así
-        // que apagado el pedido se perdía sin dejar rastro. Ahora el
-        // interruptor decide solo si el bot lo marca solo o si queda en la
-        // lista esperando que se decida a mano (el local puede cancelar).
-        if (ventana.esperaMs !== null) {
-          pendingTimeMatches.add({
-            chatId,
-            groupName: grupoActual?.name || chatId,
-            senderNumber,
-            rawText,
-            keyword: match.keyword,
-            matchIndex: match.index,
-            matchLength: match.length,
-            quotedStub: construirQuotedStub(msg, chatId, senderJid, rawText),
-            targetFireMs: Date.now() + ventana.esperaMs,
-            // A qué hora es el pedido en sí. Se guarda aparte de
-            // targetFireMs (que es cuándo lo marca el bot) para poder
-            // mostrar las dos cosas: "sale 18:00 · marco 17:45".
-            horaPedidoMs: ventana.targetMs || null,
-          });
-          // Se reprograma al toque: si este pedido es el más cercano, hay
-          // que apuntarle a él y no esperar al próximo barrido.
-          programarProximoPendiente();
-        }
-        continue;
-      }
-
-      // Recién acá se corta por bot apagado: MARCAR sí necesita el bot
-      // prendido. Lo de arriba (guardar un pedido para más tarde) no, y
-      // por eso el corte bajó hasta este punto.
-      if (!botState.active) continue;
-
-      const sinRemarcar = isGroupSinRemarcarEfectivo(chatId, sectorId);
-
-      const marcado = await marcarPedido(sock, {
+      const marcado = await despacharPedido(sock, {
         chatId,
-        groupName: grupoActual?.name || chatId,
+        grupoNombre: grupoActual?.name,
+        sectorId,
         senderNumber,
         rawText,
+        text,
         keyword: match.keyword,
         matchIndex: match.index,
         matchLength: match.length,
-        sinRemarcar,
+        horaIA,
         quotedMsg: msg,
+        quotedStub: construirQuotedStub(msg, chatId, senderJid, rawText),
       });
       if (marcado) break;
     }
   });
 
   return sock;
+}
+
+// Lo que "match" devuelve para los pedidos que no son texto.
+const MATCHES_DE_ARCHIVO = new Set(["(foto)", "(contacto)", "(nota de voz)"]);
+
+// La última parte del camino de un pedido ya decidido: la ventana de tiempo
+// (y la lista de espera), el corte por bot apagado y el "Voy". La usan el
+// flujo de palabras clave y el de datos reenviados — está en un solo lugar
+// para que los dos no se separen con el tiempo. Devuelve true si se marcó.
+async function despacharPedido(
+  sock,
+  { chatId, grupoNombre, sectorId, senderNumber, rawText, text, keyword, matchIndex, matchLength, horaIA, quotedMsg, quotedStub }
+) {
+  const groupName = grupoNombre || chatId;
+
+  const ventana = evaluarVentanaTiempo(text, sectorId, getPeruNow(), grupoNombre, horaIA);
+  if (!ventana.enVentana) {
+    // El pedido se guarda SIEMPRE, aunque la espera automática esté
+    // apagada. Antes solo se guardaba con el interruptor prendido, así
+    // que apagado el pedido se perdía sin dejar rastro. Ahora el
+    // interruptor decide solo si el bot lo marca solo o si queda en la
+    // lista esperando que se decida a mano (el local puede cancelar).
+    if (ventana.esperaMs !== null) {
+      pendingTimeMatches.add({
+        chatId,
+        groupName,
+        senderNumber,
+        rawText,
+        keyword,
+        matchIndex,
+        matchLength,
+        quotedStub,
+        targetFireMs: Date.now() + ventana.esperaMs,
+        // A qué hora es el pedido en sí. Se guarda aparte de
+        // targetFireMs (que es cuándo lo marca el bot) para poder
+        // mostrar las dos cosas: "sale 18:00 · marco 17:45".
+        horaPedidoMs: ventana.targetMs || null,
+      });
+      // Se reprograma al toque: si este pedido es el más cercano, hay
+      // que apuntarle a él y no esperar al próximo barrido.
+      programarProximoPendiente();
+    }
+    return false;
+  }
+
+  // Recién acá se corta por bot apagado: MARCAR sí necesita el bot
+  // prendido. Lo de arriba (guardar un pedido para más tarde) no, y
+  // por eso el corte bajó hasta este punto.
+  if (!botState.active) return false;
+
+  const sinRemarcar = isGroupSinRemarcarEfectivo(chatId, sectorId);
+
+  return marcarPedido(sock, {
+    chatId,
+    groupName,
+    senderNumber,
+    rawText,
+    keyword,
+    matchIndex,
+    matchLength,
+    sinRemarcar,
+    quotedMsg,
+  });
+}
+
+// Datos del cliente reenviados + número (ver datosReenviados.js): el número
+// ya confirmó el pedido. Pasa por los mismos filtros de grupo que un pedido
+// con palabra clave, pero NO por la IA: es una regla que Patrick prendió para
+// ese grupo, igual que la foto o la nota de voz. El "Voy" cita la dirección
+// reenviada, no el número.
+async function despacharDatosCliente(sock, { chatId, grupoActual, senderNumber, datos }) {
+  const sectorId = getGroupSector(chatId);
+  const focusedGroups = getFocusedGroups();
+  if (focusedGroups.length > 0 && !focusedGroups.includes(chatId)) return false;
+  if (!isGroupSectorActiveEfectivo(chatId, sectorId)) return false;
+  if (!isGroupActive(chatId)) return false;
+
+  return despacharPedido(sock, {
+    chatId,
+    grupoNombre: grupoActual?.name,
+    sectorId,
+    senderNumber,
+    rawText: datos.rawText,
+    text: normalizeText(datos.rawText),
+    keyword: "datos del cliente",
+    matchIndex: 0,
+    matchLength: 0,
+    horaIA: null,
+    quotedMsg: datos.quotedStub,
+    quotedStub: datos.quotedStub,
+  });
 }
 
 // Manda el "Voy" (citando el mensaje original salvo que el grupo sea "sin
@@ -1831,13 +2224,38 @@ function probarFrase(textoCrudo, chatId, numeroCrudo) {
 
   // Lo que el filtro inteligente ya aprendió de esta frase. Se LEE nomás, no
   // se le pregunta de nuevo: probar una frase no debe gastar ni cambiar nada.
-  const recordadaIA = aiClassifier.getDecision(rawText);
+  // (Para preguntarle de verdad está "Preguntar al filtro", aparte.)
+  //
+  // Las mismas reglas que en el flujo de verdad: cuándo opina la IA y cuándo
+  // decide una frase enseñada.
+  const esLlamadoCorto = Boolean(match) && (esSoloLaClave(text, match) || esFraseInequivoca(text, match));
+  const ensenada = match && !configuradoAMano ? aiEjemplos.buscarExacto(rawText, chatId) : null;
+  let filtroNoOpina = null; // por qué la IA no revisaría esta frase (null = sí la revisa)
+  if (!match) filtroNoOpina = "el bot no detecta esta frase, así que el filtro ni la ve";
+  else if (configuradoAMano) filtroNoOpina = "esta frase la autorizaste tú para este número o este grupo";
+  else if (ensenada) filtroNoOpina = "decide la frase que le enseñaste";
+  else if (sectorId === DEFAULT_SECTOR) filtroNoOpina = "el grupo está en el sector Otros";
+  else if (esLlamadoCorto) filtroNoOpina = "es un llamado corto (la palabra clave y poco más), se responde al toque";
+
+  const recordadaIA = aiClassifier.getDecision(rawText, chatId);
   if (configuradoAMano) {
     pasos.push({
       nombre: "Filtro inteligente",
       detalle: "no opina: esta frase la autorizaste tú para este número y este grupo",
     });
-  } else if (recordadaIA && !recordadaIA.esPedido) {
+  } else if (ensenada) {
+    pasos.push({
+      nombre: "Frase enseñada",
+      detalle:
+        `le enseñaste que ${ensenada.esPedido ? "SÍ" : "NO"} es pedido` +
+        (ensenada.groupId ? " (solo en este local)" : " (en todos los locales)"),
+    });
+    if (!ensenada.esPedido) {
+      advertencias.push("Le enseñaste que esta frase no es un pedido, así que el bot no respondería. Se cambia en Frases enseñadas.");
+    }
+  } else if (match && filtroNoOpina) {
+    pasos.push({ nombre: "Filtro inteligente", detalle: `no opina: ${filtroNoOpina}` });
+  } else if (!filtroNoOpina && recordadaIA && !recordadaIA.esPedido) {
     advertencias.push(
       recordadaIA.manual
         ? "Tú marcaste esta frase como que no es un pedido, así que el bot no respondería. Se cambia en Filtro inteligente."
@@ -1846,7 +2264,8 @@ function probarFrase(textoCrudo, chatId, numeroCrudo) {
   }
 
   // La ventana de tiempo solo cuenta si la frase menciona una hora.
-  const ventana = evaluarVentanaTiempo(text, sectorId, getPeruNow(), nombreGrupo, recordadaIA?.hora || null);
+  const horaRecordada = !filtroNoOpina ? recordadaIA?.hora || null : null;
+  const ventana = evaluarVentanaTiempo(text, sectorId, getPeruNow(), nombreGrupo, horaRecordada);
   if (ventana.fuente) {
     pasos.push({
       nombre: "Hora del pedido",
@@ -1877,6 +2296,7 @@ function probarFrase(textoCrudo, chatId, numeroCrudo) {
     advertencias,
     sinRemarcar,
     respuesta: defaultResponse,
+    filtroNoOpina,
   };
 }
 
@@ -1886,6 +2306,7 @@ function probarFrase(textoCrudo, chatId, numeroCrudo) {
 module.exports = {
   startBot,
   botState,
+  reintentarGrupos,
   logoutBot,
   getSock,
   setBotActivo,
@@ -1895,5 +2316,8 @@ module.exports = {
   evaluarVentanaTiempo,
   esSoloLaClave,
   esFraseInequivoca,
+  pareceLaFrasePegada,
+  despacharPedido,
+  despacharDatosCliente,
   analizarDeteccion,
 };

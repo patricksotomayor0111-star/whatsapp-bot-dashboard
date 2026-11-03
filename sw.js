@@ -1,4 +1,4 @@
-const CACHE_NAME = "bot-panel-v6";
+const CACHE_NAME = "bot-panel-v7";
 const CORE_ASSETS = ["/", "/styles.css", "/script.js", "/manifest.json", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (event) => {
