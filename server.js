@@ -1,6 +1,6 @@
 const express = require("express");
 const path = require("path");
-const { startBot, botState, logoutBot, getSock, setBotActivo, probarFrase, marcarPendienteAhora, marcarFrenadoAhora } = require("./bot");
+const { startBot, botState, logoutBot, getSock, setBotActivo, probarFrase, marcarPendienteAhora, marcarFrenadoAhora, reintentarGrupos } = require("./bot");
 const quoteConfig = require("./quoteConfig");
 const sectors = require("./sectors");
 const dynamicKeywords = require("./dynamicKeywords");
@@ -143,6 +143,7 @@ app.get("/api/status", (req, res) => {
     qr: botState.qr,
     lastActivity: botState.lastActivity,
     groupsCount: botState.groups.length,
+    gruposOrigen: botState.gruposOrigen,
     build: "lid-v7", // marcador para verificar desde afuera qué versión del código está corriendo
   });
 });
@@ -162,7 +163,14 @@ app.get("/api/groups", (req, res) => {
       sinRemarcarEfectivo: sectors.isGroupSinRemarcarEfectivo(g.id, sectorId), // combina override + sector (para el ícono en la lista)
     };
   });
-  res.json({ groups, focusedGroups });
+  // origen: "whatsapp" | "guardada" | null, para avisar en el panel si la
+  // lista no es la recién pedida a WhatsApp.
+  res.json({ groups, focusedGroups, origen: botState.gruposOrigen, actualizados: botState.gruposActualizados });
+});
+
+// "Reintentar" del aviso de la lista de grupos.
+app.post("/api/groups/reintentar", async (req, res) => {
+  res.json({ ok: await reintentarGrupos() });
 });
 
 // Lista de sectores y su estado ON/OFF (los dos interruptores)

@@ -806,13 +806,23 @@ app.delete("/api/finance/lugares/:id", (req, res) => {
 // De lo que tienes en la mano, cuánto es tuyo de verdad: sin la plata
 // que le guardas a otros y sin lo que debes.
 function plataDeVerdad(esperado) {
-  const custodia = custodias.getPersonas().reduce((s, p) => s + (p.saldo || 0), 0);
+  // Solo es "de otros" lo que te dejaron y todavía no se gastó. Si alguien
+  // gastó MÁS de lo que te dejó, su saldo queda negativo: esa diferencia la
+  // pusiste tú y te la deben, pero no está en tu mano. Antes se sumaba (restar
+  // un negativo) y "tuyo de verdad" salía más alto que lo que tienes:
+  // S/ 754.86 en la mano y S/ 1,429.86 "tuyos".
+  const personas = custodias.getPersonas();
+  const custodia = personas.reduce((s, p) => s + Math.max(p.saldo || 0, 0), 0);
+  const tePusiste = personas.reduce((s, p) => s + Math.max(-(p.saldo || 0), 0), 0);
   const debes = prestamos.getTotales().debes;
+  const r2 = (n) => Math.round(n * 100) / 100;
   return {
-    esperado: Math.round(esperado * 100) / 100,
-    deOtros: Math.round(custodia * 100) / 100,
+    esperado: r2(esperado),
+    deOtros: r2(custodia),
     prestado: debes,
-    tuyo: Math.round((esperado - custodia - debes) * 100) / 100,
+    // Lo que pusiste de tu plata por otras personas: te lo deben, no suma.
+    tePusiste: r2(tePusiste),
+    tuyo: r2(esperado - custodia - debes),
   };
 }
 
@@ -1552,6 +1562,17 @@ app.delete("/api/finance/dias-libres/fechas/:fecha", (req, res) => {
 
 // El plan de ahorro: cuanto y hasta cuando. Lo unico que se escribe a
 // mano; el resto de las metas sale de aca calculado.
+// Tu mínimo por día (ej. S/ 100): con él se calcula cómo cerrarías el mes
+// haciendo al menos eso cada día. Un solo número para todos los meses.
+app.post("/api/finance/minimo", (req, res) => {
+  try {
+    const minimo = financeGoals.setMinimoDiario(req.body?.monto);
+    res.json({ ok: true, minimo, goals: financeGoals.getGoals() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 app.post("/api/finance/ahorro", (req, res) => {
   try {
     const plan = financeGoals.setAhorro(req.body || {});
@@ -1594,9 +1615,13 @@ app.get("/api/finance/goals/progress", (req, res) => {
     ahorro: goals.ahorro,
     proyeccion: { finDeMes: proyeccionFinDeMes },
     mesAnterior,
+    // Lo atrasado va primero: es lo que ya se tendría que haber pagado.
     compromisos: {
-      total: metas.detalle.pendientes.total,
-      detalle: metas.detalle.pendientes.items.map((p) => ({ ...p, subtotal: p.monto })),
+      total: Math.round((metas.detalle.pendientes.total + metas.detalle.atrasados.total) * 100) / 100,
+      detalle: [
+        ...metas.detalle.atrasados.items.map((p) => ({ ...p, subtotal: p.monto, atrasado: true })),
+        ...metas.detalle.pendientes.items.map((p) => ({ ...p, subtotal: p.monto })),
+      ],
       necesidadTotal: metas.necesito,
       necesidadFaltante: metas.falta,
       metaDiariaReal: metas.diaria,
@@ -1719,12 +1744,60 @@ function formatSoles(n) {
   return "S/ " + Number(n).toLocaleString("es-PE", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
 
+// ¿Este pago ya está anotado en la caja? Antes el servidor lo decidía solo y
+// se equivocaba con nombres parecidos (tomó "banco mibanco Patrick" como el
+// pago de MI BANCO). Ahora, si encuentra gastos que podrían ser, no hace
+// nada y devuelve { preguntar, candidatos } para que el panel le pregunte
+// al dueño. La respuesta vuelve como decision:
+//   "ya_estaba" + movimientoId: es ese gasto, no se registra otro;
+//   "registrar": ninguno es, se registra aparte.
+// Devuelve { gastoExistente } (null = hay que registrarlo) o { respuesta }
+// para mandar tal cual.
+function decidirGastoDelPago(req, montoPagado) {
+  const decision = req.body?.decision;
+  if (decision === "ya_estaba") {
+    const elegido = cashbox
+      .getMovimientos()
+      .find((m) => m.tipo === "gasto" && String(m.id) === String(req.body?.movimientoId));
+    if (!elegido) {
+      return { respuesta: { status: 400, body: { error: 'Ese gasto ya no está en tu caja. Vuelve a tocar "Ya pagué".' } } };
+    }
+    return { gastoExistente: elegido };
+  }
+  if (decision === "registrar") return { gastoExistente: null };
+
+  const candidatos = reminders.buscarGastosDelPago(req.params.id, cashbox.getMovimientos(), montoPagado);
+  if (!candidatos.length) return { gastoExistente: null };
+  return {
+    respuesta: {
+      status: 200,
+      body: {
+        ok: false,
+        preguntar: true,
+        candidatos: candidatos.slice(0, 3).map((m) => ({
+          id: m.id,
+          descripcion: m.descripcion || "",
+          monto: m.monto,
+          fecha: m.fecha,
+          hora: m.hora || null,
+        })),
+      },
+    },
+  };
+}
+
+// "banco mibanco Patrick", S/ 574 del 27/10
+function describirGasto(m) {
+  const f = String(m.fecha || "");
+  return `${m.descripcion ? `"${m.descripcion}", ` : ""}${formatSoles(m.monto)}${f ? ` del ${f.slice(8, 10)}/${f.slice(5, 7)}` : ""}`;
+}
+
 // Marcar un pago como pagado desde el panel. Antes esto solo apagaba el
 // aviso y el gasto había que escribirlo aparte en el grupo GANANCIAS, así
 // que era fácil marcarlo y olvidarse de registrarlo (la caja quedaba sin
 // ese gasto). Ahora se revisa si ya está registrado en el ciclo: si falta,
-// se registra solo; si ya estaba, no se duplica. En ambos casos se avisa
-// al grupo para que quede a la vista y no se escriba dos veces.
+// se registra solo; si puede que ya esté, se pregunta. En ambos casos se
+// avisa al grupo para que quede a la vista y no se escriba dos veces.
 app.post("/api/reminders/:id/pagado", (req, res) => {
   try {
     const recordatorio = reminders.getById(req.params.id);
@@ -1733,23 +1806,75 @@ app.post("/api/reminders/:id/pagado", (req, res) => {
     const montoNum = Number(req.body?.monto);
     const monto = Number.isFinite(montoNum) && montoNum > 0 ? montoNum : recordatorio.monto;
 
-    const gastoExistente = reminders.buscarGastoDelPago(req.params.id, cashbox.getMovimientos(), monto);
+    const { gastoExistente, respuesta } = decidirGastoDelPago(req, monto);
+    if (respuesta) return res.status(respuesta.status).json(respuesta.body);
     const registrado = !gastoExistente;
-    if (registrado) cashbox.addGasto(monto, recordatorio.label);
+    const gastoId = registrado ? cashbox.addGasto(monto, recordatorio.label) : gastoExistente.id;
 
     reminders.marcarPagado(req.params.id, {
       monto,
       registrado,
       gastoExistente: gastoExistente ? gastoExistente.descripcion || "" : null,
+      gastoId,
       origen: "panel",
     });
 
     const aviso = registrado
       ? `✅ Marcaste "${recordatorio.label}" como pagado desde el panel.\n📉 Registré el gasto por ${formatSoles(monto)}.\nNo hace falta que lo escribas acá.`
-      : `✅ Marcaste "${recordatorio.label}" como pagado desde el panel.\nEse gasto ya estaba registrado${gastoExistente.descripcion ? ` ("${gastoExistente.descripcion}")` : ""}, así que no registré nada para no duplicarlo.`;
+      : `✅ Marcaste "${recordatorio.label}" como pagado desde el panel.\nMe confirmaste que ya estaba anotado (${describirGasto(gastoExistente)}), así que no registré nada para no duplicarlo.`;
     avisarAlGrupo(req.userId, aviso).catch((err) => console.error("No se pudo avisar al grupo:", err.message));
 
     res.json({ ok: true, registrado, gastoExistente });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Pagar por adelantado una o varias cuotas (la Junta de los próximos 3
+// martes, o un pago único antes de su fecha). Igual que "Ya pagué": registra
+// el gasto UNA vez por el total, salvo que ya esté escrito en la caja.
+function listaFechas(fechas) {
+  const f = fechas.map((x) => x.slice(8, 10) + "/" + x.slice(5, 7));
+  return f.length > 1 ? f.slice(0, -1).join(", ") + " y " + f[f.length - 1] : f[0] || "";
+}
+
+app.post("/api/reminders/:id/adelantar", (req, res) => {
+  try {
+    const recordatorio = reminders.getById(req.params.id);
+    if (!recordatorio) return res.status(404).json({ error: "Recordatorio inexistente." });
+
+    const cuotas = Math.max(1, Math.min(Math.floor(Number(req.body?.cuotas) || 1), reminders.MAX_CUOTAS_ADELANTO));
+    const ciclos = reminders.ciclosPorPagar(recordatorio, cashbox.getHoyLabel(), cuotas);
+    if (!ciclos.length) return res.status(400).json({ error: "Este pago no tiene cuotas por pagar." });
+
+    const montoNum = Number(req.body?.monto);
+    const monto = Number.isFinite(montoNum) && montoNum > 0 ? montoNum : recordatorio.monto * ciclos.length;
+
+    const { gastoExistente, respuesta } = decidirGastoDelPago(req, monto);
+    if (respuesta) return res.status(respuesta.status).json(respuesta.body);
+    const registrado = !gastoExistente;
+    const gastoId = registrado
+      ? cashbox.addGasto(monto, recordatorio.label + (ciclos.length > 1 ? ` (${ciclos.length} cuotas)` : ""))
+      : gastoExistente.id;
+
+    const r = reminders.adelantarPagos(req.params.id, ciclos.length, {
+      monto,
+      registrado,
+      gastoExistente: gastoExistente ? gastoExistente.descripcion || "" : null,
+      gastoId,
+      origen: "panel",
+    });
+
+    const cuantas = r.ciclos.length === 1 ? `la cuota del ${listaFechas(r.ciclos)}` : `${r.ciclos.length} cuotas (${listaFechas(r.ciclos)})`;
+    const aviso =
+      `✅ Pagaste por adelantado ${cuantas} de "${recordatorio.label}".\n` +
+      (registrado
+        ? `📉 Registré el gasto por ${formatSoles(monto)}. No hace falta que lo escribas acá.`
+        : `Me confirmaste que ya estaba anotado (${describirGasto(gastoExistente)}), así que no registré nada para no duplicarlo.`) +
+      (r.siguiente ? `\nNo te vuelvo a avisar hasta el ${listaFechas([r.siguiente])}.` : "");
+    avisarAlGrupo(req.userId, aviso).catch((err) => console.error("No se pudo avisar al grupo:", err.message));
+
+    res.json({ ok: true, registrado, gastoExistente, ciclos: r.ciclos, total: r.total, siguiente: r.siguiente });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -1761,8 +1886,9 @@ app.get("/api/reminders/historial", (req, res) => {
   res.json({ historial: reminders.getHistorialPagos(req.query.id) });
 });
 
-// Deshace un "Ya pagué" marcado por error (solo reabre el aviso; el gasto
-// que haya quedado en la caja se corrige aparte desde Movimientos).
+// Deshace el último "Ya pagué" (con todas sus cuotas, si fue adelantado). Solo
+// reabre el aviso; el gasto que haya quedado en la caja se corrige aparte
+// desde Movimientos.
 app.post("/api/reminders/:id/desmarcar", (req, res) => {
   try {
     reminders.desmarcarPagado(req.params.id);
