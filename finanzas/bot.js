@@ -779,6 +779,12 @@ function botDe(userId) {
       // Control de los reintentos al cargar la lista de grupos.
       refreshEnCurso: false,
       ultimoFalloTs: 0,
+      // De dónde salió la lista: "whatsapp" (recién pedida), "guardada"
+      // (WhatsApp no la dio y se usa la última buena) o null.
+      gruposOrigen: null,
+      gruposActualizados: null,
+      // Grupos por los que se preguntó suelto y WhatsApp no contestó.
+      grupoSueltoFallo: new Map(),
       // Para no repetir el mensaje de las 7am dentro del mismo día.
       lastMorningMessageLabel: null,
     });
@@ -979,6 +985,74 @@ let refreshEnCurso = false;
 let ultimoFalloTs = 0;
 const ENFRIAMIENTO_TRAS_FALLO_MS = 5 * 60 * 1000; // 5 minutos
 
+// ---------- La última lista de grupos, guardada ----------
+// Si WhatsApp no da la lista de grupos (lo frena un rato tras varias
+// reconexiones seguidas), el bot no sabía cuál era GANANCIAS y dejaba pasar
+// los mensajes de la caja chica sin decir nada, aunque el panel dijera
+// "Conectado". Los grupos casi nunca cambian: se guarda la última lista
+// buena de cada cuenta y se usa mientras WhatsApp no conteste.
+const ARCHIVO_GRUPOS = "grupos-guardados.json";
+const REINTENTO_LARGO_GRUPOS_MS = 10 * 60 * 1000;
+
+function guardarGrupos(bot) {
+  try {
+    fs.writeFileSync(
+      userDataPath(bot.userId, ARCHIVO_GRUPOS),
+      JSON.stringify({ guardadoEn: bot.gruposActualizados || Date.now(), grupos: bot.groups })
+    );
+  } catch (err) {
+    console.error(`[${bot.userId}] No se pudo guardar la lista de grupos:`, err.message);
+  }
+}
+
+// Si no hay lista, usa la guardada. No pisa una lista que ya se tiene.
+function usarGruposGuardados(bot) {
+  if (bot.groups.length) return;
+  try {
+    const datos = JSON.parse(fs.readFileSync(userDataPath(bot.userId, ARCHIVO_GRUPOS), "utf8"));
+    if (!Array.isArray(datos.grupos) || !datos.grupos.length) return;
+    bot.groups = datos.grupos;
+    bot.gruposOrigen = "guardada";
+    bot.gruposActualizados = datos.guardadoEn || null;
+  } catch (err) {
+    // Todavía no hay lista guardada: se sigue sin ella.
+  }
+}
+
+function aplicarListaDeGrupos(bot, groupsMap) {
+  bot.groups = Object.values(groupsMap).map((g) => ({ id: g.id, name: g.subject || "(sin nombre)" }));
+  bot.gruposOrigen = "whatsapp";
+  bot.gruposActualizados = Date.now();
+  guardarGrupos(bot);
+}
+
+// Llega un mensaje de un grupo que no está en la lista: se le pregunta a
+// WhatsApp solo por ese grupo, para saber si es GANANCIAS. Hasta 5 segundos;
+// si no contesta, no se vuelve a preguntar por ese grupo durante 10 minutos.
+const GRUPO_SUELTO_ESPERA_MS = 5000;
+const GRUPO_SUELTO_ENFRIAMIENTO_MS = 10 * 60 * 1000;
+
+async function buscarGrupoSuelto(bot, sock, chatId) {
+  if (!chatId || !chatId.endsWith("@g.us")) return null;
+  if (Date.now() - (bot.grupoSueltoFallo.get(chatId) || 0) < GRUPO_SUELTO_ENFRIAMIENTO_MS) return null;
+  try {
+    const meta = await Promise.race([
+      sock.groupMetadata(chatId),
+      new Promise((_, rechazar) => setTimeout(() => rechazar(new Error("no contestó a tiempo")), GRUPO_SUELTO_ESPERA_MS)),
+    ]);
+    const grupo = { id: chatId, name: meta?.subject || "(sin nombre)" };
+    if (!bot.groups.some((g) => g.id === chatId)) {
+      bot.groups = [...bot.groups, grupo];
+      guardarGrupos(bot);
+    }
+    return grupo;
+  } catch (err) {
+    bot.grupoSueltoFallo.set(chatId, Date.now());
+    console.error(`[${bot.userId}] No se pudo saber qué grupo es ${chatId}:`, err.message);
+    return null;
+  }
+}
+
 async function refreshGroups(bot, sock, intento = 0) {
   if (intento === 0) {
     if (bot.refreshEnCurso) return;
@@ -987,8 +1061,7 @@ async function refreshGroups(bot, sock, intento = 0) {
   }
 
   try {
-    const groupsMap = await sock.groupFetchAllParticipating();
-    bot.groups = Object.values(groupsMap).map((g) => ({ id: g.id, name: g.subject || "(sin nombre)" }));
+    aplicarListaDeGrupos(bot, await sock.groupFetchAllParticipating());
     bot.refreshEnCurso = false;
   } catch (err) {
     console.error("[" + bot.userId + "] No se pudo obtener la lista de grupos:", err.message);
@@ -1002,6 +1075,12 @@ async function refreshGroups(bot, sock, intento = 0) {
     } else {
       bot.refreshEnCurso = false;
       bot.ultimoFalloTs = Date.now();
+      usarGruposGuardados(bot);
+      // Antes se rendía acá hasta la próxima reconexión. Ahora sigue
+      // probando cada 10 minutos mientras siga conectado.
+      setTimeout(() => {
+        if (sock === bot.sock && bot.connected) refreshGroups(bot, sock);
+      }, REINTENTO_LARGO_GRUPOS_MS);
     }
   }
 }
@@ -1280,6 +1359,7 @@ function programarReconexion(bot, motivo) {
 
 async function startBot(userId) {
   const bot = botDe(userId);
+  usarGruposGuardados(bot); // mientras conecta, ya reconoce sus grupos
   const sessionPath = sessionPathDe(userId);
   const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
   const { version } = await fetchLatestBaileysVersion();
@@ -1319,7 +1399,9 @@ async function startBot(userId) {
 
     if (connection === "close") {
       bot.connected = false;
-      bot.groups = [];
+      // No se vacía: se queda con la última lista buena (guardada en disco).
+      if (bot.gruposOrigen === "whatsapp") bot.gruposOrigen = "guardada";
+      usarGruposGuardados(bot);
       const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
 
       if (shouldReconnect) {
@@ -1384,7 +1466,7 @@ async function procesarMensajes(bot, messages) {
       const chatId = msg.key.remoteJid;
       // Ya no se exige que sea un grupo: una cuenta puede elegir anotar en
       // sus propios mensajes, que es lo más cómodo si trabaja sola.
-      const grupoActual = bot.groups.find((g) => g.id === chatId);
+      const grupoActual = bot.groups.find((g) => g.id === chatId) || (await buscarGrupoSuelto(bot, bot.sock, chatId));
       const { chatCaja, chatPrecios } = chatConfig.getConfig();
       const esCajaChica = esChatElegido(bot, chatId, grupoActual, chatCaja, CASHBOX_GROUP_NAME);
       const esPrecios = esChatElegido(bot, chatId, grupoActual, chatPrecios, PRICES_GROUP_NAME);
@@ -1507,7 +1589,15 @@ async function avisarAMisMensajes(userId, texto) {
 // conectado. Cada cuenta ve el suyo y nada del de las demás.
 function estadoDe(userId) {
   const bot = botDe(userId);
-  return { connected: bot.connected, qr: bot.qr, groupsCount: bot.groups.length };
+  return {
+    connected: bot.connected,
+    qr: bot.qr,
+    groupsCount: bot.groups.length,
+    gruposOrigen: bot.gruposOrigen,
+    // ¿Sabe dónde anotar? false = conectado pero sin ver el chat de la caja
+    // chica: los mensajes que lleguen ahí no se anotarían.
+    veoCaja: bot.connected ? Boolean(chatDeCaja(bot)) : null,
+  };
 }
 
 // Levanta el bot de cada cuenta que ya tenga su WhatsApp vinculado. Las
