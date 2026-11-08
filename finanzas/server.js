@@ -894,13 +894,16 @@ function crearMovimiento(entrada) {
   return id;
 }
 
+// Cada corrección devuelve "efectivoHoy" ({ antes, despues, conteo }): una
+// corrección de un día pasado ahora llega hasta el efectivo de hoy, y el
+// panel avisa cuánto cambió (o que un conteo de caja la frenó).
 app.post("/api/finance/movements", (req, res) => {
   try {
-    const id = crearMovimiento(req.body);
+    const { resultado: id, efectivoHoy } = cashbox.conEfectoEnHoy(() => crearMovimiento(req.body));
     if (!id) {
       return res.status(400).json({ error: "Se requiere 'tipo' (ganancia/gasto) y 'monto' válido." });
     }
-    res.json({ ok: true, id });
+    res.json({ ok: true, id, efectivoHoy });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -926,24 +929,27 @@ function refEsPosicion(ref) {
 app.put("/api/finance/movements/:ref", (req, res) => {
   const objetivo = movimientoPorRef(req.params.ref);
   if (!objetivo) return res.status(404).json({ error: "Movimiento no encontrado." });
-  const mov = cashbox.editMovimientoPorId(objetivo.id, req.body || {});
+  const { resultado: mov, efectivoHoy } = cashbox.conEfectoEnHoy(() =>
+    cashbox.editMovimientoPorId(objetivo.id, req.body || {})
+  );
   if (!mov) return res.status(404).json({ error: "Movimiento no encontrado." });
   // Si este gasto salió de un faltante, el total de faltantes tiene que
   // seguir el mismo cambio (si no, quedaría contando el monto viejo).
   if (mov.id) shortfalls.editPorMovimiento(mov.id, req.body || {});
-  res.json({ ok: true, movimiento: mov });
+  res.json({ ok: true, movimiento: mov, efectivoHoy });
 });
 
 app.delete("/api/finance/movements/:ref", (req, res) => {
   const objetivo = movimientoPorRef(req.params.ref);
   if (!objetivo) return res.status(404).json({ error: "Movimiento no encontrado." });
   const movimientoId = objetivo.id;
-  if (!cashbox.removeMovimientoPorId(movimientoId)) {
+  const { resultado: borrado, efectivoHoy } = cashbox.conEfectoEnHoy(() => cashbox.removeMovimientoPorId(movimientoId));
+  if (!borrado) {
     return res.status(404).json({ error: "Movimiento no encontrado." });
   }
   // El faltante que lo haya generado se descuenta junto con él.
   if (movimientoId) shortfalls.removePorMovimiento(movimientoId);
-  res.json({ ok: true });
+  res.json({ ok: true, efectivoHoy });
 });
 
 // ---------- Varios movimientos de una sola vez ----------
@@ -964,10 +970,12 @@ app.post("/api/finance/movements/lote", (req, res) => {
       return res.status(400).json({ error: "Nada que devolver." });
     }
     let devueltos = 0;
-    movimientos.forEach((m) => {
-      if (crearMovimiento(m)) devueltos += 1;
-    });
-    return res.json({ ok: true, tocados: devueltos });
+    const { efectivoHoy } = cashbox.conEfectoEnHoy(() =>
+      movimientos.forEach((m) => {
+        if (crearMovimiento(m)) devueltos += 1;
+      })
+    );
+    return res.json({ ok: true, tocados: devueltos, efectivoHoy });
   }
 
   if (ids.length === 0) return res.status(400).json({ error: "No marcaste ningún movimiento." });
@@ -976,28 +984,32 @@ app.post("/api/finance/movements/lote", (req, res) => {
   if (accion === "borrar") {
     // Se devuelve una copia de lo borrado para poder deshacerlo.
     const borrados = [];
-    ids.forEach((ref) => {
-      const objetivo = movimientoPorRef(ref);
-      if (!objetivo) return;
-      const copia = { ...objetivo };
-      if (!cashbox.removeMovimientoPorId(objetivo.id)) return;
-      shortfalls.removePorMovimiento(objetivo.id);
-      borrados.push(copia);
-    });
-    return res.json({ ok: true, tocados: borrados.length, borrados });
+    const { efectivoHoy } = cashbox.conEfectoEnHoy(() =>
+      ids.forEach((ref) => {
+        const objetivo = movimientoPorRef(ref);
+        if (!objetivo) return;
+        const copia = { ...objetivo };
+        if (!cashbox.removeMovimientoPorId(objetivo.id)) return;
+        shortfalls.removePorMovimiento(objetivo.id);
+        borrados.push(copia);
+      })
+    );
+    return res.json({ ok: true, tocados: borrados.length, borrados, efectivoHoy });
   }
 
   if (accion === "editar") {
     const cambios = req.body?.cambios || {};
     let tocados = 0;
-    ids.forEach((ref) => {
-      const objetivo = movimientoPorRef(ref);
-      if (!objetivo) return;
-      if (!cashbox.editMovimientoPorId(objetivo.id, cambios)) return;
-      shortfalls.editPorMovimiento(objetivo.id, cambios);
-      tocados += 1;
-    });
-    return res.json({ ok: true, tocados });
+    const { efectivoHoy } = cashbox.conEfectoEnHoy(() =>
+      ids.forEach((ref) => {
+        const objetivo = movimientoPorRef(ref);
+        if (!objetivo) return;
+        if (!cashbox.editMovimientoPorId(objetivo.id, cambios)) return;
+        shortfalls.editPorMovimiento(objetivo.id, cambios);
+        tocados += 1;
+      })
+    );
+    return res.json({ ok: true, tocados, efectivoHoy });
   }
 
   res.status(400).json({ error: "Acción desconocida." });
@@ -1441,11 +1453,13 @@ app.get("/api/finance/history", (req, res) => {
 });
 
 // Corrige un día ya cerrado (ganancias/gastos/caja inicial); recalcula su
-// total/esperado y, si corresponde, la caja inicial del día siguiente.
+// total/esperado y lleva la diferencia hasta hoy (salvo un conteo de caja).
 app.put("/api/finance/cierres/:fecha", (req, res) => {
-  const cierre = cashbox.editCierre(req.params.fecha, req.body || {});
+  const { resultado: cierre, efectivoHoy } = cashbox.conEfectoEnHoy(() =>
+    cashbox.editCierre(req.params.fecha, req.body || {})
+  );
   if (!cierre) return res.status(404).json({ error: "Día no encontrado." });
-  res.json({ ok: true, cierre });
+  res.json({ ok: true, cierre, efectivoHoy });
 });
 
 // Metas de ganancia (diaria/semanal/mensual) y plan de ahorro.
