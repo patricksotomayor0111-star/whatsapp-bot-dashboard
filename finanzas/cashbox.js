@@ -53,7 +53,7 @@ const save = almacen.guardar;
 
 // Fecha y hora actuales en Perú (UTC-5, sin horario de verano), sin
 // depender de la zona horaria del servidor.
-const { peruAhora, fechaLabel, horaLabel, businessDayLabel, addDays, diasEnMes: diasEnMesDe } = businessDay;
+const { peruAhora, horaLabel, businessDayLabel, addDays, diasEnMes: diasEnMesDe } = businessDay;
 
 // Cada movimiento queda registrado con el DÍA LABORAL (7am-7am, no el
 // calendario) y la hora real (Perú), para que un registro de la madrugada
@@ -379,27 +379,95 @@ function getMovimientos() {
   return datos().movimientos;
 }
 
+// El primer conteo de caja ("1050 caja") que viene DESPUÉS de un momento:
+// más tarde ese mismo día, o cualquier día siguiente. null si no hay.
+function conteoDespuesDe(fecha, hora) {
+  const h = hora || "";
+  let primero = null;
+  for (const m of datos().movimientos) {
+    if (m.tipo !== "caja") continue;
+    const mh = m.hora || "";
+    if (!(m.fecha > fecha || (m.fecha === fecha && mh > h))) continue;
+    if (!primero || m.fecha < primero.fecha || (m.fecha === primero.fecha && mh < (primero.hora || ""))) primero = m;
+  }
+  return primero;
+}
+
+// Lleva una diferencia de efectivo desde el día siguiente a "desde" hasta
+// hoy: la caja inicial de cada día cerrado (y la de hoy) sube o baja lo
+// mismo. Se detiene en el día del conteo "hasta" (si hay): ese conteo ya
+// dice cuánto había de verdad, así que de ahí en adelante no cambia nada.
+function arrastrarHastaHoy(desde, delta, hasta) {
+  if (!delta) return;
+  const hoy = datos().diaEnCurso || businessDayLabel();
+  for (const c of datos().cierres) {
+    if (c.fecha <= desde || c.fecha >= hoy) continue;
+    if (hasta && c.fecha >= hasta) continue;
+    c.caja += delta;
+    c.esperado = c.caja + c.total;
+  }
+  if (desde < hoy && !(hasta && hasta <= hoy)) datos().cajaInicial += delta;
+}
+
+// Lo que pasó con el efectivo de hoy en la última corrección: si un conteo
+// de caja la frenó, la fecha de ese conteo. Lo lee el panel para avisar.
+let conteoQueFreno = null;
+
 // Suma (o resta) el efecto de un movimiento de ganancia/gasto sobre los
 // totales de su fecha: si es hoy, ajusta el día en curso; si ya cerró,
 // corrige su cierre guardado. Usado por editMovimiento/removeMovimiento/
 // addMovimientoManual para que el panel pueda corregir cualquier
 // movimiento sin romper el efectivo esperado.
-function ajustarTotalesPorFecha(fecha, deltaGanancia, deltaGasto) {
+//
+// Y la diferencia llega hasta hoy. Antes se corregía solo ese día: borrar
+// una ganancia de S/ 100 de hace una semana dejaba el efectivo de hoy con
+// S/ 100 de más, porque cada noche la caja del día siguiente ya se había
+// copiado. Salvo que DESPUÉS del movimiento haya un conteo de caja: lo
+// contado es lo que de verdad había, así que la corrección queda en las
+// cifras del día (ganado/gastado) pero no mueve el efectivo de ahí en
+// adelante (la caja inicial de ese día compensa).
+function ajustarTotalesPorFecha(fecha, deltaGanancia, deltaGasto, hora) {
   // Contra el dia de los acumuladores, no businessDayLabel(): entre el
   // cierre (3am) y el cambio de dia laboral (7am) no coinciden.
-  const esHoy = fecha === (datos().diaEnCurso || businessDayLabel());
-  if (esHoy) {
+  const hoy = datos().diaEnCurso || businessDayLabel();
+  const delta = deltaGanancia - deltaGasto;
+  const conteo = delta ? conteoDespuesDe(fecha, hora) : null;
+  const conteoEseDia = Boolean(conteo && conteo.fecha === fecha);
+  if (conteo && fecha <= hoy) conteoQueFreno = conteo.fecha;
+
+  if (fecha === hoy) {
     datos().todayGanancias += deltaGanancia;
     datos().todayGastos += deltaGasto;
-  } else {
-    const cierre = datos().cierres.find((c) => c.fecha === fecha);
-    if (cierre) {
-      cierre.ganancias += deltaGanancia;
-      cierre.gastos += deltaGasto;
-      cierre.total = cierre.ganancias - cierre.gastos;
-      cierre.esperado = cierre.caja + cierre.total;
-    }
+    if (conteoEseDia) datos().cajaInicial -= delta;
+    return;
   }
+
+  const cierre = datos().cierres.find((c) => c.fecha === fecha);
+  if (cierre) {
+    cierre.ganancias += deltaGanancia;
+    cierre.gastos += deltaGasto;
+    cierre.total = cierre.ganancias - cierre.gastos;
+    if (conteoEseDia) cierre.caja -= delta;
+    cierre.esperado = cierre.caja + cierre.total;
+  }
+  if (!conteoEseDia) arrastrarHastaHoy(fecha, delta, conteo ? conteo.fecha : null);
+}
+
+// Hace "hacer" y devuelve, junto con su resultado, cómo quedó el efectivo
+// de hoy: antes, después y si un conteo de caja frenó la corrección.
+function conEfectoEnHoy(hacer) {
+  const antes = getToday().esperado;
+  conteoQueFreno = null;
+  const resultado = hacer();
+  const despues = getToday().esperado;
+  return {
+    resultado,
+    efectivoHoy: {
+      antes: Math.round(antes * 100) / 100,
+      despues: Math.round(despues * 100) / 100,
+      conteo: conteoQueFreno,
+    },
+  };
 }
 
 function efectoDelta(tipo, monto, signo) {
@@ -422,7 +490,7 @@ function addMovimientoManual(tipo, monto, descripcion, fecha, hora) {
   const movimiento = { id: nuevoMovimientoId(), fecha: f, hora: h, tipo, monto, descripcion: descripcion || "" };
   datos().movimientos.push(movimiento);
   const efecto = efectoDelta(tipo, monto, 1);
-  ajustarTotalesPorFecha(f, efecto.g, efecto.gs);
+  ajustarTotalesPorFecha(f, efecto.g, efecto.gs, h);
   save();
   bitacora.registrar({
     que: "movimiento",
@@ -445,7 +513,7 @@ function editMovimiento(indice, cambios) {
   const copiaAntes = { ...mov };
 
   const viejo = efectoDelta(mov.tipo, mov.monto, -1);
-  ajustarTotalesPorFecha(mov.fecha, viejo.g, viejo.gs);
+  ajustarTotalesPorFecha(mov.fecha, viejo.g, viejo.gs, mov.hora);
 
   // Dar vuelta un movimiento (una ganancia que en realidad era gasto)
   // solo entre esos dos: un "caja" es un conteo y no se convierte.
@@ -486,7 +554,7 @@ function editMovimiento(indice, cambios) {
   }
 
   const nuevo = efectoDelta(mov.tipo, mov.monto, 1);
-  ajustarTotalesPorFecha(mov.fecha, nuevo.g, nuevo.gs);
+  ajustarTotalesPorFecha(mov.fecha, nuevo.g, nuevo.gs, mov.hora);
 
   save();
   bitacora.registrar({
@@ -518,7 +586,7 @@ function removeMovimiento(indice) {
   const mov = datos().movimientos[indice];
   if (!mov) return false;
   const efecto = efectoDelta(mov.tipo, mov.monto, -1);
-  ajustarTotalesPorFecha(mov.fecha, efecto.g, efecto.gs);
+  ajustarTotalesPorFecha(mov.fecha, efecto.g, efecto.gs, mov.hora);
   datos().movimientos.splice(indice, 1);
   save();
   bitacora.registrar({
@@ -535,21 +603,14 @@ function getCierres() {
   return datos().cierres;
 }
 
-// "YYYY-MM-DD" del día siguiente a uno dado (sin conversión de huso
-// horario: es aritmética simple sobre una fecha ya en hora Perú).
-function fechaSiguiente(fecha) {
-  const [y, m, d] = fecha.split("-").map(Number);
-  return fechaLabel(new Date(y, m - 1, d + 1));
-}
-
 // Edita un día ya cerrado (ganancias/gastos/caja inicial) y recalcula su
-// total y efectivo esperado. Si el día siguiente ya tiene su propio
-// cierre, le actualiza la caja inicial para que la cadena siga cuadrando
-// (un solo salto, no en cadena); si el día siguiente es hoy (todavía sin
-// cerrar), le actualiza directo la caja inicial del día en curso.
+// total y efectivo esperado. La diferencia sigue hasta hoy, igual que al
+// corregir un movimiento (antes pasaba solo al día siguiente), salvo que en
+// un día posterior se haya contado la caja.
 function editCierre(fecha, cambios) {
   const cierre = datos().cierres.find((c) => c.fecha === fecha);
   if (!cierre) return null;
+  const esperadoAntes = cierre.esperado;
 
   if (cambios.ganancias !== undefined) cierre.ganancias = Number(cambios.ganancias) || 0;
   if (cambios.gastos !== undefined) cierre.gastos = Number(cambios.gastos) || 0;
@@ -557,15 +618,10 @@ function editCierre(fecha, cambios) {
   cierre.total = cierre.ganancias - cierre.gastos;
   cierre.esperado = cierre.caja + cierre.total;
 
-  const siguiente = fechaSiguiente(fecha);
-  const cierreSiguiente = datos().cierres.find((c) => c.fecha === siguiente);
-  if (cierreSiguiente) {
-    cierreSiguiente.caja = cierre.esperado;
-    cierreSiguiente.total = cierreSiguiente.ganancias - cierreSiguiente.gastos;
-    cierreSiguiente.esperado = cierreSiguiente.caja + cierreSiguiente.total;
-  } else if (siguiente === businessDayLabel()) {
-    datos().cajaInicial = cierre.esperado;
-  }
+  const delta = cierre.esperado - esperadoAntes;
+  const conteo = delta ? conteoDespuesDe(fecha, "99:99") : null;
+  if (conteo) conteoQueFreno = conteo.fecha;
+  arrastrarHastaHoy(fecha, delta, conteo ? conteo.fecha : null);
 
   save();
   return cierre;
@@ -693,6 +749,7 @@ module.exports = {
   getMovimientos,
   getCierres,
   editCierre,
+  conEfectoEnHoy,
   getLastClosedDay,
   getLastClosedWeek,
   getMesActualLabel,

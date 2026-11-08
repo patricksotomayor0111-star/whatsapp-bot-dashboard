@@ -1621,7 +1621,7 @@ function buildDailyHistoryRow(d) {
       if (nuevoGastoStr === null) return;
       const nuevaCajaStr = prompt(`Caja inicial del ${d.fecha}:`, d.caja);
       if (nuevaCajaStr === null) return;
-      await fetch(`/api/finance/cierres/${d.fecha}`, {
+      const resCierre = await fetch(`/api/finance/cierres/${d.fecha}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1630,8 +1630,11 @@ function buildDailyHistoryRow(d) {
           caja: parseFloat(nuevaCajaStr) || 0,
         }),
       });
+      const corregido = await resCierre.json().catch(() => ({}));
       await fetchDailyHistory();
       fetchCashboxToday();
+      const efecto = textoEfectoHoy(corregido.efectivoHoy);
+      if (efecto) mostrarAviso("Día corregido." + efecto);
     });
     row.appendChild(editBtn);
   }
@@ -1961,16 +1964,17 @@ async function borrarSeleccionados() {
   modoSeleccion = false;
   await refrescarPorMovimiento();
 
-  mostrarAviso("Eliminé " + borrados.length + ".", {
+  mostrarAviso("Eliminé " + borrados.length + "." + textoEfectoHoy(data.efectivoHoy), {
     label: "Deshacer",
     hacer: async () => {
-      await fetch("/api/finance/movements/lote", {
+      const resDevueltos = await fetch("/api/finance/movements/lote", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ accion: "restaurar", movimientos: borrados }),
       });
+      const devueltos = await resDevueltos.json().catch(() => ({}));
       await refrescarPorMovimiento();
-      mostrarAviso("Los devolví.");
+      mostrarAviso("Los devolví." + textoEfectoHoy(devueltos.efectivoHoy));
     },
   });
 }
@@ -2105,14 +2109,15 @@ function renderMovimientos() {
 
       const borrarEste = async () => {
         const copia = { ...m };
-        await fetch(`/api/finance/movements/${m.id}`, { method: "DELETE" });
+        const resBorrado = await fetch(`/api/finance/movements/${m.id}`, { method: "DELETE" });
+        const borrado = await resBorrado.json().catch(() => ({}));
         await refrescarPorMovimiento();
         // Sin preguntar, pero con vuelta atras: mas rapido y mas seguro
         // que un "¿seguro?" que uno acepta sin leer.
-        mostrarAviso("Movimiento eliminado.", {
+        mostrarAviso("Movimiento eliminado." + textoEfectoHoy(borrado.efectivoHoy), {
           label: "Deshacer",
           hacer: async () => {
-            await fetch("/api/finance/movements", {
+            const resDevuelto = await fetch("/api/finance/movements", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -2126,8 +2131,9 @@ function renderMovimientos() {
                 localId: copia.localId,
               }),
             });
+            const devuelto = await resDevuelto.json().catch(() => ({}));
             await refrescarPorMovimiento();
-            mostrarAviso("Lo devolví.");
+            mostrarAviso("Lo devolví." + textoEfectoHoy(devuelto.efectivoHoy));
           },
         });
       };
@@ -2231,6 +2237,9 @@ addMovimientoBtn.addEventListener("click", async () => {
     mostrarAviso("Sin señal: lo guardé en el celular y lo mando apenas vuelva.");
     return;
   }
+  const creado = r.res ? await r.res.json().catch(() => ({})) : {};
+  const efecto = textoEfectoHoy(creado.efectivoHoy);
+  if (efecto) mostrarAviso("Anotado." + efecto);
   await refrescarPorMovimiento();
 });
 
@@ -7227,12 +7236,13 @@ function pintarDesglose() {
       borrar.addEventListener("click", async (ev) => {
         ev.stopPropagation();
         const copia = { ...m };
-        await fetch("/api/finance/movements/" + encodeURIComponent(copia.id), { method: "DELETE" });
+        const resBorrado = await fetch("/api/finance/movements/" + encodeURIComponent(copia.id), { method: "DELETE" });
+        const borrado = await resBorrado.json().catch(() => ({}));
         await recargarDesglose();
-        mostrarAviso("Movimiento eliminado.", {
+        mostrarAviso("Movimiento eliminado." + textoEfectoHoy(borrado.efectivoHoy), {
           label: "Deshacer",
           hacer: async () => {
-            await fetch("/api/finance/movements", {
+            const resDevuelto = await fetch("/api/finance/movements", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -7246,6 +7256,7 @@ function pintarDesglose() {
                 localId: copia.localId,
               }),
             });
+            const devuelto = await resDevuelto.json().catch(() => ({}));
             await recargarDesglose();
             mostrarAviso("Lo devolví.");
           },
@@ -7546,7 +7557,18 @@ function mostrarAviso(texto, accion) {
     avisoAccion.onclick = null;
   }
 
-  avisoTimer = setTimeout(ocultarAviso, accion ? 7000 : 2500);
+  avisoTimer = setTimeout(ocultarAviso, accion ? 7000 : texto.length > 40 ? 6000 : 2500);
+}
+
+// Corregir algo de un día pasado ahora llega hasta el efectivo de hoy
+// (salvo que después se haya contado la caja). Esto arma la frase que lo
+// dice, a partir del "efectivoHoy" que devuelve el servidor.
+function textoEfectoHoy(e) {
+  if (!e) return "";
+  const cambio = Math.round(((Number(e.despues) || 0) - (Number(e.antes) || 0)) * 100) / 100;
+  if (cambio) return " Tu efectivo de hoy pasó de " + formatSoles(e.antes) + " a " + formatSoles(e.despues) + ".";
+  if (e.conteo) return " No cambia tu efectivo de hoy: el " + fmtFecha(e.conteo) + " contaste tu caja, y eso manda.";
+  return "";
 }
 
 function ocultarAviso() {
@@ -9136,13 +9158,14 @@ async function guardarHoja() {
   // Vacio = que vuelva a adivinarlo por el texto.
   if (selLocal) cuerpo.localId = selLocal.value || null;
 
-  await fetch("/api/finance/movements/" + encodeURIComponent(hojaMov.id), {
+  const resGuardado = await fetch("/api/finance/movements/" + encodeURIComponent(hojaMov.id), {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(cuerpo),
   });
+  const guardado = await resGuardado.json().catch(() => ({}));
   cerrarHoja();
-  mostrarAviso("Guardado.");
+  mostrarAviso("Guardado." + textoEfectoHoy(guardado.efectivoHoy));
   if (hojaAlGuardar) await hojaAlGuardar();
 }
 
@@ -9151,14 +9174,15 @@ async function guardarHoja() {
 async function eliminarDesdeHoja() {
   if (!hojaMov) return;
   const copia = { ...hojaMov };
-  await fetch("/api/finance/movements/" + encodeURIComponent(copia.id), { method: "DELETE" });
+  const resBorrado = await fetch("/api/finance/movements/" + encodeURIComponent(copia.id), { method: "DELETE" });
+  const borrado = await resBorrado.json().catch(() => ({}));
   cerrarHoja();
   if (hojaAlGuardar) await hojaAlGuardar();
 
-  mostrarAviso("Movimiento eliminado.", {
+  mostrarAviso("Movimiento eliminado." + textoEfectoHoy(borrado.efectivoHoy), {
     label: "Deshacer",
     hacer: async () => {
-      await fetch("/api/finance/movements", {
+      const resDevuelto = await fetch("/api/finance/movements", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -9172,8 +9196,9 @@ async function eliminarDesdeHoja() {
           localId: copia.localId,
         }),
       });
+      const devuelto = await resDevuelto.json().catch(() => ({}));
       if (hojaAlGuardar) await hojaAlGuardar();
-      mostrarAviso("Lo devolví.");
+      mostrarAviso("Lo devolví." + textoEfectoHoy(devuelto.efectivoHoy));
     },
   });
 }
