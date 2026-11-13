@@ -39,6 +39,8 @@ const {
   isGroupSinRemarcarEfectivo,
   isGroupSectorActiveEfectivo,
   DEFAULT_SECTOR,
+  migracionHecha,
+  marcarMigracion,
 } = require("./sectors");
 
 const MAX_HISTORY = 100;
@@ -1386,6 +1388,17 @@ async function buscarGrupoSuelto(sock, chatId) {
 // le aplica su sector y sus keywords especiales automáticamente. Si ya se
 // configuró antes (a mano o por un seed anterior), no lo vuelve a tocar.
 function applyGroupSeed() {
+  // "Hola" es solo de prueba: sale de Sector Base y queda en "Otros" (ahí
+  // está apagado salvo que se prenda). Una sola vez: si después se mueve a
+  // mano, se respeta.
+  if (!migracionHecha("holaAOtros")) {
+    const hola = botState.groups.find((g) => g.name.trim().toUpperCase() === "HOLA");
+    if (hola) {
+      if (getGroupSector(hola.id) === "base") setGroupSector(hola.id, DEFAULT_SECTOR);
+      marcarMigracion("holaAOtros");
+    }
+  }
+
   botState.groups.forEach((g) => {
     const sectorId = sectorSeedByName[g.name];
     if (sectorId && !hasGroupSector(g.id)) {
