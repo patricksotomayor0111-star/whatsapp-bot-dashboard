@@ -743,6 +743,14 @@ function renderHistory(entries) {
     card.appendChild(header);
     card.appendChild(buildHighlightedText(entry.text, entry.matchIndex, entry.matchLength));
 
+    // Marcado en modo alerta: con qué espera y qué señal lo puso en alerta.
+    if (entry.alerta) {
+      const alertaEl = document.createElement("p");
+      alertaEl.className = "text-[11px] text-amber-700 mt-1.5";
+      alertaEl.textContent = `⚡ En alerta (${entry.alerta}) · respondió en ${entry.delayMs} ms`;
+      card.appendChild(alertaEl);
+    }
+
     historyList.appendChild(card);
   });
 }
@@ -820,6 +828,102 @@ saveDelayBtn.addEventListener("click", async () => {
     renderDelayOptions();
   } catch (err) {
     console.error("No se pudo cambiar el delay:", err);
+  }
+});
+
+// ---------- Modo alerta (ver alertaPedidos.js) ----------
+const alertaActivo = document.getElementById("alertaActivo");
+const alertaEsperaInput = document.getElementById("alertaEsperaInput");
+const alertaMinutosInput = document.getElementById("alertaMinutosInput");
+const saveAlertaBtn = document.getElementById("saveAlertaBtn");
+const alertaStatus = document.getElementById("alertaStatus");
+const alertaActivasList = document.getElementById("alertaActivasList");
+const categoryTimingPanel = document.getElementById("categoryTiming");
+let alertaTimer = null;
+
+function textoQuedan(seg) {
+  const m = Math.floor(seg / 60);
+  const s = String(seg % 60).padStart(2, "0");
+  return `${m}:${s}`;
+}
+
+function renderAlerta(data) {
+  alertaActivo.checked = Boolean(data.activo);
+  alertaEsperaInput.value = data.esperaMs;
+  alertaMinutosInput.value = data.minutos;
+  alertaActivasList.innerHTML = "";
+  const activas = data.activas || [];
+  if (!activas.length) {
+    const p = document.createElement("p");
+    p.className = "text-xs text-slate-400";
+    p.textContent = data.activo ? "Ningún grupo ahora." : "El modo alerta está apagado.";
+    alertaActivasList.appendChild(p);
+    return;
+  }
+  activas.forEach((a) => {
+    const fila = document.createElement("div");
+    fila.className = "flex items-center justify-between gap-2 bg-amber-50 rounded-lg px-2.5 py-1.5 text-xs";
+    const nombre = document.createElement("span");
+    nombre.className = "font-semibold text-slate-700 truncate";
+    nombre.textContent = a.grupo;
+    const detalle = document.createElement("span");
+    detalle.className = "shrink-0 text-amber-700";
+    detalle.textContent = `${a.senal} · quedan ${textoQuedan(a.quedanSeg)}`;
+    fila.appendChild(nombre);
+    fila.appendChild(detalle);
+    alertaActivasList.appendChild(fila);
+  });
+}
+
+async function fetchAlerta() {
+  try {
+    const res = await fetch("/api/config/alerta");
+    renderAlerta(await res.json());
+  } catch (err) {
+    console.error("No se pudo obtener el modo alerta:", err);
+  }
+  // Mientras esté abierta esta pantalla, la lista de alertas se refresca sola.
+  clearInterval(alertaTimer);
+  alertaTimer = setInterval(async () => {
+    if (categoryTimingPanel.classList.contains("hidden")) {
+      clearInterval(alertaTimer);
+      return;
+    }
+    try {
+      const res = await fetch("/api/config/alerta");
+      const data = await res.json();
+      if (document.activeElement !== alertaEsperaInput && document.activeElement !== alertaMinutosInput) {
+        renderAlerta(data);
+      }
+    } catch {}
+  }, 5000);
+}
+
+saveAlertaBtn.addEventListener("click", async () => {
+  try {
+    const res = await fetch("/api/config/alerta", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        activo: alertaActivo.checked,
+        esperaMs: parseInt(alertaEsperaInput.value, 10),
+        minutos: parseInt(alertaMinutosInput.value, 10),
+      }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      renderAlerta(data);
+      alertaStatus.textContent = data.activo
+        ? `Guardado ✓ En alerta responde en ${data.esperaMs} ms, durante ${data.minutos} min.`
+        : "Guardado ✓ Modo alerta apagado.";
+      alertaStatus.className = "text-xs mt-2 text-brand-green";
+    } else {
+      alertaStatus.textContent = data.error || "No se pudo guardar";
+      alertaStatus.className = "text-xs mt-2 text-brand-red";
+    }
+  } catch (err) {
+    alertaStatus.textContent = "No se pudo guardar";
+    alertaStatus.className = "text-xs mt-2 text-brand-red";
   }
 });
 
@@ -3276,6 +3380,7 @@ const categoryLoaders = {
   },
   categoryTiming: () => {
     fetchDelay();
+    fetchAlerta();
     fetchTimeWindow();
     renderGroupDelayValueOptions();
     fetchGroupTimeWindows();

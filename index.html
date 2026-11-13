@@ -507,6 +507,37 @@
           </div>
         </section>
 
+        <!-- Modo alerta -->
+        <section>
+          <p class="eyebrow text-amber-600"><i class="fa-solid fa-bolt"></i> MODO ALERTA</p>
+          <p class="text-xs text-slate-400 mt-1 mb-2">
+            Cuando un local manda una <b>ubicación</b>, el <b>contacto o número del cliente</b> o <b>datos reenviados</b>, ese grupo queda en alerta unos minutos: si llega el pedido ("pedido listo"), el bot responde con la espera corta y sin esperar al filtro inteligente. Las señales solas no responden nada.
+          </p>
+          <label class="flex items-center gap-2 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200">
+            <input id="alertaActivo" type="checkbox" class="w-4 h-4 accent-amber-500" />
+            <span class="text-slate-700 font-semibold">Usar el modo alerta</span>
+          </label>
+          <div class="flex flex-wrap items-center gap-2 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 mt-2">
+            <span class="text-slate-500 shrink-0">En alerta responde en</span>
+            <input id="alertaEsperaInput" type="number" min="100" max="1000" step="50"
+              class="w-20 min-w-0 bg-slate-50 rounded-lg px-2 py-1 text-sm border border-slate-200 text-center" />
+            <span class="text-slate-500 shrink-0">ms</span>
+          </div>
+          <div class="flex flex-wrap items-center gap-2 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 mt-2">
+            <span class="text-slate-500 shrink-0">La alerta dura</span>
+            <input id="alertaMinutosInput" type="number" min="1" max="15"
+              class="w-16 min-w-0 bg-slate-50 rounded-lg px-2 py-1 text-sm border border-slate-200 text-center" />
+            <span class="text-slate-500 shrink-0">min</span>
+            <button id="saveAlertaBtn" class="ml-auto shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold bg-amber-500 text-white active:scale-95 transition-all">Guardar</button>
+          </div>
+          <p id="alertaStatus" class="text-xs mt-2"></p>
+          <p class="text-[11px] text-slate-400 mt-1">Menos de 300 ms ya se nota que es un robot. Nunca es más lenta que la espera que el grupo ya tiene.</p>
+          <div class="mt-2">
+            <p class="text-xs font-semibold text-slate-500">⚡ En alerta ahora</p>
+            <div id="alertaActivasList" class="space-y-1 mt-1"></div>
+          </div>
+        </section>
+
         <!-- Antigüedad máxima de un mensaje -->
         <section>
           <p class="eyebrow text-slate-600"><i class="fa-solid fa-clock-rotate-left"></i> MENSAJES ATRASADOS</p>
