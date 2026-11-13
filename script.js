@@ -838,9 +838,6 @@ const alertaMinutosInput = document.getElementById("alertaMinutosInput");
 const saveAlertaBtn = document.getElementById("saveAlertaBtn");
 const alertaStatus = document.getElementById("alertaStatus");
 const alertaActivasList = document.getElementById("alertaActivasList");
-const alertaGruposList = document.getElementById("alertaGruposList");
-const alertaGrupoSelect = document.getElementById("alertaGrupoSelect");
-const addAlertaGrupoBtn = document.getElementById("addAlertaGrupoBtn");
 const categoryTimingPanel = document.getElementById("categoryTiming");
 let alertaTimer = null;
 
@@ -850,75 +847,10 @@ function textoQuedan(seg) {
   return `${m}:${s}`;
 }
 
-function mismoGrupo(a, b) {
-  return String(a || "").trim().toUpperCase() === String(b || "").trim().toUpperCase();
-}
-
-function renderAlertaGrupos(grupos) {
-  alertaGruposList.innerHTML = "";
-  if (!grupos.length) {
-    const p = document.createElement("p");
-    p.className = "text-xs text-slate-400";
-    p.textContent = "Ningún local: el modo alerta no se usa en ninguno.";
-    alertaGruposList.appendChild(p);
-  }
-  grupos.forEach((name) => {
-    const existe = groupsData.some((g) => mismoGrupo(g.name, name));
-    const chip = document.createElement("div");
-    chip.className = "flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm bg-amber-50 text-amber-800";
-    const label = document.createElement("span");
-    label.className = "truncate";
-    label.textContent = existe || !groupsData.length ? name : `${name} (no encontrado)`;
-    const quitar = document.createElement("button");
-    quitar.innerHTML = '<i class="fa-solid fa-xmark text-xs"></i>';
-    quitar.className = "shrink-0 opacity-60 hover:opacity-100";
-    quitar.addEventListener("click", async () => {
-      try {
-        const res = await fetch("/api/config/alerta/grupos/remove", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name }),
-        });
-        renderAlerta(await res.json());
-      } catch (err) {
-        console.error("No se pudo quitar el local:", err);
-      }
-    });
-    chip.appendChild(label);
-    chip.appendChild(quitar);
-    alertaGruposList.appendChild(chip);
-  });
-  // El desplegable ofrece solo los grupos que todavía no están.
-  alertaGrupoSelect.innerHTML = '<option value="">— Agregar un local —</option>';
-  groupsData
-    .filter((g) => !grupos.some((n) => mismoGrupo(n, g.name)))
-    .forEach((g) => {
-      const opt = document.createElement("option");
-      opt.value = g.name;
-      opt.textContent = g.name;
-      alertaGrupoSelect.appendChild(opt);
-    });
-}
-
-addAlertaGrupoBtn.addEventListener("click", async () => {
-  if (!alertaGrupoSelect.value) return;
-  try {
-    const res = await fetch("/api/config/alerta/grupos", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: alertaGrupoSelect.value }),
-    });
-    renderAlerta(await res.json());
-  } catch (err) {
-    console.error("No se pudo agregar el local:", err);
-  }
-});
-
 function renderAlerta(data) {
   alertaActivo.checked = Boolean(data.activo);
   alertaEsperaInput.value = data.esperaMs;
   alertaMinutosInput.value = data.minutos;
-  renderAlertaGrupos(data.grupos || []);
   alertaActivasList.innerHTML = "";
   const activas = data.activas || [];
   if (!activas.length) {

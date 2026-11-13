@@ -326,18 +326,6 @@ app.post("/api/config/alerta", (req, res) => {
   }
 });
 
-app.post("/api/config/alerta/grupos", (req, res) => {
-  try {
-    res.json({ ok: true, ...alertaPedidos.agregarGrupo(req.body?.name), activas: alertaPedidos.activas() });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-app.post("/api/config/alerta/grupos/remove", (req, res) => {
-  res.json({ ok: true, ...alertaPedidos.quitarGrupo(req.body?.name), activas: alertaPedidos.activas() });
-});
-
 // Prueba qué haría el bot con una frase, sin mandar nada a WhatsApp: sirve
 // para ver por qué no detectó un pedido y decidir si hace falta agregarle
 // una frase especial a ese grupo. Solo diagnostica, no cambia nada.
