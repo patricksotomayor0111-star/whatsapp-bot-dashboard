@@ -12,6 +12,7 @@ const mediaTriggers = require("./mediaTriggers");
 const pendingTimeMatches = require("./pendingTimeMatches");
 const groupDelays = require("./groupDelays");
 const alertaPedidos = require("./alertaPedidos");
+const pedidosCliente = require("./pedidosCliente");
 const groupTimeWindows = require("./groupTimeWindows");
 const scheduledBroadcasts = require("./scheduledBroadcasts");
 const aiClassifier = require("./aiClassifier");
@@ -306,6 +307,20 @@ app.post("/api/config/delay", (req, res) => {
   try {
     sectors.setResponseDelay(req.body.delayMs);
     res.json({ ok: true, delayMs: sectors.getResponseDelay() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Compra de cliente / Recojo de cliente (ver pedidosCliente.js): prender o
+// apagar cada frase en todos los grupos donde está (REPORTES y Hola).
+app.get("/api/pedidos-cliente", (req, res) => {
+  res.json(pedidosCliente.estado());
+});
+
+app.post("/api/pedidos-cliente", (req, res) => {
+  try {
+    res.json({ ok: true, ...pedidosCliente.setActivo(req.body?.tipo, req.body?.activo) });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

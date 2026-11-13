@@ -107,6 +107,16 @@ let lastRenderedQr = null;
 let qrInstance = null;
 let groupsWithExceptions = new Set();
 let sectorsWithExceptions = new Set();
+// "Compra de cliente" / "Recojo de cliente" (REPORTES y Hola): cuántas
+// frases hay de cada una y cuántas están prendidas (ver pedidosCliente.js).
+let pedidosCliente = { compra: { total: 0, activas: 0 }, recojo: { total: 0, activas: 0 } };
+
+function tipoPedidoCliente(frase) {
+  const t = String(frase || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
+  if (/\bcompra de cliente\b/.test(t)) return "compra";
+  if (/\brecojo de cliente\b/.test(t)) return "recojo";
+  return null;
+}
 
 // Calcula qué grupos (y en qué sectores caen) tienen excepciones de número
 // configuradas, para poder mostrarles el candado 🔒 en la lista.
@@ -115,11 +125,20 @@ async function fetchExceptionsForLocks() {
     const res = await fetch("/api/exceptions");
     const data = await res.json();
     const nuevosGrupos = new Set();
+    const nuevosPedidos = { compra: { total: 0, activas: 0 }, recojo: { total: 0, activas: 0 } };
     Object.entries(data.exceptions || {}).forEach(([key, list]) => {
       if (!list || list.length === 0) return;
       const [groupId] = key.split("::");
       nuevosGrupos.add(groupId);
+      list.forEach((e) => {
+        const tipo = tipoPedidoCliente(e.phrase);
+        if (!tipo) return;
+        nuevosPedidos[tipo].total += 1;
+        if (e.active !== false) nuevosPedidos[tipo].activas += 1;
+      });
     });
+    const pedidosCambiaron = JSON.stringify(nuevosPedidos) !== JSON.stringify(pedidosCliente);
+    pedidosCliente = nuevosPedidos;
     const nuevosSectores = new Set(
       groupsData.filter((g) => nuevosGrupos.has(g.id)).map((g) => g.sectorId || "otros")
     );
@@ -135,7 +154,7 @@ async function fetchExceptionsForLocks() {
 
     groupsWithExceptions = nuevosGrupos;
     sectorsWithExceptions = nuevosSectores;
-    if (!sinCambios) renderSectors(searchInput.value);
+    if (!sinCambios || pedidosCambiaron) renderSectors(searchInput.value);
   } catch (err) {
     console.error("No se pudo obtener las excepciones para los candados:", err);
   }
@@ -229,6 +248,13 @@ function renderSectors(filtro = "") {
 
       groupsContainer.appendChild(groupNode);
     });
+
+    // En Sector Base: prender o apagar "Compra de cliente" y "Recojo de
+    // cliente" (las frases de REPORTES y de Hola) con un toque.
+    if (sector.id === "base" && !term) {
+      const fila = filaPedidosCliente();
+      if (fila) sectorNode.querySelector(".sector-card").insertBefore(fila, groupsContainer);
+    }
 
     // Todos los sectores empiezan desplegados, menos "Otros" (se abre solo si hay búsqueda).
     const shouldOpen = term ? true : sector.id !== "otros";
@@ -344,6 +370,65 @@ function updateSinRemarcarBadge(badge, activo) {
     badge.classList.add("off");
     badge.classList.remove("on");
   }
+}
+
+const PEDIDOS_CLIENTE = [
+  { tipo: "compra", texto: "🛒 Compra de cliente" },
+  { tipo: "recojo", texto: "📦 Recojo de cliente" },
+];
+
+function filaPedidosCliente() {
+  const visibles = PEDIDOS_CLIENTE.filter(({ tipo }) => pedidosCliente[tipo]?.total > 0);
+  if (!visibles.length) return null;
+  const caja = document.createElement("div");
+  caja.className = "mt-2 pt-2 border-t border-slate-100";
+  visibles.forEach(({ tipo, texto }) => {
+    const estado = pedidosCliente[tipo];
+    const fila = document.createElement("div");
+    fila.className = "flex items-center justify-between gap-2 py-1.5";
+    const nombre = document.createElement("p");
+    nombre.className = "text-[13px] font-semibold text-slate-700";
+    nombre.textContent = texto;
+    const badge = document.createElement("span");
+    const pintar = (e) => {
+      if (e.activas > 0 && e.activas < e.total) {
+        badge.textContent = "A medias";
+        badge.className = "group-active-badge badge-inactive shrink-0 cursor-pointer";
+        badge.title = `${e.activas} de ${e.total} prendidas. Toca para prender todas.`;
+      } else {
+        updateActiveBadge(badge, e.activas > 0);
+        badge.title = "";
+      }
+    };
+    pintar(estado);
+    badge.addEventListener("click", async (ev) => {
+      ev.stopPropagation();
+      const activo = !(estado.activas === estado.total && estado.total > 0);
+      try {
+        const res = await fetch("/api/pedidos-cliente", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tipo, activo }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          pedidosCliente = { compra: data.compra, recojo: data.recojo };
+          Object.assign(estado, data[tipo]);
+          pintar(estado);
+        }
+      } catch (err) {
+        console.error("No se pudo cambiar la frase:", err);
+      }
+    });
+    fila.appendChild(nombre);
+    fila.appendChild(badge);
+    caja.appendChild(fila);
+  });
+  const nota = document.createElement("p");
+  nota.className = "text-[11px] text-slate-400";
+  nota.textContent = "En REPORTES BOX DELIVERY y en Hola (prueba).";
+  caja.appendChild(nota);
+  return caja;
 }
 
 function updateActiveBadge(badge, activo) {
