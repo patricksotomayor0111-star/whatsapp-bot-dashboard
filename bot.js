@@ -87,8 +87,26 @@ function getExtraPositiveMatchers() {
   return buildMatchers(dynamicKeywords.getExtraPositive());
 }
 
+// Las de fábrica que se apagaron desde el panel no cuentan.
 function getExcludedMatchers() {
-  return buildMatchers([...excludedKeywords, ...dynamicKeywords.getExtraExcluded()]);
+  const deFabrica = excludedKeywords.filter((k) => !dynamicKeywords.isBaseExcludedOff(k));
+  return buildMatchers([...deFabrica, ...dynamicKeywords.getExtraExcluded()]);
+}
+
+// TODAS las palabras excluidas que aparecen en el texto, con dónde están,
+// para "Probar una frase": saber qué palabra frena el pedido. Si una está
+// dentro de otra más larga en el mismo lugar ("cuanto" en "cuanto sale"),
+// queda la larga.
+function palabrasExcluidasEn(text) {
+  const panel = new Set(dynamicKeywords.getExtraExcluded());
+  const encontradas = [];
+  for (const { keyword, regex } of getExcludedMatchers()) {
+    const r = regex.exec(text);
+    if (r) encontradas.push({ keyword, index: r.index, length: r[0].length, origen: panel.has(keyword) ? "panel" : "fabrica" });
+  }
+  return encontradas.filter(
+    (a) => !encontradas.some((b) => b !== a && b.index <= a.index && b.index + b.length >= a.index + a.length && b.length > a.length)
+  );
 }
 
 // Palabras de relleno que se ignoran al buscar keywords especiales por grupo:
@@ -490,7 +508,13 @@ function analizarDeteccion(text, chatId, senderNumber, grupoActual, opciones = {
     if (!match) {
       const exclusion = getExcludedMatchers().find(({ regex }) => regex.test(text));
       if (exclusion) {
-        anotar("Palabras excluidas", `encontré "${exclusion.keyword}", que bloquea las keywords base`);
+        const todas = palabrasExcluidasEn(text).map((p) => `"${p.keyword}"`);
+        anotar(
+          "Palabras excluidas",
+          todas.length > 1
+            ? `encontré ${todas.join(", ")}, que bloquean las keywords base`
+            : `encontré ${todas[0] || `"${exclusion.keyword}"`}, que bloquea las keywords base`
+        );
       } else {
         anotar("Palabras excluidas", "ninguna");
         match = buscarEnMatchers(text, getBasePositiveMatchers());
@@ -2292,6 +2316,36 @@ function probarFrase(textoCrudo, chatId, numeroCrudo) {
   else if (esLlamadoCorto) filtroNoOpina = "es un llamado corto (la palabra clave y poco más), se responde al toque";
 
   const recordadaIA = aiClassifier.getDecision(rawText, chatId);
+  // Por qué NO respondería, en una línea y con la palabra culpable marcada
+  // (lo que se ve arriba en "Probar una frase"). null = sí respondería.
+  let motivo = null;
+  if (ignorado) {
+    motivo = { tipo: "grupo_ignorado", texto: "El bot ignora este grupo por completo." };
+  } else if (!match && bloqueadoGlobal) {
+    motivo = {
+      tipo: soloAutorizados ? "solo_autorizados" : "numero_ignorado",
+      texto: soloAutorizados
+        ? "Este grupo solo responde a números autorizados, y esta frase no está entre las de ese número."
+        : "Ese número está en la lista de ignorados, y esta frase no está entre sus frases autorizadas en este grupo.",
+    };
+  } else if (!match) {
+    const palabras = palabrasExcluidasEn(text);
+    const clave = buscarEnMatchers(text, getBasePositiveMatchers());
+    if (palabras.length && clave) {
+      const lista = palabras.map((p) => `"${p.keyword}"`).join(", ");
+      motivo = {
+        tipo: "excluida",
+        texto:
+          (palabras.length === 1 ? `La palabra ${lista} está` : `Las palabras ${lista} están`) +
+          ` en Palabras excluidas, y eso frena "${clave.keyword}".`,
+        palabras,
+        clave,
+      };
+    } else {
+      motivo = { tipo: "sin_clave", texto: "Ninguna palabra de la frase es palabra clave.", palabras };
+    }
+  }
+
   if (configuradoAMano) {
     pasos.push({
       nombre: "Filtro inteligente",
@@ -2305,16 +2359,23 @@ function probarFrase(textoCrudo, chatId, numeroCrudo) {
         (ensenada.groupId ? " (solo en este local)" : " (en todos los locales)"),
     });
     if (!ensenada.esPedido) {
-      advertencias.push("Le enseñaste que esta frase no es un pedido, así que el bot no respondería. Se cambia en Frases enseñadas.");
+      motivo = {
+        tipo: "ensenada",
+        texto: "Le enseñaste al filtro que esta frase no es un pedido. Se cambia en Frases enseñadas.",
+        clave: match,
+      };
     }
   } else if (match && filtroNoOpina) {
     pasos.push({ nombre: "Filtro inteligente", detalle: `no opina: ${filtroNoOpina}` });
   } else if (!filtroNoOpina && recordadaIA && !recordadaIA.esPedido) {
-    advertencias.push(
-      recordadaIA.manual
-        ? "Tú marcaste esta frase como que no es un pedido, así que el bot no respondería. Se cambia en Filtro inteligente."
-        : "El filtro inteligente aprendió que esta frase no es un pedido, así que el bot no respondería. Se corrige en Filtro inteligente."
-    );
+    const razon = aiClassifier.motivoDe(recordadaIA.caso);
+    motivo = {
+      tipo: "filtro",
+      texto: recordadaIA.manual
+        ? "Tú marcaste esta frase como que no es un pedido. Se cambia en Filtro inteligente."
+        : `El filtro inteligente decidió que no es un pedido${razon ? `: ${razon}` : ""}. Se corrige en Filtro inteligente.`,
+      clave: match,
+    };
   }
 
   // La ventana de tiempo solo cuenta si la frase menciona una hora.
@@ -2344,6 +2405,9 @@ function probarFrase(textoCrudo, chatId, numeroCrudo) {
   return {
     grupo: nombreGrupo,
     detecta: Boolean(match),
+    responde: !motivo,
+    motivo,
+    texto: rawText,
     keyword: match?.keyword || null,
     pasos,
     contexto,

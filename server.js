@@ -572,6 +572,7 @@ app.get("/api/keywords", (req, res) => {
   res.json({
     positive: dynamicKeywords.getExtraPositive(),
     excluded: dynamicKeywords.getExtraExcluded(),
+    baseExcludedOff: dynamicKeywords.getBaseExcludedOff(),
     specialByGroup: dynamicKeywords.getAllSpecial(),
   });
 });
@@ -602,6 +603,35 @@ app.post("/api/keywords/excluded", (req, res) => {
 app.post("/api/keywords/excluded/remove", (req, res) => {
   dynamicKeywords.removeExtraExcluded(req.body.phrase);
   res.json({ ok: true, excluded: dynamicKeywords.getExtraExcluded() });
+});
+
+// Quitar una palabra excluida desde "Probar una frase": si la agregaste tú
+// se borra; si es de fábrica (keywords.js) se apaga, y se puede volver a
+// prender. Vale para todos los grupos.
+app.post("/api/keywords/excluded/quitar", (req, res) => {
+  const phrase = String(req.body?.phrase || "").trim();
+  if (!phrase) return res.status(400).json({ error: "Falta la palabra." });
+  const sinTildes = (t) => String(t).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  const enPanel = dynamicKeywords.getExtraExcluded().includes(phrase.toLowerCase());
+  const enFabrica = require("./keywords").excludedKeywords.some((k) => sinTildes(k) === sinTildes(phrase));
+  if (!enPanel && !enFabrica) return res.status(404).json({ error: `"${phrase}" no está en las palabras excluidas.` });
+  if (enPanel) dynamicKeywords.removeExtraExcluded(phrase);
+  if (enFabrica) dynamicKeywords.setBaseExcludedOff(phrase, true);
+  res.json({
+    ok: true,
+    origen: enFabrica ? "fabrica" : "panel",
+    excluded: dynamicKeywords.getExtraExcluded(),
+    baseExcludedOff: dynamicKeywords.getBaseExcludedOff(),
+  });
+});
+
+app.post("/api/keywords/excluded/reactivar", (req, res) => {
+  try {
+    dynamicKeywords.setBaseExcludedOff(req.body?.phrase, false);
+    res.json({ ok: true, baseExcludedOff: dynamicKeywords.getBaseExcludedOff() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 // Keywords especiales de un grupo: si ese grupo recibe un mensaje con esta
