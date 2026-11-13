@@ -11,9 +11,10 @@ function loadData() {
       extraPositive: parsed.extraPositive || [],
       extraExcluded: parsed.extraExcluded || [],
       specialByGroup: parsed.specialByGroup || {},
+      baseExcludedOff: parsed.baseExcludedOff || [],
     };
   } catch (err) {
-    return { extraPositive: [], extraExcluded: [], specialByGroup: {} };
+    return { extraPositive: [], extraExcluded: [], specialByGroup: {}, baseExcludedOff: [] };
   }
 }
 
@@ -69,6 +70,31 @@ function removeExtraExcluded(phrase) {
   save();
 }
 
+// ---------- Excluidas de fábrica (keywords.js) que se desactivaron ----------
+// Las de keywords.js no se pueden borrar desde el panel (están en el código),
+// pero sí apagar: desde "Probar una frase", cuando una de ellas es la que
+// frena la frase. Se vuelven a prender desde la lista de excluidas.
+// Se guardan sin tildes, igual que se comparan los mensajes.
+function sinTildes(phrase) {
+  return normalizePhrase(phrase).normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+function getBaseExcludedOff() {
+  return data.baseExcludedOff;
+}
+
+function isBaseExcludedOff(phrase) {
+  return data.baseExcludedOff.includes(sinTildes(phrase));
+}
+
+function setBaseExcludedOff(phrase, off) {
+  const p = sinTildes(phrase);
+  if (!p) throw new Error("La keyword no puede estar vacía");
+  data.baseExcludedOff = data.baseExcludedOff.filter((x) => x !== p);
+  if (off) data.baseExcludedOff.push(p);
+  save();
+}
+
 // ---------- Keywords especiales por grupo ----------
 // Si el mensaje en ESE grupo contiene una de sus frases especiales, el bot
 // responde sin importar las exclusiones (gana siempre).
@@ -112,6 +138,9 @@ module.exports = {
   getExtraExcluded,
   addExtraExcluded,
   removeExtraExcluded,
+  getBaseExcludedOff,
+  isBaseExcludedOff,
+  setBaseExcludedOff,
   getSpecialForGroup,
   getAllSpecial,
   hasSpecialForGroup,

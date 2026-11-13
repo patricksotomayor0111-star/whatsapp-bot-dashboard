@@ -543,7 +543,13 @@ function desensenar(id) {
   return { quitado, olvidadas };
 }
 
+// El motivo, en palabras, de una decisión guardada (para "Probar una frase").
+function motivoDe(caso) {
+  return MOTIVOS[caso] || null;
+}
+
 module.exports = {
+  motivoDe,
   analizar,
   esPedidoDeVerdad,
   estaConfigurado,
