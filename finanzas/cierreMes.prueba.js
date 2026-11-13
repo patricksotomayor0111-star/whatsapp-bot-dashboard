@@ -35,13 +35,15 @@ correrComo("patrick", () => {
 correrComo("prueba", () => {
   ok(financeGoals.getMinimoDiario() === 0, "una cuenta nueva arranca sin mínimo");
 
-  // Caja de 500 y un pago de 2000 que vence hoy: faltan 1500.
+  // Caja de 500 y un pago de 4500 que vence hoy: faltan 4000. Un monto grande a
+  // proposito: con uno chico, a principio de mes la meta de hoy queda por
+  // debajo de lo ganado en la prueba (60) y "te falta" da 0, como debe.
   cashbox.setCaja(500);
-  const luz = reminders.addReminder({ label: "Luz", monto: 2000, tipo: "unica", fecha: HOY });
+  const luz = reminders.addReminder({ label: "Luz", monto: 4500, tipo: "unica", fecha: HOY });
   let r = metas.calcular("");
   const n = r.diasHabiles;
-  ok(r.falta === 1500, "falta lo que hay que pagar menos lo que tienes");
-  ok(cerca(r.hoy.meta, 1500 / n), "la meta de hoy es lo que falta entre los días de trabajo");
+  ok(r.falta === 4000, "falta lo que hay que pagar menos lo que tienes");
+  ok(cerca(r.hoy.meta, 4000 / n), "la meta de hoy es lo que falta entre los días de trabajo");
   ok(r.hoy.ganado === 0 && cerca(r.hoy.falta, r.hoy.meta), "sin ganar nada, te falta toda la meta");
   ok(r.detalle.vencenHoy.items.some((p) => p.id === luz), "avisa que la Luz vence hoy");
   ok(r.escenarios.minimo === null, "sin mínimo no hay camino del mínimo");
@@ -64,7 +66,7 @@ correrComo("prueba", () => {
   financeGoals.setMinimoDiario(100);
   r = metas.calcular("");
   const tengo = 500 + 60 - 30;
-  const conMinimo = tengo + Math.max(100 * n - 60, 0) - 2000;
+  const conMinimo = tengo + Math.max(100 * n - 60, 0) - 4500;
   ok(r.escenarios.minimo && r.escenarios.minimo.porDia === 100, "con mínimo aparece su camino");
   ok(cerca(r.escenarios.minimo.sobra, conMinimo), "lo que sobraría haciendo tu mínimo (lo de hoy no se cuenta dos veces)");
   ok(r.escenarios.minimo.alcanza === conMinimo >= 0, "y dice si alcanza");
@@ -81,7 +83,7 @@ correrComo("prueba", () => {
   r = metas.calcular("");
   ok(r.ritmo.promedioDiario === 200, "el promedio sale de los días ya terminados");
   ok(cerca(r.ritmo.proyectado, 200 * n - 60), "de hoy solo proyecta lo que falta para el promedio");
-  ok(cerca(r.escenarios.ritmo.sobra, r.tengo + 200 * n - 60 - 2000), "lo que sobraría a tu ritmo");
+  ok(cerca(r.escenarios.ritmo.sobra, r.tengo + 200 * n - 60 - 4500), "lo que sobraría a tu ritmo");
 
   // ---------- El mensaje de las 7am y el bot dicen lo mismo ----------
   const bot = require("./bot");

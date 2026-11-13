@@ -23,6 +23,7 @@ const aiClassifier = require("./aiClassifier");
 const aiEjemplos = require("./aiEjemplos");
 const aiBlocked = require("./aiBlocked");
 const datosReenviados = require("./datosReenviados");
+const alertaPedidos = require("./alertaPedidos");
 const { dataPath } = require("./dataDir");
 const { sectorSeedByName, specialSeedByName, numberExceptionSeed } = require("./groupSeed");
 const {
@@ -888,6 +889,17 @@ function tieneContacto(msg) {
   return Boolean(m.contactMessage || m.contactsArrayMessage);
 }
 
+// True si el mensaje es una ubicación (fija o en tiempo real), reenviada o
+// no. Es una de las señales del modo alerta (ver alertaPedidos.js).
+function tieneUbicacion(msg) {
+  const m =
+    msg.message.ephemeralMessage?.message ||
+    msg.message.viewOnceMessage?.message ||
+    msg.message.viewOnceMessageV2?.message ||
+    msg.message;
+  return Boolean(m.locationMessage || m.liveLocationMessage);
+}
+
 // True si el mensaje es una NOTA DE VOZ (la del micrófono) lo bastante
 // corta como para ser un pedido. A propósito se exige ptt (push to talk):
 // un audio reenviado o una canción no son un pedido y no deben activar
@@ -1556,6 +1568,27 @@ async function startBot() {
       // esAnteriorALaActivacion).
       if (esAnteriorALaActivacion(msg)) continue;
 
+      // Modo alerta (ver alertaPedidos.js): una ubicación, el contacto o el
+      // número del cliente, o datos reenviados avisan que viene un pedido.
+      // El grupo queda unos minutos con la espera corta, para ganar cuando
+      // escriban "pedido listo". No responde nada todavía. Va antes de los
+      // cortes de abajo porque una ubicación no tiene texto y lo reenviado
+      // no cuenta para las palabras clave.
+      if (chatId.endsWith("@g.us") && !excludedNumbers.isExcluded(senderNumber)) {
+        const senal = alertaPedidos.detectarSenal({
+          esUbicacion: tieneUbicacion(msg),
+          esContacto: tieneContacto(msg),
+          esReenviado: esMensajeReenviado(msg),
+          rawText,
+        });
+        if (senal) {
+          const nueva = !alertaPedidos.enAlerta(chatId);
+          if (alertaPedidos.activar(chatId, senal, grupoActual?.name) && nueva) {
+            console.log(`⚡ Alerta en ${grupoActual?.name || chatId}: ${senal}`);
+          }
+        }
+      }
+
       const text = normalizeText(rawText);
       const esImagenTrigger = mediaTriggers.isEnabled("imagen", grupoActual?.name) && tieneImagen(msg);
       const esContactoTrigger = mediaTriggers.isEnabled("contacto", grupoActual?.name) && tieneContacto(msg);
@@ -1693,7 +1726,18 @@ async function startBot() {
       if (ensenada && !ensenada.esPedido) continue;
 
       let horaIA = null;
-      if (!ensenada && !esTriggerDeArchivo && !esSectorOlvidado && !configuradoAMano && !esLlamadoCorto) {
+      // En alerta (ver alertaPedidos.js) no se espera a la IA: las señales
+      // ya dijeron que viene un pedido, y esperarla es justo lo que hace
+      // perder la carrera. Lo que ya decidió antes para esta frase (sale de
+      // memoria, al instante) se respeta; si es nueva, se le pregunta igual
+      // pero sin esperarla, para que la próxima vez ya la sepa.
+      const alerta = alertaPedidos.enAlerta(chatId);
+      if (alerta && !ensenada && !esTriggerDeArchivo && !esSectorOlvidado && !configuradoAMano && !esLlamadoCorto) {
+        const conocida = aiClassifier.getDecision(rawText, chatId);
+        if (conocida && !conocida.esPedido) continue;
+        if (conocida) horaIA = conocida.hora || null;
+        else aiClassifier.analizar(rawText, match.keyword, chatId).catch(() => {});
+      } else if (!ensenada && !esTriggerDeArchivo && !esSectorOlvidado && !configuradoAMano && !esLlamadoCorto) {
         const veredicto = await aiClassifier.analizar(rawText, match.keyword, chatId);
         if (!veredicto.esPedido) {
           // Un bot callado se ve igual que un bot que no vio nada, así que un
@@ -1854,9 +1898,19 @@ async function marcarPedido(
 
   // Pequeña espera antes de responder, para que se sienta más natural.
   // Si el grupo tiene un delay personalizado (panel > Delays por grupo),
-  // ese gana; si no, se usa el global de siempre.
-  const delayMs = groupDelays.getDelay(groupName) ?? getResponseDelay();
+  // ese gana; si no, se usa el global de siempre. Si el grupo está en
+  // alerta (ver alertaPedidos.js), la espera corta de la alerta.
+  const delayNormal = groupDelays.getDelay(groupName) ?? getResponseDelay();
+  const alerta = alertaPedidos.enAlerta(chatId);
+  const delayMs = alertaPedidos.esperaPara(chatId, delayNormal);
+  entry.delayMs = delayMs;
+  if (alerta) {
+    entry.alerta = alerta.senal;
+    console.log(`⚡ Voy en alerta en ${groupName}: ${delayMs} ms (normal ${delayNormal} ms), por ${alerta.senal}`);
+  }
   await new Promise((resolve) => setTimeout(resolve, delayMs));
+  // Ya se marcó (o se intentó): el grupo vuelve a su espera de siempre.
+  alertaPedidos.terminar(chatId);
 
   try {
     await enviarMensaje(

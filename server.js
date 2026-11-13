@@ -11,6 +11,7 @@ const pushSubscriptions = require("./pushSubscriptions");
 const mediaTriggers = require("./mediaTriggers");
 const pendingTimeMatches = require("./pendingTimeMatches");
 const groupDelays = require("./groupDelays");
+const alertaPedidos = require("./alertaPedidos");
 const groupTimeWindows = require("./groupTimeWindows");
 const scheduledBroadcasts = require("./scheduledBroadcasts");
 const aiClassifier = require("./aiClassifier");
@@ -305,6 +306,21 @@ app.post("/api/config/delay", (req, res) => {
   try {
     sectors.setResponseDelay(req.body.delayMs);
     res.json({ ok: true, delayMs: sectors.getResponseDelay() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Modo alerta (ver alertaPedidos.js): la configuración y los grupos que están
+// en alerta en este momento.
+app.get("/api/config/alerta", (req, res) => {
+  res.json({ ...alertaPedidos.getConfig(), activas: alertaPedidos.activas() });
+});
+
+app.post("/api/config/alerta", (req, res) => {
+  try {
+    const config = alertaPedidos.setConfig(req.body || {});
+    res.json({ ok: true, ...config, activas: alertaPedidos.activas() });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

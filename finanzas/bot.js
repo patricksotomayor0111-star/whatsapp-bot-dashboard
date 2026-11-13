@@ -234,11 +234,138 @@ function parseCashboxLine(rawLine) {
     return { type: "referencia", monto: numRef ? parseFloat(numRef[1]) : 0, cuenta: cuentaRef, descripcion: text };
   }
 
+  // Una cuenta pegada al monto ("9 - 225 Interbank", "20x3 almuerzo"): no
+  // se sabe si es una ganancia, un gasto o el saldo de una cuenta. Antes
+  // "9 - 225 Interbank" se anotaba como ganancia de S/ 9 sin avisar (pasó
+  // el 03/11, con Interbank, que no estaba entre las cuentas). Ahora no se
+  // anota y el bot pregunta qué es.
+  const generico = mMenos || mMas;
+  if (generico && /^[-+x×*/]\s*\d/i.test(generico[3].trim())) {
+    const palabras = generico[3]
+      .replace(/[-+x×*/]?\s*\d+(?:[.,]\d+)?/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    return {
+      type: "dudosa",
+      monto: montoDe(generico),
+      descripcion: text,
+      palabras,
+    };
+  }
+
   // Y al final lo genérico.
   if (mMenos) return { type: "gasto", monto: montoDe(mMenos), descripcion: mMenos[3].trim(), correccion };
   if (mMas) return { type: "ganancia", monto: montoDe(mMas), descripcion: mMas[3].trim() };
 
   return null;
+}
+
+// ---------- Lo que no se entendió: el bot pregunta ----------
+// Cada pregunta queda esperando la respuesta (1, 2, 3 o 4) citando el
+// mensaje del bot. En memoria: si el bot se reinicia, se avisa que hay que
+// escribirla de nuevo.
+const PREGUNTA_TTL_MS = 24 * 60 * 60 * 1000;
+// Un "2" suelto, sin citar, solo se toma como respuesta si hay una sola
+// pregunta abierta y es reciente.
+const RESPUESTA_SUELTA_MS = 30 * 60 * 1000;
+const INICIO_PREGUNTA = "🤔 No anoté";
+
+function textoPregunta(dudosa, anotoLoDemas) {
+  const monto = formatSoles(dudosa.monto);
+  const lineas = [`${INICIO_PREGUNTA} «${dudosa.descripcion}»: no sé qué es.`];
+  if (anotoLoDemas) lineas.push("Lo demás del mensaje sí lo anoté.");
+  lineas.push(`1 = ganancia de ${monto}`, `2 = gasto de ${monto}`);
+  if (dudosa.palabras) {
+    lineas.push(`3 = saldo de la cuenta «${dudosa.palabras}» (no suma ni resta; la próxima vez lo anoto solo)`);
+  }
+  lineas.push("4 = nada, ignóralo", "Responde este mensaje con el número.");
+  return lineas.join("\n");
+}
+
+async function preguntarDudosa(bot, chatId, msg, dudosa, anotoLoDemas) {
+  const ahora = Date.now();
+  for (const [id, p] of bot.preguntas) if (ahora - p.cuando > PREGUNTA_TTL_MS) bot.preguntas.delete(id);
+  const enviado = await enviarMensaje(bot, chatId, { text: textoPregunta(dudosa, anotoLoDemas) }, { quoted: msg });
+  const id = enviado?.key?.id;
+  if (id) bot.preguntas.set(id, { chatId, dudosa, cuando: ahora });
+}
+
+function contextoCitado(msg) {
+  const m =
+    msg.message?.ephemeralMessage?.message ||
+    msg.message?.viewOnceMessage?.message ||
+    msg.message?.viewOnceMessageV2?.message ||
+    msg.message ||
+    {};
+  return m.extendedTextMessage?.contextInfo || null;
+}
+
+// Devuelve true si el mensaje era la respuesta a una pregunta del bot (y ya
+// se resolvió); false si es un mensaje normal.
+async function responderPregunta(bot, chatId, msg, rawText) {
+  const opcion = String(rawText || "").trim().match(/^([1-4])$/);
+  if (!opcion) return false;
+
+  const citado = contextoCitado(msg);
+  let id = citado?.stanzaId || null;
+  let pendiente = id ? bot.preguntas.get(id) : null;
+  if (!id) {
+    const abiertas = [...bot.preguntas.entries()].filter(
+      ([, p]) => p.chatId === chatId && Date.now() - p.cuando < RESPUESTA_SUELTA_MS
+    );
+    if (abiertas.length === 1) [id, pendiente] = abiertas[0];
+  }
+
+  if (!pendiente) {
+    const textoCitado = citado?.quotedMessage?.conversation || citado?.quotedMessage?.extendedTextMessage?.text || "";
+    if (!textoCitado.startsWith(INICIO_PREGUNTA)) return false;
+    await enviarMensaje(
+      bot,
+      chatId,
+      { text: "Ya no tengo esa pregunta (me reinicié). Escribe de nuevo esa línea como quieras anotarla." },
+      { quoted: msg }
+    );
+    return true;
+  }
+
+  const { dudosa } = pendiente;
+  const descripcion = dudosa.palabras || dudosa.descripcion;
+  let respuesta;
+  let entrada = null;
+  if (opcion[1] === "1") {
+    entrada = { type: "ganancia", monto: dudosa.monto, descripcion };
+    respuesta = `✅ Anoté ${formatSoles(dudosa.monto)} de ganancia (${descripcion}).`;
+  } else if (opcion[1] === "2") {
+    entrada = { type: "gasto", monto: dudosa.monto, descripcion };
+    respuesta = `✅ Anoté ${formatSoles(dudosa.monto)} de gasto (${descripcion}).`;
+  } else if (opcion[1] === "3" && dudosa.palabras) {
+    referenceAccounts.addNombre(dudosa.palabras);
+    const cuenta = referenceAccounts.matchNombre(normalizeText(dudosa.palabras)) || dudosa.palabras.toLowerCase();
+    entrada = { type: "referencia", monto: dudosa.monto, cuenta, descripcion: dudosa.descripcion };
+    respuesta = `✅ Anoté «${dudosa.descripcion}» en la cuenta ${dudosa.palabras}: no suma ni resta. Desde ahora reconozco esa cuenta sola.`;
+  } else if (opcion[1] === "4") {
+    respuesta = "👍 Listo, no lo anoté.";
+  } else {
+    // Un 3 a una línea sin nombre de cuenta: no hay cuenta que anotar.
+    await enviarMensaje(bot, chatId, { text: "Esa línea no dice de qué cuenta es. Responde 1, 2 o 4." }, { quoted: msg });
+    return true;
+  }
+
+  bot.preguntas.delete(id);
+  const avisos = entrada ? handleCashboxEntries([entrada], []) : [];
+  try {
+    await bot.sock.sendMessage(chatId, { react: { text: "\u2705", key: msg.key } });
+  } catch (err) {
+    console.error("No se pudo reaccionar a la respuesta:", err.message);
+  }
+  for (const texto of [respuesta, ...avisos]) {
+    try {
+      await enviarMensaje(bot, chatId, { text: texto });
+    } catch (err) {
+      console.error("Error al confirmar la respuesta:", err.message);
+    }
+  }
+  return true;
 }
 
 // Un mensaje puede traer varios movimientos juntos, uno por línea (ej: "menos
@@ -729,6 +856,8 @@ function handleCashboxEntries(entradas, idsCreados) {
       shortfalls.addFaltante(entrada.monto, entrada.descripcion, movimientoId);
     } else if (entrada.type === "referencia") {
       referenceAccounts.addEntrada(entrada.cuenta, entrada.monto, entrada.descripcion);
+    } else if (entrada.type === "dudosa") {
+      // No se anota: el bot pregunta qué es (ver responderPregunta).
     } else {
       const movimientoId = cashbox.addGanancia(entrada.monto, entrada.descripcion);
       anotarId(movimientoId);
@@ -779,6 +908,15 @@ function botDe(userId) {
       // Control de los reintentos al cargar la lista de grupos.
       refreshEnCurso: false,
       ultimoFalloTs: 0,
+      // De dónde salió la lista: "whatsapp" (recién pedida), "guardada"
+      // (WhatsApp no la dio y se usa la última buena) o null.
+      gruposOrigen: null,
+      gruposActualizados: null,
+      // Grupos por los que se preguntó suelto y WhatsApp no contestó.
+      grupoSueltoFallo: new Map(),
+      // Líneas que no se entendieron, esperando que se diga qué son:
+      // id del mensaje de la pregunta -> { chatId, dudosa, cuando }.
+      preguntas: new Map(),
       // Para no repetir el mensaje de las 7am dentro del mismo día.
       lastMorningMessageLabel: null,
     });
@@ -979,6 +1117,74 @@ let refreshEnCurso = false;
 let ultimoFalloTs = 0;
 const ENFRIAMIENTO_TRAS_FALLO_MS = 5 * 60 * 1000; // 5 minutos
 
+// ---------- La última lista de grupos, guardada ----------
+// Si WhatsApp no da la lista de grupos (lo frena un rato tras varias
+// reconexiones seguidas), el bot no sabía cuál era GANANCIAS y dejaba pasar
+// los mensajes de la caja chica sin decir nada, aunque el panel dijera
+// "Conectado". Los grupos casi nunca cambian: se guarda la última lista
+// buena de cada cuenta y se usa mientras WhatsApp no conteste.
+const ARCHIVO_GRUPOS = "grupos-guardados.json";
+const REINTENTO_LARGO_GRUPOS_MS = 10 * 60 * 1000;
+
+function guardarGrupos(bot) {
+  try {
+    fs.writeFileSync(
+      userDataPath(bot.userId, ARCHIVO_GRUPOS),
+      JSON.stringify({ guardadoEn: bot.gruposActualizados || Date.now(), grupos: bot.groups })
+    );
+  } catch (err) {
+    console.error(`[${bot.userId}] No se pudo guardar la lista de grupos:`, err.message);
+  }
+}
+
+// Si no hay lista, usa la guardada. No pisa una lista que ya se tiene.
+function usarGruposGuardados(bot) {
+  if (bot.groups.length) return;
+  try {
+    const datos = JSON.parse(fs.readFileSync(userDataPath(bot.userId, ARCHIVO_GRUPOS), "utf8"));
+    if (!Array.isArray(datos.grupos) || !datos.grupos.length) return;
+    bot.groups = datos.grupos;
+    bot.gruposOrigen = "guardada";
+    bot.gruposActualizados = datos.guardadoEn || null;
+  } catch (err) {
+    // Todavía no hay lista guardada: se sigue sin ella.
+  }
+}
+
+function aplicarListaDeGrupos(bot, groupsMap) {
+  bot.groups = Object.values(groupsMap).map((g) => ({ id: g.id, name: g.subject || "(sin nombre)" }));
+  bot.gruposOrigen = "whatsapp";
+  bot.gruposActualizados = Date.now();
+  guardarGrupos(bot);
+}
+
+// Llega un mensaje de un grupo que no está en la lista: se le pregunta a
+// WhatsApp solo por ese grupo, para saber si es GANANCIAS. Hasta 5 segundos;
+// si no contesta, no se vuelve a preguntar por ese grupo durante 10 minutos.
+const GRUPO_SUELTO_ESPERA_MS = 5000;
+const GRUPO_SUELTO_ENFRIAMIENTO_MS = 10 * 60 * 1000;
+
+async function buscarGrupoSuelto(bot, sock, chatId) {
+  if (!chatId || !chatId.endsWith("@g.us")) return null;
+  if (Date.now() - (bot.grupoSueltoFallo.get(chatId) || 0) < GRUPO_SUELTO_ENFRIAMIENTO_MS) return null;
+  try {
+    const meta = await Promise.race([
+      sock.groupMetadata(chatId),
+      new Promise((_, rechazar) => setTimeout(() => rechazar(new Error("no contestó a tiempo")), GRUPO_SUELTO_ESPERA_MS)),
+    ]);
+    const grupo = { id: chatId, name: meta?.subject || "(sin nombre)" };
+    if (!bot.groups.some((g) => g.id === chatId)) {
+      bot.groups = [...bot.groups, grupo];
+      guardarGrupos(bot);
+    }
+    return grupo;
+  } catch (err) {
+    bot.grupoSueltoFallo.set(chatId, Date.now());
+    console.error(`[${bot.userId}] No se pudo saber qué grupo es ${chatId}:`, err.message);
+    return null;
+  }
+}
+
 async function refreshGroups(bot, sock, intento = 0) {
   if (intento === 0) {
     if (bot.refreshEnCurso) return;
@@ -987,8 +1193,7 @@ async function refreshGroups(bot, sock, intento = 0) {
   }
 
   try {
-    const groupsMap = await sock.groupFetchAllParticipating();
-    bot.groups = Object.values(groupsMap).map((g) => ({ id: g.id, name: g.subject || "(sin nombre)" }));
+    aplicarListaDeGrupos(bot, await sock.groupFetchAllParticipating());
     bot.refreshEnCurso = false;
   } catch (err) {
     console.error("[" + bot.userId + "] No se pudo obtener la lista de grupos:", err.message);
@@ -1002,6 +1207,12 @@ async function refreshGroups(bot, sock, intento = 0) {
     } else {
       bot.refreshEnCurso = false;
       bot.ultimoFalloTs = Date.now();
+      usarGruposGuardados(bot);
+      // Antes se rendía acá hasta la próxima reconexión. Ahora sigue
+      // probando cada 10 minutos mientras siga conectado.
+      setTimeout(() => {
+        if (sock === bot.sock && bot.connected) refreshGroups(bot, sock);
+      }, REINTENTO_LARGO_GRUPOS_MS);
     }
   }
 }
@@ -1280,6 +1491,7 @@ function programarReconexion(bot, motivo) {
 
 async function startBot(userId) {
   const bot = botDe(userId);
+  usarGruposGuardados(bot); // mientras conecta, ya reconoce sus grupos
   const sessionPath = sessionPathDe(userId);
   const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
   const { version } = await fetchLatestBaileysVersion();
@@ -1319,7 +1531,9 @@ async function startBot(userId) {
 
     if (connection === "close") {
       bot.connected = false;
-      bot.groups = [];
+      // No se vacía: se queda con la última lista buena (guardada en disco).
+      if (bot.gruposOrigen === "whatsapp") bot.gruposOrigen = "guardada";
+      usarGruposGuardados(bot);
       const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
 
       if (shouldReconnect) {
@@ -1384,7 +1598,7 @@ async function procesarMensajes(bot, messages) {
       const chatId = msg.key.remoteJid;
       // Ya no se exige que sea un grupo: una cuenta puede elegir anotar en
       // sus propios mensajes, que es lo más cómodo si trabaja sola.
-      const grupoActual = bot.groups.find((g) => g.id === chatId);
+      const grupoActual = bot.groups.find((g) => g.id === chatId) || (await buscarGrupoSuelto(bot, bot.sock, chatId));
       const { chatCaja, chatPrecios } = chatConfig.getConfig();
       const esCajaChica = esChatElegido(bot, chatId, grupoActual, chatCaja, CASHBOX_GROUP_NAME);
       const esPrecios = esChatElegido(bot, chatId, grupoActual, chatPrecios, PRICES_GROUP_NAME);
@@ -1415,7 +1629,7 @@ async function procesarMensajes(bot, messages) {
           try {
             // Confirma con una reacción en vez de un mensaje, para no
             // llenar el grupo de respuestas del bot.
-            await sock.sendMessage(chatId, { react: { text: "✅", key: msg.key } });
+            await bot.sock.sendMessage(chatId, { react: { text: "✅", key: msg.key } });
           } catch (err) {
             console.error("No se pudo reaccionar al precio guardado:", err.message);
           }
@@ -1443,18 +1657,30 @@ async function procesarMensajes(bot, messages) {
         continue;
       }
 
+      if (await responderPregunta(bot, chatId, msg, rawText)) continue;
+
       const entradas = parseCashboxMessage(rawText);
       if (entradas.length > 0) {
+        const dudosas = entradas.filter((e) => e.type === "dudosa");
+        const normales = entradas.filter((e) => e.type !== "dudosa");
         const idsCreados = [];
-        const avisos = handleCashboxEntries(entradas, idsCreados);
-        await guardarRecibo(bot, msg, idsCreados);
+        const avisos = normales.length ? handleCashboxEntries(normales, idsCreados) : [];
+        if (normales.length) await guardarRecibo(bot, msg, idsCreados);
         // Un visto bueno en el mensaje, como en el grupo de precios: sin
         // llenar el chat de respuestas, pero dejando claro qué entró. Si
-        // una línea no tiene palomita, no se anotó.
+        // una línea no tiene palomita, no se anotó. Con una línea que no
+        // se entendió va 🤔, y abajo la pregunta.
         try {
-          await sock.sendMessage(chatId, { react: { text: "\u2705", key: msg.key } });
+          await bot.sock.sendMessage(chatId, { react: { text: dudosas.length ? "\uD83E\uDD14" : "\u2705", key: msg.key } });
         } catch (err) {
           console.error("No se pudo reaccionar al movimiento anotado:", err.message);
+        }
+        for (const dudosa of dudosas) {
+          try {
+            await preguntarDudosa(bot, chatId, msg, dudosa, normales.length > 0);
+          } catch (err) {
+            console.error("No se pudo preguntar por una línea:", err.message);
+          }
         }
         for (const aviso of avisos) {
           try {
@@ -1507,7 +1733,15 @@ async function avisarAMisMensajes(userId, texto) {
 // conectado. Cada cuenta ve el suyo y nada del de las demás.
 function estadoDe(userId) {
   const bot = botDe(userId);
-  return { connected: bot.connected, qr: bot.qr, groupsCount: bot.groups.length };
+  return {
+    connected: bot.connected,
+    qr: bot.qr,
+    groupsCount: bot.groups.length,
+    gruposOrigen: bot.gruposOrigen,
+    // ¿Sabe dónde anotar? false = conectado pero sin ver el chat de la caja
+    // chica: los mensajes que lleguen ahí no se anotarían.
+    veoCaja: bot.connected ? Boolean(chatDeCaja(bot)) : null,
+  };
 }
 
 // Levanta el bot de cada cuenta que ya tenga su WhatsApp vinculado. Las
@@ -1543,6 +1777,7 @@ module.exports = {
   // Se exponen para poder probarlos sin levantar WhatsApp.
   parseCashboxLine,
   parseCashboxMessage,
+  textoPregunta,
   aUnErrorDe,
   textoCierreMes,
   responderConsultaFinanciera,
