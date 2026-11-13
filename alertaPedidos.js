@@ -16,9 +16,12 @@ const { dataPath } = require("./dataDir");
 //
 // Las señales NO hacen que el bot responda: solo lo dejan listo para cuando
 // llegue la palabra clave.
+//
+// Solo en los locales elegidos en el panel (arranca con ARTIA): en los demás
+// todo sigue igual que siempre.
 
 const DATA_PATH = dataPath("alerta-pedidos.json");
-const POR_DEFECTO = { activo: true, esperaMs: 300, minutos: 3 };
+const POR_DEFECTO = { activo: true, esperaMs: 300, minutos: 3, grupos: ["ARTIA PASTELERIA (dribox)"] };
 const ESPERA_MIN_MS = 100;
 const ESPERA_MAX_MS = 1000;
 const MINUTOS_MAX = 15;
@@ -26,10 +29,23 @@ const MINUTOS_MAX = 15;
 function cargar() {
   try {
     const guardado = JSON.parse(fs.readFileSync(DATA_PATH, "utf8"));
-    return { ...POR_DEFECTO, ...guardado };
+    const config = { ...POR_DEFECTO, ...guardado };
+    if (!Array.isArray(config.grupos)) config.grupos = [...POR_DEFECTO.grupos];
+    return config;
   } catch {
-    return { ...POR_DEFECTO };
+    return { ...POR_DEFECTO, grupos: [...POR_DEFECTO.grupos] };
   }
+}
+
+// Los grupos se guardan por nombre (como los delays por grupo), sin
+// importar mayúsculas ni espacios de más.
+function keyOf(nombreGrupo) {
+  return String(nombreGrupo || "").trim().toUpperCase();
+}
+
+function grupoPrendido(nombreGrupo) {
+  const clave = keyOf(nombreGrupo);
+  return Boolean(clave) && config.grupos.some((g) => keyOf(g) === clave);
 }
 
 let config = cargar();
@@ -43,7 +59,13 @@ function guardar() {
 }
 
 function getConfig() {
-  return { ...config, esperaMinMs: ESPERA_MIN_MS, esperaMaxMs: ESPERA_MAX_MS, minutosMax: MINUTOS_MAX };
+  return {
+    ...config,
+    grupos: [...config.grupos],
+    esperaMinMs: ESPERA_MIN_MS,
+    esperaMaxMs: ESPERA_MAX_MS,
+    minutosMax: MINUTOS_MAX,
+  };
 }
 
 // Valida y guarda. Lanza un Error con el mensaje para el panel.
@@ -57,9 +79,27 @@ function setConfig({ activo, esperaMs, minutos } = {}) {
   if (!Number.isInteger(min) || min < 1 || min > MINUTOS_MAX) {
     throw new Error(`La alerta tiene que durar entre 1 y ${MINUTOS_MAX} minutos.`);
   }
-  config = { activo, esperaMs: espera, minutos: min };
+  config = { ...config, activo, esperaMs: espera, minutos: min };
   guardar();
   if (!activo) alertas.clear();
+  return getConfig();
+}
+
+function agregarGrupo(nombreGrupo) {
+  const nombre = String(nombreGrupo || "").trim();
+  if (!nombre) throw new Error("Elige un grupo.");
+  if (!grupoPrendido(nombre)) {
+    config.grupos.push(nombre);
+    guardar();
+  }
+  return getConfig();
+}
+
+function quitarGrupo(nombreGrupo) {
+  const clave = keyOf(nombreGrupo);
+  config.grupos = config.grupos.filter((g) => keyOf(g) !== clave);
+  guardar();
+  for (const [chatId, a] of alertas) if (keyOf(a.grupo) === clave) alertas.delete(chatId);
   return getConfig();
 }
 
@@ -98,7 +138,7 @@ function detectarSenal({ esUbicacion = false, esContacto = false, esReenviado = 
 const alertas = new Map(); // chatId -> { grupo, senal, desdeMs, hastaMs }
 
 function activar(chatId, senal, nombreGrupo, ahora = Date.now()) {
-  if (!config.activo || !chatId || !senal) return null;
+  if (!config.activo || !chatId || !senal || !grupoPrendido(nombreGrupo)) return null;
   const anterior = alertas.get(chatId);
   const alerta = {
     grupo: nombreGrupo || anterior?.grupo || chatId,
@@ -143,6 +183,9 @@ function activas(ahora = Date.now()) {
 module.exports = {
   getConfig,
   setConfig,
+  agregarGrupo,
+  quitarGrupo,
+  grupoPrendido,
   detectarSenal,
   pareceContactoDeCliente,
   activar,
