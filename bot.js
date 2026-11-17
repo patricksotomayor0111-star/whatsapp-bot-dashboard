@@ -23,6 +23,7 @@ const aiClassifier = require("./aiClassifier");
 const aiEjemplos = require("./aiEjemplos");
 const aiBlocked = require("./aiBlocked");
 const datosReenviados = require("./datosReenviados");
+const alertaPedidos = require("./alertaPedidos");
 const { dataPath } = require("./dataDir");
 const { sectorSeedByName, specialSeedByName, numberExceptionSeed } = require("./groupSeed");
 const {
@@ -38,6 +39,8 @@ const {
   isGroupSinRemarcarEfectivo,
   isGroupSectorActiveEfectivo,
   DEFAULT_SECTOR,
+  migracionHecha,
+  marcarMigracion,
 } = require("./sectors");
 
 const MAX_HISTORY = 100;
@@ -86,8 +89,26 @@ function getExtraPositiveMatchers() {
   return buildMatchers(dynamicKeywords.getExtraPositive());
 }
 
+// Las de fábrica que se apagaron desde el panel no cuentan.
 function getExcludedMatchers() {
-  return buildMatchers([...excludedKeywords, ...dynamicKeywords.getExtraExcluded()]);
+  const deFabrica = excludedKeywords.filter((k) => !dynamicKeywords.isBaseExcludedOff(k));
+  return buildMatchers([...deFabrica, ...dynamicKeywords.getExtraExcluded()]);
+}
+
+// TODAS las palabras excluidas que aparecen en el texto, con dónde están,
+// para "Probar una frase": saber qué palabra frena el pedido. Si una está
+// dentro de otra más larga en el mismo lugar ("cuanto" en "cuanto sale"),
+// queda la larga.
+function palabrasExcluidasEn(text) {
+  const panel = new Set(dynamicKeywords.getExtraExcluded());
+  const encontradas = [];
+  for (const { keyword, regex } of getExcludedMatchers()) {
+    const r = regex.exec(text);
+    if (r) encontradas.push({ keyword, index: r.index, length: r[0].length, origen: panel.has(keyword) ? "panel" : "fabrica" });
+  }
+  return encontradas.filter(
+    (a) => !encontradas.some((b) => b !== a && b.index <= a.index && b.index + b.length >= a.index + a.length && b.length > a.length)
+  );
 }
 
 // Palabras de relleno que se ignoran al buscar keywords especiales por grupo:
@@ -489,7 +510,13 @@ function analizarDeteccion(text, chatId, senderNumber, grupoActual, opciones = {
     if (!match) {
       const exclusion = getExcludedMatchers().find(({ regex }) => regex.test(text));
       if (exclusion) {
-        anotar("Palabras excluidas", `encontré "${exclusion.keyword}", que bloquea las keywords base`);
+        const todas = palabrasExcluidasEn(text).map((p) => `"${p.keyword}"`);
+        anotar(
+          "Palabras excluidas",
+          todas.length > 1
+            ? `encontré ${todas.join(", ")}, que bloquean las keywords base`
+            : `encontré ${todas[0] || `"${exclusion.keyword}"`}, que bloquea las keywords base`
+        );
       } else {
         anotar("Palabras excluidas", "ninguna");
         match = buscarEnMatchers(text, getBasePositiveMatchers());
@@ -886,6 +913,17 @@ function tieneContacto(msg) {
     msg.message.viewOnceMessageV2?.message ||
     msg.message;
   return Boolean(m.contactMessage || m.contactsArrayMessage);
+}
+
+// True si el mensaje es una ubicación (fija o en tiempo real), reenviada o
+// no. Es una de las señales del modo alerta (ver alertaPedidos.js).
+function tieneUbicacion(msg) {
+  const m =
+    msg.message.ephemeralMessage?.message ||
+    msg.message.viewOnceMessage?.message ||
+    msg.message.viewOnceMessageV2?.message ||
+    msg.message;
+  return Boolean(m.locationMessage || m.liveLocationMessage);
 }
 
 // True si el mensaje es una NOTA DE VOZ (la del micrófono) lo bastante
@@ -1350,6 +1388,17 @@ async function buscarGrupoSuelto(sock, chatId) {
 // le aplica su sector y sus keywords especiales automáticamente. Si ya se
 // configuró antes (a mano o por un seed anterior), no lo vuelve a tocar.
 function applyGroupSeed() {
+  // "Hola" es solo de prueba: sale de Sector Base y queda en "Otros" (ahí
+  // está apagado salvo que se prenda). Una sola vez: si después se mueve a
+  // mano, se respeta.
+  if (!migracionHecha("holaAOtros")) {
+    const hola = botState.groups.find((g) => g.name.trim().toUpperCase() === "HOLA");
+    if (hola) {
+      if (getGroupSector(hola.id) === "base") setGroupSector(hola.id, DEFAULT_SECTOR);
+      marcarMigracion("holaAOtros");
+    }
+  }
+
   botState.groups.forEach((g) => {
     const sectorId = sectorSeedByName[g.name];
     if (sectorId && !hasGroupSector(g.id)) {
@@ -1556,6 +1605,27 @@ async function startBot() {
       // esAnteriorALaActivacion).
       if (esAnteriorALaActivacion(msg)) continue;
 
+      // Modo alerta (ver alertaPedidos.js): una ubicación, el contacto o el
+      // número del cliente, o datos reenviados avisan que viene un pedido.
+      // El grupo queda unos minutos con la espera corta, para ganar cuando
+      // escriban "pedido listo". No responde nada todavía. Va antes de los
+      // cortes de abajo porque una ubicación no tiene texto y lo reenviado
+      // no cuenta para las palabras clave.
+      if (chatId.endsWith("@g.us") && !excludedNumbers.isExcluded(senderNumber)) {
+        const senal = alertaPedidos.detectarSenal({
+          esUbicacion: tieneUbicacion(msg),
+          esContacto: tieneContacto(msg),
+          esReenviado: esMensajeReenviado(msg),
+          rawText,
+        });
+        if (senal) {
+          const nueva = !alertaPedidos.enAlerta(chatId);
+          if (alertaPedidos.activar(chatId, senal, grupoActual?.name) && nueva) {
+            console.log(`⚡ Alerta en ${grupoActual?.name || chatId}: ${senal}`);
+          }
+        }
+      }
+
       const text = normalizeText(rawText);
       const esImagenTrigger = mediaTriggers.isEnabled("imagen", grupoActual?.name) && tieneImagen(msg);
       const esContactoTrigger = mediaTriggers.isEnabled("contacto", grupoActual?.name) && tieneContacto(msg);
@@ -1693,7 +1763,18 @@ async function startBot() {
       if (ensenada && !ensenada.esPedido) continue;
 
       let horaIA = null;
-      if (!ensenada && !esTriggerDeArchivo && !esSectorOlvidado && !configuradoAMano && !esLlamadoCorto) {
+      // En alerta (ver alertaPedidos.js) no se espera a la IA: las señales
+      // ya dijeron que viene un pedido, y esperarla es justo lo que hace
+      // perder la carrera. Lo que ya decidió antes para esta frase (sale de
+      // memoria, al instante) se respeta; si es nueva, se le pregunta igual
+      // pero sin esperarla, para que la próxima vez ya la sepa.
+      const alerta = alertaPedidos.enAlerta(chatId);
+      if (alerta && !ensenada && !esTriggerDeArchivo && !esSectorOlvidado && !configuradoAMano && !esLlamadoCorto) {
+        const conocida = aiClassifier.getDecision(rawText, chatId);
+        if (conocida && !conocida.esPedido) continue;
+        if (conocida) horaIA = conocida.hora || null;
+        else aiClassifier.analizar(rawText, match.keyword, chatId).catch(() => {});
+      } else if (!ensenada && !esTriggerDeArchivo && !esSectorOlvidado && !configuradoAMano && !esLlamadoCorto) {
         const veredicto = await aiClassifier.analizar(rawText, match.keyword, chatId);
         if (!veredicto.esPedido) {
           // Un bot callado se ve igual que un bot que no vio nada, así que un
@@ -1854,9 +1935,19 @@ async function marcarPedido(
 
   // Pequeña espera antes de responder, para que se sienta más natural.
   // Si el grupo tiene un delay personalizado (panel > Delays por grupo),
-  // ese gana; si no, se usa el global de siempre.
-  const delayMs = groupDelays.getDelay(groupName) ?? getResponseDelay();
+  // ese gana; si no, se usa el global de siempre. Si el grupo está en
+  // alerta (ver alertaPedidos.js), la espera corta de la alerta.
+  const delayNormal = groupDelays.getDelay(groupName) ?? getResponseDelay();
+  const alerta = alertaPedidos.enAlerta(chatId);
+  const delayMs = alertaPedidos.esperaPara(chatId, delayNormal);
+  entry.delayMs = delayMs;
+  if (alerta) {
+    entry.alerta = alerta.senal;
+    console.log(`⚡ Voy en alerta en ${groupName}: ${delayMs} ms (normal ${delayNormal} ms), por ${alerta.senal}`);
+  }
   await new Promise((resolve) => setTimeout(resolve, delayMs));
+  // Ya se marcó (o se intentó): el grupo vuelve a su espera de siempre.
+  alertaPedidos.terminar(chatId);
 
   try {
     await enviarMensaje(
@@ -2238,6 +2329,36 @@ function probarFrase(textoCrudo, chatId, numeroCrudo) {
   else if (esLlamadoCorto) filtroNoOpina = "es un llamado corto (la palabra clave y poco más), se responde al toque";
 
   const recordadaIA = aiClassifier.getDecision(rawText, chatId);
+  // Por qué NO respondería, en una línea y con la palabra culpable marcada
+  // (lo que se ve arriba en "Probar una frase"). null = sí respondería.
+  let motivo = null;
+  if (ignorado) {
+    motivo = { tipo: "grupo_ignorado", texto: "El bot ignora este grupo por completo." };
+  } else if (!match && bloqueadoGlobal) {
+    motivo = {
+      tipo: soloAutorizados ? "solo_autorizados" : "numero_ignorado",
+      texto: soloAutorizados
+        ? "Este grupo solo responde a números autorizados, y esta frase no está entre las de ese número."
+        : "Ese número está en la lista de ignorados, y esta frase no está entre sus frases autorizadas en este grupo.",
+    };
+  } else if (!match) {
+    const palabras = palabrasExcluidasEn(text);
+    const clave = buscarEnMatchers(text, getBasePositiveMatchers());
+    if (palabras.length && clave) {
+      const lista = palabras.map((p) => `"${p.keyword}"`).join(", ");
+      motivo = {
+        tipo: "excluida",
+        texto:
+          (palabras.length === 1 ? `La palabra ${lista} está` : `Las palabras ${lista} están`) +
+          ` en Palabras excluidas, y eso frena "${clave.keyword}".`,
+        palabras,
+        clave,
+      };
+    } else {
+      motivo = { tipo: "sin_clave", texto: "Ninguna palabra de la frase es palabra clave.", palabras };
+    }
+  }
+
   if (configuradoAMano) {
     pasos.push({
       nombre: "Filtro inteligente",
@@ -2251,16 +2372,23 @@ function probarFrase(textoCrudo, chatId, numeroCrudo) {
         (ensenada.groupId ? " (solo en este local)" : " (en todos los locales)"),
     });
     if (!ensenada.esPedido) {
-      advertencias.push("Le enseñaste que esta frase no es un pedido, así que el bot no respondería. Se cambia en Frases enseñadas.");
+      motivo = {
+        tipo: "ensenada",
+        texto: "Le enseñaste al filtro que esta frase no es un pedido. Se cambia en Frases enseñadas.",
+        clave: match,
+      };
     }
   } else if (match && filtroNoOpina) {
     pasos.push({ nombre: "Filtro inteligente", detalle: `no opina: ${filtroNoOpina}` });
   } else if (!filtroNoOpina && recordadaIA && !recordadaIA.esPedido) {
-    advertencias.push(
-      recordadaIA.manual
-        ? "Tú marcaste esta frase como que no es un pedido, así que el bot no respondería. Se cambia en Filtro inteligente."
-        : "El filtro inteligente aprendió que esta frase no es un pedido, así que el bot no respondería. Se corrige en Filtro inteligente."
-    );
+    const razon = aiClassifier.motivoDe(recordadaIA.caso);
+    motivo = {
+      tipo: "filtro",
+      texto: recordadaIA.manual
+        ? "Tú marcaste esta frase como que no es un pedido. Se cambia en Filtro inteligente."
+        : `El filtro inteligente decidió que no es un pedido${razon ? `: ${razon}` : ""}. Se corrige en Filtro inteligente.`,
+      clave: match,
+    };
   }
 
   // La ventana de tiempo solo cuenta si la frase menciona una hora.
@@ -2290,6 +2418,9 @@ function probarFrase(textoCrudo, chatId, numeroCrudo) {
   return {
     grupo: nombreGrupo,
     detecta: Boolean(match),
+    responde: !motivo,
+    motivo,
+    texto: rawText,
     keyword: match?.keyword || null,
     pasos,
     contexto,

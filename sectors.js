@@ -56,6 +56,7 @@ function loadData() {
       groupNoRemarcar: parsed.groupNoRemarcar || {}, // legado, se migra una sola vez
       otrosInactivoPorDefectoMigrado: Boolean(parsed.otrosInactivoPorDefectoMigrado),
       groupNoRemarcarMigrado: Boolean(parsed.groupNoRemarcarMigrado),
+      migraciones: parsed.migraciones || {},
     };
   } catch (err) {
     return {
@@ -72,6 +73,7 @@ function loadData() {
       antiguedadMaximaMin: DEFAULT_ANTIGUEDAD_MAX_MIN,
       groupRemarcarOverride: {},
       groupNoRemarcar: {},
+      migraciones: {},
       otrosInactivoPorDefectoMigrado: false,
       groupNoRemarcarMigrado: false,
     };
@@ -365,7 +367,21 @@ migrarOtrosInactivoPorDefecto();
 migrarGroupNoRemarcarAOverride();
 migrarTimeWindowPorSector();
 
+// Cambios que se hacen UNA sola vez (ej. mover "Hola" a Otros): si después
+// se cambia a mano, no se vuelven a aplicar.
+function migracionHecha(nombre) {
+  return Boolean(data.migraciones?.[nombre]);
+}
+
+function marcarMigracion(nombre) {
+  if (!data.migraciones) data.migraciones = {};
+  data.migraciones[nombre] = new Date().toISOString();
+  save();
+}
+
 module.exports = {
+  migracionHecha,
+  marcarMigracion,
   SECTOR_DEFS,
   DEFAULT_SECTOR,
   getGroupSector,

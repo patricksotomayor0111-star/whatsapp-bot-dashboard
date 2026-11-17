@@ -12,7 +12,7 @@
 
 // Sectores que no son "Otros" (todo lo que no está acá cae en Otros por defecto)
 const sectorSeedByName = {
-  "Hola": "base",
+  "Hola": "otros", // solo de prueba (antes estaba en base)
   "REPORTES BOX DELIVERY": "base",
 
   "BRUCES BOX DELIVERY ": "ptb",

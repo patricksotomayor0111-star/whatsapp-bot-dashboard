@@ -107,6 +107,16 @@ let lastRenderedQr = null;
 let qrInstance = null;
 let groupsWithExceptions = new Set();
 let sectorsWithExceptions = new Set();
+// "Compra de cliente" / "Recojo de cliente" (REPORTES y Hola): cuántas
+// frases hay de cada una y cuántas están prendidas (ver pedidosCliente.js).
+let pedidosCliente = { compra: { total: 0, activas: 0 }, recojo: { total: 0, activas: 0 } };
+
+function tipoPedidoCliente(frase) {
+  const t = String(frase || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
+  if (/\bcompra de cliente\b/.test(t)) return "compra";
+  if (/\brecojo de cliente\b/.test(t)) return "recojo";
+  return null;
+}
 
 // Calcula qué grupos (y en qué sectores caen) tienen excepciones de número
 // configuradas, para poder mostrarles el candado 🔒 en la lista.
@@ -115,11 +125,20 @@ async function fetchExceptionsForLocks() {
     const res = await fetch("/api/exceptions");
     const data = await res.json();
     const nuevosGrupos = new Set();
+    const nuevosPedidos = { compra: { total: 0, activas: 0 }, recojo: { total: 0, activas: 0 } };
     Object.entries(data.exceptions || {}).forEach(([key, list]) => {
       if (!list || list.length === 0) return;
       const [groupId] = key.split("::");
       nuevosGrupos.add(groupId);
+      list.forEach((e) => {
+        const tipo = tipoPedidoCliente(e.phrase);
+        if (!tipo) return;
+        nuevosPedidos[tipo].total += 1;
+        if (e.active !== false) nuevosPedidos[tipo].activas += 1;
+      });
     });
+    const pedidosCambiaron = JSON.stringify(nuevosPedidos) !== JSON.stringify(pedidosCliente);
+    pedidosCliente = nuevosPedidos;
     const nuevosSectores = new Set(
       groupsData.filter((g) => nuevosGrupos.has(g.id)).map((g) => g.sectorId || "otros")
     );
@@ -135,7 +154,7 @@ async function fetchExceptionsForLocks() {
 
     groupsWithExceptions = nuevosGrupos;
     sectorsWithExceptions = nuevosSectores;
-    if (!sinCambios) renderSectors(searchInput.value);
+    if (!sinCambios || pedidosCambiaron) renderSectors(searchInput.value);
   } catch (err) {
     console.error("No se pudo obtener las excepciones para los candados:", err);
   }
@@ -229,6 +248,13 @@ function renderSectors(filtro = "") {
 
       groupsContainer.appendChild(groupNode);
     });
+
+    // En Sector Base: prender o apagar "Compra de cliente" y "Recojo de
+    // cliente" (las frases de REPORTES y de Hola) con un toque.
+    if (sector.id === "base" && !term) {
+      const fila = filaPedidosCliente();
+      if (fila) sectorNode.querySelector(".sector-card").insertBefore(fila, groupsContainer);
+    }
 
     // Todos los sectores empiezan desplegados, menos "Otros" (se abre solo si hay búsqueda).
     const shouldOpen = term ? true : sector.id !== "otros";
@@ -344,6 +370,65 @@ function updateSinRemarcarBadge(badge, activo) {
     badge.classList.add("off");
     badge.classList.remove("on");
   }
+}
+
+const PEDIDOS_CLIENTE = [
+  { tipo: "compra", texto: "🛒 Compra de cliente" },
+  { tipo: "recojo", texto: "📦 Recojo de cliente" },
+];
+
+function filaPedidosCliente() {
+  const visibles = PEDIDOS_CLIENTE.filter(({ tipo }) => pedidosCliente[tipo]?.total > 0);
+  if (!visibles.length) return null;
+  const caja = document.createElement("div");
+  caja.className = "mt-2 pt-2 border-t border-slate-100";
+  visibles.forEach(({ tipo, texto }) => {
+    const estado = pedidosCliente[tipo];
+    const fila = document.createElement("div");
+    fila.className = "flex items-center justify-between gap-2 py-1.5";
+    const nombre = document.createElement("p");
+    nombre.className = "text-[13px] font-semibold text-slate-700";
+    nombre.textContent = texto;
+    const badge = document.createElement("span");
+    const pintar = (e) => {
+      if (e.activas > 0 && e.activas < e.total) {
+        badge.textContent = "A medias";
+        badge.className = "group-active-badge badge-inactive shrink-0 cursor-pointer";
+        badge.title = `${e.activas} de ${e.total} prendidas. Toca para prender todas.`;
+      } else {
+        updateActiveBadge(badge, e.activas > 0);
+        badge.title = "";
+      }
+    };
+    pintar(estado);
+    badge.addEventListener("click", async (ev) => {
+      ev.stopPropagation();
+      const activo = !(estado.activas === estado.total && estado.total > 0);
+      try {
+        const res = await fetch("/api/pedidos-cliente", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tipo, activo }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          pedidosCliente = { compra: data.compra, recojo: data.recojo };
+          Object.assign(estado, data[tipo]);
+          pintar(estado);
+        }
+      } catch (err) {
+        console.error("No se pudo cambiar la frase:", err);
+      }
+    });
+    fila.appendChild(nombre);
+    fila.appendChild(badge);
+    caja.appendChild(fila);
+  });
+  const nota = document.createElement("p");
+  nota.className = "text-[11px] text-slate-400";
+  nota.textContent = "En REPORTES BOX DELIVERY y en Hola (prueba).";
+  caja.appendChild(nota);
+  return caja;
 }
 
 function updateActiveBadge(badge, activo) {
@@ -743,6 +828,14 @@ function renderHistory(entries) {
     card.appendChild(header);
     card.appendChild(buildHighlightedText(entry.text, entry.matchIndex, entry.matchLength));
 
+    // Marcado en modo alerta: con qué espera y qué señal lo puso en alerta.
+    if (entry.alerta) {
+      const alertaEl = document.createElement("p");
+      alertaEl.className = "text-[11px] text-amber-700 mt-1.5";
+      alertaEl.textContent = `⚡ En alerta (${entry.alerta}) · respondió en ${entry.delayMs} ms`;
+      card.appendChild(alertaEl);
+    }
+
     historyList.appendChild(card);
   });
 }
@@ -820,6 +913,102 @@ saveDelayBtn.addEventListener("click", async () => {
     renderDelayOptions();
   } catch (err) {
     console.error("No se pudo cambiar el delay:", err);
+  }
+});
+
+// ---------- Modo alerta (ver alertaPedidos.js) ----------
+const alertaActivo = document.getElementById("alertaActivo");
+const alertaEsperaInput = document.getElementById("alertaEsperaInput");
+const alertaMinutosInput = document.getElementById("alertaMinutosInput");
+const saveAlertaBtn = document.getElementById("saveAlertaBtn");
+const alertaStatus = document.getElementById("alertaStatus");
+const alertaActivasList = document.getElementById("alertaActivasList");
+const categoryTimingPanel = document.getElementById("categoryTiming");
+let alertaTimer = null;
+
+function textoQuedan(seg) {
+  const m = Math.floor(seg / 60);
+  const s = String(seg % 60).padStart(2, "0");
+  return `${m}:${s}`;
+}
+
+function renderAlerta(data) {
+  alertaActivo.checked = Boolean(data.activo);
+  alertaEsperaInput.value = data.esperaMs;
+  alertaMinutosInput.value = data.minutos;
+  alertaActivasList.innerHTML = "";
+  const activas = data.activas || [];
+  if (!activas.length) {
+    const p = document.createElement("p");
+    p.className = "text-xs text-slate-400";
+    p.textContent = data.activo ? "Ningún grupo ahora." : "El modo alerta está apagado.";
+    alertaActivasList.appendChild(p);
+    return;
+  }
+  activas.forEach((a) => {
+    const fila = document.createElement("div");
+    fila.className = "flex items-center justify-between gap-2 bg-amber-50 rounded-lg px-2.5 py-1.5 text-xs";
+    const nombre = document.createElement("span");
+    nombre.className = "font-semibold text-slate-700 truncate";
+    nombre.textContent = a.grupo;
+    const detalle = document.createElement("span");
+    detalle.className = "shrink-0 text-amber-700";
+    detalle.textContent = `${a.senal} · quedan ${textoQuedan(a.quedanSeg)}`;
+    fila.appendChild(nombre);
+    fila.appendChild(detalle);
+    alertaActivasList.appendChild(fila);
+  });
+}
+
+async function fetchAlerta() {
+  try {
+    const res = await fetch("/api/config/alerta");
+    renderAlerta(await res.json());
+  } catch (err) {
+    console.error("No se pudo obtener el modo alerta:", err);
+  }
+  // Mientras esté abierta esta pantalla, la lista de alertas se refresca sola.
+  clearInterval(alertaTimer);
+  alertaTimer = setInterval(async () => {
+    if (categoryTimingPanel.classList.contains("hidden")) {
+      clearInterval(alertaTimer);
+      return;
+    }
+    try {
+      const res = await fetch("/api/config/alerta");
+      const data = await res.json();
+      if (document.activeElement !== alertaEsperaInput && document.activeElement !== alertaMinutosInput) {
+        renderAlerta(data);
+      }
+    } catch {}
+  }, 5000);
+}
+
+saveAlertaBtn.addEventListener("click", async () => {
+  try {
+    const res = await fetch("/api/config/alerta", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        activo: alertaActivo.checked,
+        esperaMs: parseInt(alertaEsperaInput.value, 10),
+        minutos: parseInt(alertaMinutosInput.value, 10),
+      }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      renderAlerta(data);
+      alertaStatus.textContent = data.activo
+        ? `Guardado ✓ En alerta responde en ${data.esperaMs} ms, durante ${data.minutos} min.`
+        : "Guardado ✓ Modo alerta apagado.";
+      alertaStatus.className = "text-xs mt-2 text-brand-green";
+    } else {
+      alertaStatus.textContent = data.error || "No se pudo guardar";
+      alertaStatus.className = "text-xs mt-2 text-brand-red";
+    }
+  } catch (err) {
+    alertaStatus.textContent = "No se pudo guardar";
+    alertaStatus.className = "text-xs mt-2 text-brand-red";
   }
 });
 
@@ -1216,6 +1405,35 @@ function renderExcludedKeywords() {
       body: JSON.stringify({ phrase }),
     });
     await fetchKeywords();
+  });
+
+  // Las de fábrica que se apagaron desde "Probar una frase".
+  const apagadas = keywordsData.baseExcludedOff || [];
+  if (!apagadas.length) return;
+  const titulo = document.createElement("p");
+  titulo.className = "text-xs font-semibold text-slate-500 mt-3";
+  titulo.textContent = "De fábrica, desactivadas (ya no frenan):";
+  excludedKeywordList.appendChild(titulo);
+  apagadas.forEach((phrase) => {
+    const chip = document.createElement("div");
+    chip.className = "flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm bg-slate-100 text-slate-500";
+    const label = document.createElement("span");
+    label.className = "truncate line-through";
+    label.textContent = phrase;
+    const volver = document.createElement("button");
+    volver.className = "shrink-0 text-xs font-semibold text-brand-red";
+    volver.textContent = "Volver a excluir";
+    volver.addEventListener("click", async () => {
+      await fetch("/api/keywords/excluded/reactivar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phrase }),
+      });
+      await fetchKeywords();
+    });
+    chip.appendChild(label);
+    chip.appendChild(volver);
+    excludedKeywordList.appendChild(chip);
   });
 }
 
@@ -2575,26 +2793,82 @@ function poblarProbarGrupos() {
 
 function renderProbarResultado(data, groupId, frase) {
   probarResultado.innerHTML = "";
+  const responde = data.responde ?? data.detecta;
   probarResultado.className = `mt-2 rounded-xl border p-3 text-xs ${
-    data.detecta ? "bg-green-50 border-green-200" : "bg-rose-50 border-rose-200"
+    responde ? "bg-green-50 border-green-200" : "bg-rose-50 border-rose-200"
   }`;
 
   const titulo = document.createElement("p");
-  titulo.className = `font-bold ${data.detecta ? "text-green-800" : "text-rose-800"}`;
-  titulo.textContent = data.detecta
-    ? `✅ Sí respondería "${data.respuesta}"`
-    : "❌ No respondería";
+  titulo.className = `font-bold ${responde ? "text-green-800" : "text-rose-800"}`;
+  titulo.textContent = responde ? `✅ Sí respondería "${data.respuesta}"` : "❌ No respondería";
   probarResultado.appendChild(titulo);
 
   const sub = document.createElement("p");
   sub.className = "mt-1 text-slate-600";
-  if (data.detecta) {
+  if (responde) {
     sub.textContent =
       `Detectó: "${data.keyword}"` + (data.sinRemarcar ? " · responde sin citar" : " · citando el mensaje");
+  } else if (data.motivo) {
+    // Por qué no, bien a la vista (antes quedaba entre las líneas grises).
+    sub.className = "mt-1.5 text-sm text-rose-900";
+    const b = document.createElement("b");
+    b.textContent = "Por qué: ";
+    sub.appendChild(b);
+    sub.appendChild(document.createTextNode(data.motivo.texto));
   } else {
     sub.textContent = data.contexto || "Ninguna palabra clave coincide con esa frase.";
   }
   probarResultado.appendChild(sub);
+
+  // La frase con la palabra culpable en rojo (y la palabra clave en verde).
+  const marcadas = [
+    ...(data.motivo?.palabras || []).map((p) => ({ ...p, clase: "bg-rose-200 text-rose-900 font-bold rounded px-0.5" })),
+    ...(data.motivo?.clave ? [{ ...data.motivo.clave, clase: "bg-green-200 text-green-900 font-bold rounded px-0.5" }] : []),
+  ];
+  if (!responde && data.texto && marcadas.length) {
+    probarResultado.appendChild(fraseMarcada(data.texto, marcadas));
+  }
+
+  // Botón para quitar cada palabra excluida que frena la frase. Vale para
+  // todos los grupos, así que se pregunta antes.
+  if (!responde && data.motivo?.tipo === "excluida") {
+    data.motivo.palabras.forEach((p) => {
+      const quitar = document.createElement("button");
+      quitar.className =
+        "w-full mt-2 rounded-xl px-3 py-2 text-xs font-semibold bg-brand-red text-white active:scale-95 transition-all";
+      quitar.textContent = `Quitar "${p.keyword}" de palabras excluidas (todos los grupos)`;
+      quitar.addEventListener("click", async () => {
+        const ok = confirm(
+          `Esto vale para TODOS los grupos: los mensajes con "${p.keyword}" ya no se van a frenar.\n\n¿Quitar "${p.keyword}" de las palabras excluidas?`
+        );
+        if (!ok) return;
+        quitar.disabled = true;
+        try {
+          const res = await fetch("/api/keywords/excluded/quitar", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ phrase: p.keyword }),
+          });
+          const r = await res.json();
+          if (res.ok) {
+            quitar.textContent =
+              r.origen === "fabrica"
+                ? `"${p.keyword}" desactivada ✓ — vuelve a probar (se reactiva en Keywords excluidas)`
+                : `"${p.keyword}" quitada ✓ — vuelve a probar`;
+            quitar.className = "w-full mt-2 rounded-xl px-3 py-2 text-xs font-semibold bg-brand-green text-white";
+            fetchKeywords();
+          } else {
+            quitar.textContent = r.error || "No se pudo quitar";
+            quitar.disabled = false;
+          }
+        } catch (err) {
+          quitar.textContent = "No se pudo quitar";
+          quitar.disabled = false;
+        }
+      });
+      probarResultado.appendChild(quitar);
+    });
+  }
 
   if (data.pasos?.length) {
     const lista = document.createElement("div");
@@ -2618,12 +2892,14 @@ function renderProbarResultado(data, groupId, frase) {
     probarResultado.appendChild(av);
   }
 
-  // El arreglo queda a un clic, pero lo decide el usuario.
+  // El arreglo queda a un clic, pero lo decide el usuario. Con una palabra
+  // excluida, agregarla como frase especial del grupo la deja pasar SOLO ahí.
   if (!data.detecta && !data.contexto) {
     const agregar = document.createElement("button");
     agregar.className =
       "w-full mt-2 rounded-xl px-3 py-2 text-xs font-semibold bg-brand-orange text-white active:scale-95 transition-all";
-    agregar.textContent = "Agregar esta frase a este grupo";
+    agregar.textContent =
+      data.motivo?.tipo === "excluida" ? "Permitir esta frase solo en este grupo" : "Agregar esta frase a este grupo";
     agregar.addEventListener("click", async () => {
       agregar.disabled = true;
       try {
@@ -2652,6 +2928,25 @@ function renderProbarResultado(data, groupId, frase) {
   agregarPreguntaAlFiltro(data, groupId, frase);
 
   probarResultado.classList.remove("hidden");
+}
+
+// La frase con partes marcadas (sin innerHTML: el texto viene del usuario).
+function fraseMarcada(texto, marcas) {
+  const p = document.createElement("p");
+  p.className = "mt-2 rounded-lg bg-white border border-slate-200 px-2.5 py-2 text-sm text-slate-700 break-words";
+  const orden = [...marcas].sort((a, b) => a.index - b.index);
+  let pos = 0;
+  orden.forEach((m) => {
+    if (m.index < pos) return; // se pisa con otra: queda la primera
+    if (m.index > pos) p.appendChild(document.createTextNode(texto.slice(pos, m.index)));
+    const span = document.createElement("span");
+    span.className = m.clase;
+    span.textContent = texto.slice(m.index, m.index + m.length);
+    p.appendChild(span);
+    pos = m.index + m.length;
+  });
+  if (pos < texto.length) p.appendChild(document.createTextNode(texto.slice(pos)));
+  return p;
 }
 
 // ---------- Preguntar al filtro 🧠 ----------
@@ -3276,6 +3571,7 @@ const categoryLoaders = {
   },
   categoryTiming: () => {
     fetchDelay();
+    fetchAlerta();
     fetchTimeWindow();
     renderGroupDelayValueOptions();
     fetchGroupTimeWindows();

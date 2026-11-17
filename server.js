@@ -11,6 +11,8 @@ const pushSubscriptions = require("./pushSubscriptions");
 const mediaTriggers = require("./mediaTriggers");
 const pendingTimeMatches = require("./pendingTimeMatches");
 const groupDelays = require("./groupDelays");
+const alertaPedidos = require("./alertaPedidos");
+const pedidosCliente = require("./pedidosCliente");
 const groupTimeWindows = require("./groupTimeWindows");
 const scheduledBroadcasts = require("./scheduledBroadcasts");
 const aiClassifier = require("./aiClassifier");
@@ -310,6 +312,35 @@ app.post("/api/config/delay", (req, res) => {
   }
 });
 
+// Compra de cliente / Recojo de cliente (ver pedidosCliente.js): prender o
+// apagar cada frase en todos los grupos donde está (REPORTES y Hola).
+app.get("/api/pedidos-cliente", (req, res) => {
+  res.json(pedidosCliente.estado());
+});
+
+app.post("/api/pedidos-cliente", (req, res) => {
+  try {
+    res.json({ ok: true, ...pedidosCliente.setActivo(req.body?.tipo, req.body?.activo) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Modo alerta (ver alertaPedidos.js): la configuración y los grupos que están
+// en alerta en este momento.
+app.get("/api/config/alerta", (req, res) => {
+  res.json({ ...alertaPedidos.getConfig(), activas: alertaPedidos.activas() });
+});
+
+app.post("/api/config/alerta", (req, res) => {
+  try {
+    const config = alertaPedidos.setConfig(req.body || {});
+    res.json({ ok: true, ...config, activas: alertaPedidos.activas() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // Prueba qué haría el bot con una frase, sin mandar nada a WhatsApp: sirve
 // para ver por qué no detectó un pedido y decidir si hace falta agregarle
 // una frase especial a ese grupo. Solo diagnostica, no cambia nada.
@@ -556,6 +587,7 @@ app.get("/api/keywords", (req, res) => {
   res.json({
     positive: dynamicKeywords.getExtraPositive(),
     excluded: dynamicKeywords.getExtraExcluded(),
+    baseExcludedOff: dynamicKeywords.getBaseExcludedOff(),
     specialByGroup: dynamicKeywords.getAllSpecial(),
   });
 });
@@ -586,6 +618,35 @@ app.post("/api/keywords/excluded", (req, res) => {
 app.post("/api/keywords/excluded/remove", (req, res) => {
   dynamicKeywords.removeExtraExcluded(req.body.phrase);
   res.json({ ok: true, excluded: dynamicKeywords.getExtraExcluded() });
+});
+
+// Quitar una palabra excluida desde "Probar una frase": si la agregaste tú
+// se borra; si es de fábrica (keywords.js) se apaga, y se puede volver a
+// prender. Vale para todos los grupos.
+app.post("/api/keywords/excluded/quitar", (req, res) => {
+  const phrase = String(req.body?.phrase || "").trim();
+  if (!phrase) return res.status(400).json({ error: "Falta la palabra." });
+  const sinTildes = (t) => String(t).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  const enPanel = dynamicKeywords.getExtraExcluded().includes(phrase.toLowerCase());
+  const enFabrica = require("./keywords").excludedKeywords.some((k) => sinTildes(k) === sinTildes(phrase));
+  if (!enPanel && !enFabrica) return res.status(404).json({ error: `"${phrase}" no está en las palabras excluidas.` });
+  if (enPanel) dynamicKeywords.removeExtraExcluded(phrase);
+  if (enFabrica) dynamicKeywords.setBaseExcludedOff(phrase, true);
+  res.json({
+    ok: true,
+    origen: enFabrica ? "fabrica" : "panel",
+    excluded: dynamicKeywords.getExtraExcluded(),
+    baseExcludedOff: dynamicKeywords.getBaseExcludedOff(),
+  });
+});
+
+app.post("/api/keywords/excluded/reactivar", (req, res) => {
+  try {
+    dynamicKeywords.setBaseExcludedOff(req.body?.phrase, false);
+    res.json({ ok: true, baseExcludedOff: dynamicKeywords.getBaseExcludedOff() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 // Keywords especiales de un grupo: si ese grupo recibe un mensaje con esta

@@ -1,6 +1,7 @@
 const fs = require("fs");
 const crypto = require("crypto");
-const { dataPath, migrarADueño, migrarSesionADueño } = require("./dataDir");
+const path = require("path");
+const { DATA_DIR, dataPath, migrarADueño, migrarSesionADueño } = require("./dataDir");
 
 const DATA_PATH = dataPath("users-data.json");
 
@@ -97,13 +98,12 @@ function slugify(texto) {
     .replace(/^_+|_+$/g, "");
 }
 
-// Rol de una cuenta:
-//   "completo"    -> cuenta normal: su propia caja, metas, deudas, etc.
-//   "motorizados" -> socio que SOLO ve el panel de motorizados (ni ve ni
-//                    puede entrar a las finanzas de nadie).
-// El dueño es siempre "dueno" (ve todo).
-function normalizarRol(rol) {
-  return rol === "motorizados" ? "motorizados" : "completo";
+// Rol de una cuenta: "completo" (su propia caja, metas, deudas, etc.). El
+// dueño es siempre "dueno" (ve todo). Hasta el 17/11/2026 existía también
+// "motorizados" (socios que solo veían el mapa de motorizados): ese módulo
+// se quitó, y esas cuentas se borran al arrancar (quitarCuentasDeMotorizados).
+function normalizarRol() {
+  return "completo";
 }
 
 function addUsuario({ usuario, nombre, password, rol }) {
@@ -135,15 +135,6 @@ function rolDe(id) {
   return u ? normalizarRol(u.rol) : "completo";
 }
 
-function setRol(id, rol) {
-  if (id === DUENO_ID) throw new Error("No se puede cambiar el rol del dueño.");
-  const u = getById(id);
-  if (!u) return null;
-  u.rol = normalizarRol(rol);
-  save();
-  return u.rol;
-}
-
 function cambiarPassword(id, password) {
   const u = getById(id);
   if (!u) return null;
@@ -171,6 +162,21 @@ function removeUsuario(id) {
   if (data.usuarios.length !== antes) save();
   // La carpeta de datos NO se borra a propósito: si se elimina una cuenta
   // por error, su información sigue ahí para poder recuperarla.
+}
+
+// Se quitó el módulo de motorizados (17/11/2026): las cuentas de socios
+// "solo motorizados" se borran con su carpeta (no tenían finanzas propias).
+// Devuelve los ids borrados; si ya no queda ninguna, no hace nada.
+function quitarCuentasDeMotorizados() {
+  const socios = data.usuarios.filter((u) => u.id !== DUENO_ID && u.rol === "motorizados");
+  if (!socios.length) return [];
+  data.usuarios = data.usuarios.filter((u) => !socios.includes(u));
+  save();
+  for (const u of socios) {
+    if (!/^[a-zA-Z0-9_-]+$/.test(u.id)) continue; // nunca salir de la carpeta de cuentas
+    fs.rmSync(path.join(DATA_DIR, "users", u.id), { recursive: true, force: true });
+  }
+  return socios.map((u) => u.id);
 }
 
 // Primera vez que arranca con multiusuario: crea la cuenta del dueño con
@@ -223,5 +229,5 @@ module.exports = {
   removeUsuario,
   passwordCorrecta,
   rolDe,
-  setRol,
+  quitarCuentasDeMotorizados,
 };
