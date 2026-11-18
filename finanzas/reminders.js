@@ -107,10 +107,35 @@ function alinearCicloPagado(r) {
   return false;
 }
 
+// El día en que se creó el pago. Uno que se repite arranca "al día": las
+// cuotas que cayeron ANTES de crearlo no se deben. Antes, un pago "cada mes
+// el 24" creado el 18/11 salía pendiente del 24/10 (el mes pasado), aunque
+// al crearlo decía "el próximo cae el 24/11 (en 6 días)".
+// Los nuevos lo guardan en "desde"; los que ya estaban lo sacan de su id
+// ("custom_" + la hora en que se creó). Los de la semilla no tienen fecha:
+// siguen como siempre.
+function inicioDe(r) {
+  if (r.desde) return r.desde;
+  const m = /^custom_(\d{12,})$/.exec(String(r.id || ""));
+  if (!m) return null;
+  const creado = new Date(Number(m[1]));
+  const enPeru = new Date(creado.getTime() + creado.getTimezoneOffset() * 60000 - 5 * 3600000);
+  return businessDay.businessDayLabelFor(enPeru);
+}
+
 // La fecha de vencimiento del ciclo cuyo aviso YA se abrió (1 día antes),
 // es decir el mayor vencimiento <= hoy+1. Devuelve etiqueta o null si aún no
-// hay ninguna ventana abierta (caso de pagos únicos futuros).
+// hay ninguna ventana abierta (caso de pagos únicos futuros, o de uno que se
+// repite y se creó después de esa fecha: ver inicioDe).
 function ultimaVentanaAbierta(r, hoyLabel) {
+  const due = ventanaDelCalendario(r, hoyLabel);
+  // Un pago único tiene su fecha escrita a mano: si ya pasó, se debe.
+  if (!due || r.tipo === "unica") return due;
+  const inicio = inicioDe(r);
+  return inicio && due < inicio ? null : due;
+}
+
+function ventanaDelCalendario(r, hoyLabel) {
   const limite = addDays(hoyLabel, 1); // hoy + 1: la ventana abre 1 día antes
 
   if (r.tipo === "semanal") {
@@ -685,6 +710,8 @@ function addReminder({ label, monto, tipo, dia, fecha, fechaFin }) {
     tipo,
     activo: true,
     lastPaidCycle: null,
+    // Desde cuándo corre: lo de antes no se debe (ver inicioDe).
+    desde: fechaLabelPeru(),
   };
   if (tipo === "semanal" || tipo === "mensual_dia") nuevo.dia = Number(dia);
   if (tipo === "unica") nuevo.fecha = fecha;
