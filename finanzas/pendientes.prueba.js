@@ -52,7 +52,9 @@ correrComo("prueba", () => {
   // Y tampoco se proyecta.
   const proyectados = reminders.getPagosMesRestante();
   ok(!proyectados.some((p) => p.id === terminado), "un pago terminado no se proyecta");
-  ok(proyectados.some((p) => p.id === sinFin) || buscar(sinFin).proxima > masDias(HOY, 30), "el que sigue corriendo sí");
+  const [anio, mes] = HOY.split("-").map(Number);
+  const finDeMes = `${HOY.slice(0, 8)}${String(new Date(Date.UTC(anio, mes, 0)).getUTCDate()).padStart(2, "0")}`;
+  ok(proyectados.some((p) => p.id === sinFin) || buscar(sinFin).proxima > finDeMes, "el que sigue corriendo sí");
 
   // ---------- Editar: todo se puede cambiar ----------
   reminders.editReminder(sinFin, { label: "Luz del taller", monto: 95 });
@@ -84,6 +86,63 @@ correrComo("prueba", () => {
   }
   ok(exploto, "no acepta un tipo inventado");
   ok(reminders.editReminder("no_existe", { monto: 1 }) === null, "editar uno que no existe no rompe nada");
+
+  // ---------- Un pago nuevo arranca al día ----------
+  // El caso real: "Mi banco Patrick", cada mes el 24, creado el 18/11. Al
+  // crearlo decía "el próximo cae el 24/11 (en 6 días)", pero después salía
+  // "Pendiente · vence 24/10": el mes pasado, cuando todavía no existía.
+  const DIA_MS = 86400000;
+  const diaDelMes = Number(HOY.split("-")[2]);
+  const proximoMes = (dia) => {
+    const [y, mo] = HOY.split("-").map(Number);
+    const ny = mo === 12 ? y + 1 : y;
+    const nmo = mo === 12 ? 1 : mo + 1;
+    return `${ny}-${String(nmo).padStart(2, "0")}-${String(dia).padStart(2, "0")}`;
+  };
+  if (diaDelMes >= 3 && diaDelMes <= 28) {
+    const yaPaso = diaDelMes - 2; // ya pasó este mes (y el aviso de 1 día antes también)
+    const banco = reminders.addReminder({ label: "Mi banco Patrick", monto: 574, tipo: "mensual_dia", dia: yaPaso });
+    ok(reminders.getById(banco).desde === HOY, "guarda desde cuándo corre");
+    ok(buscar(banco).pendiente === false, "un pago mensual nuevo no debe la cuota de antes de crearlo");
+    ok(buscar(banco).proxima === proximoMes(yaPaso), "su próximo pago es el del mes que viene");
+    ok(buscar(banco).siguientes[0] === proximoMes(yaPaso), "y es lo primero por pagar");
+    ok(!reminders.getPendientes().some((p) => p.id === banco), "no sale en la lista de pendientes");
+    ok(!reminders.getPagosEnRango(1).some((p) => p.id === banco), "ni se suma a la meta como vencido");
+  }
+  const hoySemana = new Date(HOY + "T00:00:00Z").getUTCDay();
+  const semanalAyer = reminders.addReminder({ label: "Cuota semanal", monto: 30, tipo: "semanal", dia: (hoySemana + 6) % 7 });
+  ok(buscar(semanalAyer).pendiente === false, "uno semanal nuevo no debe el de ayer");
+  ok(buscar(semanalAyer).proxima === masDias(HOY, 6), "su próximo es el de la otra semana");
+
+  // El que vence hoy sí se debe: se creó a tiempo.
+  const deHoy = reminders.addReminder({ label: "Vence hoy", monto: 20, tipo: "semanal", dia: hoySemana });
+  ok(buscar(deHoy).pendiente === true && buscar(deHoy).vence === HOY, "si vence el mismo día que se crea, sí está pendiente");
+
+  // Uno de una sola vez con fecha pasada sí se debe: la fecha la puso él.
+  const unicaPasada = reminders.addReminder({ label: "Deuda vieja", monto: 40, tipo: "unica", fecha: masDias(HOY, -5) });
+  ok(buscar(unicaPasada).pendiente === true, "una vez, con fecha pasada: sigue pendiente");
+
+  // Los que ya estaban (sin "desde"): se mira la hora de creación de su id.
+  const viejo = reminders.addReminder({ label: "Creado hace 2 meses", monto: 10, tipo: "semanal", dia: (hoySemana + 6) % 7 });
+  const rViejo = reminders.getById(viejo);
+  delete rViejo.desde;
+  rViejo.id = "custom_" + (Date.now() - 60 * DIA_MS);
+  ok(buscar(rViejo.id).pendiente === true && buscar(rViejo.id).vence === masDias(HOY, -1), "uno creado hace tiempo y sin pagar sigue pendiente");
+  const reciente = reminders.addReminder({ label: "Creado recién, sin desde", monto: 10, tipo: "semanal", dia: (hoySemana + 6) % 7 });
+  const rReciente = reminders.getById(reciente);
+  delete rReciente.desde;
+  rReciente.id = "custom_" + (Date.now() + 1);
+  ok(buscar(rReciente.id).pendiente === false, "uno ya guardado y creado hoy (sin desde) también arranca al día");
+  const semilla = reminders.addReminder({ label: "Luz semilla", monto: 80, tipo: "semanal", dia: (hoySemana + 6) % 7 });
+  const rSemilla = reminders.getById(semilla);
+  delete rSemilla.desde;
+  rSemilla.id = "luz_semilla";
+  ok(buscar("luz_semilla").pendiente === true, "los de la semilla (sin fecha) siguen como siempre");
+
+  // Y por WhatsApp ("menos 30 cuota semanal") se marca el que viene, no uno de antes.
+  const enCinco = reminders.addReminder({ label: "Cuota Natura", monto: 90, tipo: "semanal", dia: (hoySemana + 5) % 7 });
+  const marcable = reminders.buscarPendientePorGasto("cuota natura", 90);
+  ok(marcable && marcable.reminder.id === enCinco && marcable.vence === masDias(HOY, 5), "pagado por el grupo, cuenta la cuota que viene");
 
   // ---------- Marcar pagado sigue andando con un final puesto ----------
   const conFinal = reminders.addReminder({
@@ -119,6 +178,7 @@ correrComo("prueba", () => {
   const diaHoy = Number(HOY.split("-")[2]);
   if (diaHoy >= 2 && diaHoy <= 26) {
     const caja = reminders.addReminder({ label: "Caja ica", monto: 214, tipo: "mensual_dia", dia: 1 });
+    reminders.getById(caja).desde = masDias(HOY, -40); // uno que ya venía de antes
     reminders.marcarPagado(caja, { monto: 214, origen: "panel" });
     ok(buscar(caja).pendiente === false, "pagado el ciclo del día 1");
     reminders.editReminder(caja, { dia: diaHoy }); // el día pasa a hoy: el ciclo de este mes ya estaba pagado
@@ -131,9 +191,8 @@ correrComo("prueba", () => {
   const diaJunta = (dowHoy + 2) % 7; // vence pasado mañana
   const proxima = masDias(HOY, 2);
   const junta = reminders.addReminder({ label: "Junta", monto: 100, tipo: "semanal", dia: diaJunta });
-  // Recién creado, cuenta como pendiente la de la semana pasada: se la da
-  // por pagada (sin historial) para arrancar "al día".
-  reminders.marcarPagado(junta);
+  // Recién creado arranca al día: la de la semana pasada no se debe.
+  ok(buscar(junta).pendiente === false, "recién creada, la Junta no debe la semana pasada");
   ok(buscar(junta).siguientes[0] === proxima, "la primera cuota por pagar es la que viene");
 
   const tres = reminders.adelantarPagos(junta, 3, { monto: 300, origen: "panel" });
@@ -183,13 +242,11 @@ correrComo("prueba", () => {
 
   // Nunca más allá del final del pago.
   const corta = reminders.addReminder({ label: "Cuota corta", monto: 50, tipo: "semanal", dia: diaJunta, fechaFin: masDias(proxima, 7) });
-  reminders.marcarPagado(corta);
   ok(buscar(corta).siguientes.length === 2, "no deja adelantar cuotas después del final");
 
   // Si el pendiente paga un préstamo, el saldo baja, y deshacer lo devuelve.
   const prestamos = require("./prestamos");
   const cuotaCaja = reminders.addReminder({ label: "Caja Huancayo", monto: 100, tipo: "semanal", dia: diaJunta });
-  reminders.marcarPagado(cuotaCaja);
   const prestamo = prestamos.addPrestamo({ label: "Caja Huancayo", recibido: 500, aDevolver: 600, recordatorioId: cuotaCaja });
   reminders.adelantarPagos(cuotaCaja, 2, { monto: 200 });
   ok(prestamos.getById(prestamo.id).saldo === 400, "adelantar 2 cuotas baja el préstamo en S/ 200");
