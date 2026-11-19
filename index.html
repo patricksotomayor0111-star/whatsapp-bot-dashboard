@@ -86,6 +86,7 @@
         <a href="#" id="openCategoryMedia" class="drawer-link"><i class="fa-solid fa-microphone w-5 text-brand-green"></i> Pedidos sin texto</a>
         <a href="#" id="openCategoryGroups" class="drawer-link"><i class="fa-solid fa-map-location-dot w-5 text-brand-green"></i> Grupos y sectores</a>
         <a href="#" id="openCategoryTiming" class="drawer-link"><i class="fa-solid fa-clock w-5 text-brand-green"></i> Tiempos de respuesta</a>
+        <a href="#" id="openCategoryVoz" class="drawer-link"><i class="fa-solid fa-volume-high w-5 text-brand-green"></i> Leer en voz alta</a>
         <a href="#" id="openCategoryGeneral" class="drawer-link"><i class="fa-solid fa-bell w-5 text-brand-green"></i> Notificaciones y respaldo</a>
         <a href="#" id="openCategoryBroadcasts" class="drawer-link"><i class="fa-solid fa-bullhorn w-5 text-brand-green"></i> Mensajes programados</a>
         <a href="#" id="logoutBtn" class="drawer-link text-brand-red"><i class="fa-solid fa-right-from-bracket w-5 text-brand-red"></i> Cerrar sesión</a>
@@ -706,6 +707,79 @@
               <button id="cancelBroadcastEditBtn" class="hidden shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold bg-slate-100 text-slate-600 active:scale-95 transition-all">Cancelar</button>
             </div>
           </div>
+        </section>
+
+      </div>
+    </div>
+
+    <!-- Categoría: 🔊 Leer en voz alta (ver vozPedidos.js) -->
+    <div id="categoryVoz" class="fixed inset-0 bg-brand-bg z-50 hidden flex-col">
+      <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-white">
+        <span class="font-bold text-slate-900">🔊 Leer en voz alta</span>
+        <button class="category-close-btn w-9 h-9 rounded-xl flex items-center justify-center hover:bg-slate-100 active:scale-90 transition-all">
+          <i class="fa-solid fa-xmark text-lg text-slate-500"></i>
+        </button>
+      </div>
+      <div class="flex-1 overflow-y-auto px-5 py-5 space-y-6">
+
+        <section>
+          <p class="text-xs text-slate-500">
+            Tu celular dice en voz alta lo que escriben en los grupos de <b>todos los sectores menos "Otros"</b>, aunque esté con la pantalla apagada, cargando y en "No molestar" (suena con el volumen de la alarma).
+          </p>
+          <ul class="text-xs text-slate-500 mt-2 space-y-1 list-disc pl-4">
+            <li>Del <b>restaurante</b> (todo número que no está en "Números ignorados"): lee todo. Si manda una ubicación, un audio o una foto, te avisa que la mandó.</li>
+            <li>De los <b>números ignorados</b>: solo un mensaje corto con una <b>palabra especial</b>, cite el mensaje o no. Ej: "Artia: Juan dijo voy".</li>
+          </ul>
+          <p class="text-xs text-slate-500 mt-2">Se prende y se apaga <b>en la app del celular</b>, aparte del bot: con el bot apagado igual lee.</p>
+        </section>
+
+        <section>
+          <p class="eyebrow text-slate-600"><i class="fa-solid fa-mobile-screen"></i> TU CELULAR</p>
+          <div id="vozConectados" class="mt-2 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 text-slate-500">Cargando…</div>
+          <div class="grid grid-cols-1 gap-2 mt-2">
+            <a href="/voz/app.apk" class="block text-center rounded-xl px-4 py-2.5 text-sm font-semibold bg-slate-800 text-white active:scale-95 transition-all"><i class="fa-solid fa-download"></i> 1. Descargar la app</a>
+            <a id="vozVincularBtn" href="#" class="block text-center rounded-xl px-4 py-2.5 text-sm font-semibold bg-brand-green text-white active:scale-95 transition-all"><i class="fa-solid fa-link"></i> 2. Vincular la app (desde este celular)</a>
+            <button id="vozProbarBtn" class="rounded-xl px-4 py-2.5 text-sm font-semibold bg-blue-500 text-white active:scale-95 transition-all"><i class="fa-solid fa-volume-high"></i> Mandar una prueba</button>
+          </div>
+          <p id="vozStatus" class="text-xs mt-2"></p>
+          <details class="mt-2 text-xs text-slate-500">
+            <summary class="cursor-pointer select-none">Vincular a mano (si el botón 2 no abre la app)</summary>
+            <p class="mt-2">En la app, toca "Vincular a mano" y pega estos dos datos:</p>
+            <p class="mt-2 font-semibold text-slate-600">Dirección</p>
+            <div class="flex gap-2 mt-1">
+              <input id="vozUrlInput" readonly class="flex-1 min-w-0 bg-slate-50 rounded-lg px-2 py-1.5 border border-slate-200" />
+              <button data-copiar="vozUrlInput" class="voz-copiar shrink-0 rounded-lg px-3 py-1.5 font-semibold bg-slate-100 text-slate-600">Copiar</button>
+            </div>
+            <p class="mt-2 font-semibold text-slate-600">Llave</p>
+            <div class="flex gap-2 mt-1">
+              <input id="vozLlaveInput" readonly class="flex-1 min-w-0 bg-slate-50 rounded-lg px-2 py-1.5 border border-slate-200" />
+              <button data-copiar="vozLlaveInput" class="voz-copiar shrink-0 rounded-lg px-3 py-1.5 font-semibold bg-slate-100 text-slate-600">Copiar</button>
+            </div>
+            <button id="vozLlaveNuevaBtn" class="mt-3 rounded-lg px-3 py-1.5 font-semibold bg-rose-50 text-brand-red">Cambiar la llave (desconecta los celulares vinculados)</button>
+          </details>
+        </section>
+
+        <section>
+          <p class="eyebrow text-slate-600"><i class="fa-solid fa-comment-dots"></i> PALABRAS ESPECIALES</p>
+          <p class="text-xs text-slate-400 mt-1 mb-2">Lo que se lee cuando lo escribe un número ignorado. Tiene que ser un mensaje corto (hasta 5 palabras): "voy", "yo voy", "voy 🏍️". "No voy a poder" no se lee.</p>
+          <div id="vozPalabrasList" class="flex flex-wrap gap-2"></div>
+          <div class="flex gap-2 mt-2">
+            <input id="vozPalabraInput" type="text" maxlength="40" placeholder="Ej: ya fui"
+              class="flex-1 min-w-0 bg-white rounded-xl px-3 py-2.5 text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-green/40" />
+            <button id="vozAgregarBtn" class="shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold bg-brand-green text-white active:scale-95 transition-all">Agregar</button>
+          </div>
+          <p id="vozPalabrasStatus" class="text-xs mt-2"></p>
+        </section>
+
+        <section>
+          <p class="eyebrow text-slate-600"><i class="fa-solid fa-clock-rotate-left"></i> LO ÚLTIMO QUE SE LEYÓ</p>
+          <div id="vozUltimosList" class="space-y-1 mt-2"></div>
+        </section>
+
+        <section>
+          <p class="eyebrow text-slate-600"><i class="fa-solid fa-users"></i> GRUPOS QUE SE LEEN <span id="vozGruposCount" class="text-slate-400"></span></p>
+          <p class="text-xs text-slate-400 mt-1 mb-2">Para que un grupo se lea o deje de leerse, cámbialo de sector en "Grupos y sectores".</p>
+          <div id="vozGruposList" class="space-y-1"></div>
         </section>
 
       </div>
