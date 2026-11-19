@@ -91,6 +91,7 @@ correrComo("prueba", () => {
   const antes = metas.calcular("");
   const ayerDow = businessDay.ymdToUtc(ayer).getUTCDay();
   const junta = reminders.addReminder({ label: "Junta", monto: 100, tipo: "semanal", dia: ayerDow });
+  reminders.getById(junta).desde = businessDay.addDays(HOY, -30); // ya venía de antes
   r = metas.calcular("");
   const atrasada = r.detalle.atrasados.items.find((p) => p.id === junta);
   ok(atrasada && atrasada.fecha === ayer, "la Junta de ayer, sin pagar, sale como atrasada");

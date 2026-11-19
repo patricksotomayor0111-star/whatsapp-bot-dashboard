@@ -475,7 +475,6 @@ const cuentasList = document.getElementById("cuentasList");
 const cuentaNuevoNombre = document.getElementById("cuentaNuevoNombre");
 const cuentaNuevoUsuario = document.getElementById("cuentaNuevoUsuario");
 const cuentaNuevoPassword = document.getElementById("cuentaNuevoPassword");
-const cuentaNuevoRol = document.getElementById("cuentaNuevoRol");
 const addCuentaBtn = document.getElementById("addCuentaBtn");
 const sesionActual = document.getElementById("sesionActual");
 const salirPanelBtn = document.getElementById("salirPanelBtn");
@@ -518,8 +517,7 @@ async function renderCuentas() {
     nombre.textContent = u.nombre + (u.esDueno ? " 👑" : "");
     const detalle = document.createElement("p");
     detalle.className = "text-xs text-slate-400 mt-0.5";
-    const rolTxt = u.esDueno ? "" : u.rol === "motorizados" ? " · 🛵 solo motorizados" : " · 💰 cuenta completa";
-    detalle.textContent = `entra como "${u.usuario}"${rolTxt}${u.activo ? "" : " · desactivada"}`;
+    detalle.textContent = `entra como "${u.usuario}"${u.activo ? "" : " · desactivada"}`;
     info.appendChild(nombre);
     info.appendChild(detalle);
     top.appendChild(info);
@@ -547,26 +545,6 @@ async function renderCuentas() {
     acciones.appendChild(btnClave);
 
     if (!u.esDueno) {
-      const btnRol = document.createElement("button");
-      btnRol.className = "w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 active:scale-90 transition-all";
-      btnRol.title = u.rol === "motorizados" ? "Cambiar a cuenta completa" : "Cambiar a solo motorizados";
-      btnRol.innerHTML = u.rol === "motorizados" ? '<i class="fa-solid fa-motorcycle"></i>' : '<i class="fa-solid fa-wallet"></i>';
-      btnRol.addEventListener("click", async () => {
-        const nuevoRol = u.rol === "motorizados" ? "completo" : "motorizados";
-        const msg =
-          nuevoRol === "motorizados"
-            ? `¿Cambiar a ${u.nombre} a "solo motorizados"? Dejará de ver finanzas y solo verá los motorizados.`
-            : `¿Cambiar a ${u.nombre} a "cuenta completa"? Tendrá su propio panel de finanzas.`;
-        if (!confirm(msg)) return;
-        await fetch(`/api/usuarios/${encodeURIComponent(u.id)}/rol`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ rol: nuevoRol }),
-        });
-        renderCuentas();
-      });
-      acciones.appendChild(btnRol);
-
       const btnActivo = document.createElement("button");
       btnActivo.className = "w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 active:scale-90 transition-all";
       btnActivo.title = u.activo ? "Desactivar" : "Activar";
@@ -610,7 +588,7 @@ addCuentaBtn.addEventListener("click", async () => {
   const res = await fetch("/api/usuarios", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ nombre, usuario, password, rol: cuentaNuevoRol ? cuentaNuevoRol.value : "completo" }),
+    body: JSON.stringify({ nombre, usuario, password }),
   });
   const data = await res.json();
   if (!data.ok) {
@@ -621,7 +599,6 @@ addCuentaBtn.addEventListener("click", async () => {
   cuentaNuevoNombre.value = "";
   cuentaNuevoUsuario.value = "";
   cuentaNuevoPassword.value = "";
-  if (cuentaNuevoRol) cuentaNuevoRol.value = "completo";
   renderCuentas();
 });
 

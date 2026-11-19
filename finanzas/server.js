@@ -2,7 +2,7 @@ const express = require("express");
 const path = require("path");
 const fsSync = require("fs");
 const { userDataPath } = require("./dataDir");
-const { startBot, startBotsGuardados, estadoDe, logoutBot, getSock, avisarAlGrupo, avisarAMisMensajes, chatsDisponibles } = require("./bot");
+const { startBot, startBotsGuardados, estadoDe, logoutBot, getSock, avisarAlGrupo, chatsDisponibles } = require("./bot");
 const cashbox = require("./cashbox");
 const pushSubscriptions = require("./pushSubscriptions");
 const budgetCategories = require("./budgetCategories");
@@ -42,17 +42,26 @@ const combustible = require("./combustible");
 const fuentesIngreso = require("./fuentesIngreso");
 const businessDay = require("./businessDay");
 const marca = require("./marca");
-const motorizados = require("./motorizados");
 
 // Crea la cuenta del dueño y le pasa los datos que hoy están sueltos en el
 // volumen. Se hace al arrancar, antes de atender cualquier pedido.
 users.asegurarDueno();
 
-// Los avisos de los motorizados (sin señal, no responde, no entró, parado)
-// le llegan al dueño por WhatsApp, a su chat personal ("Mis propios
-// mensajes"), nunca a un grupo. Si su WhatsApp no está vinculado, el aviso
-// simplemente no se manda.
-motorizados.setNotificador((texto) => avisarAMisMensajes(users.DUENO_ID, texto).catch(() => {}));
+// El módulo de motorizados (GPS de cada delivery, mapa, avisos y cuentas de
+// socios "solo motorizados") se quitó el 17/11/2026: ya no se usaba y
+// consumía. Al arrancar se borran sus datos y las cuentas de socios; si ya
+// no están, no hace nada.
+{
+  const { dataPath } = require("./dataDir");
+  for (const archivo of ["motorizados-data.json", "motorizados-rutas.json"]) {
+    try {
+      fsSync.unlinkSync(dataPath(archivo));
+      console.log(`Motorizados: borrado ${archivo}`);
+    } catch {}
+  }
+  const borradas = users.quitarCuentasDeMotorizados();
+  if (borradas.length) console.log(`Motorizados: cuentas de socios borradas: ${borradas.join(", ")}`);
+}
 
 require("./limpiarSemillas").limpiar();
 const ExcelJS = require("exceljs");
@@ -67,9 +76,8 @@ app.use(express.json({ limit: "25mb" }));
 // el endpoint para entrar y los archivos que esa pantalla necesita para
 // dibujarse (íconos y manifest): sin esto el panel quedaba público, con la
 // información financiera y el QR de WhatsApp al alcance de cualquiera.
-// "/api/gps" va sin sesión a propósito: la llama el celular del motorizado
-// (Traccar Client), que no tiene cookie. Se identifica por su código, y si
-// el código no está registrado el punto se descarta.
+// "/api/gps*" quedan abiertas solo para contestarle al celular de algún
+// motorizado que todavía tenga Traccar Client prendido (ver más abajo).
 const RUTAS_PUBLICAS = new Set(["/login", "/api/login", "/manifest.json", "/icon-192.png", "/icon-512.png", "/sw.js", "/api/gps", "/api/gps-comando", "/api/gps-token"]);
 
 // La marca se puede LEER sin sesión (la pantalla de entrada la necesita
@@ -160,26 +168,6 @@ app.use((req, res, next) => {
   });
 });
 
-// Las cuentas "solo motorizados" (socios) ven ÚNICAMENTE el panel de
-// motorizados. Se bloquea todo lo demás EN EL SERVIDOR (no solo escondido en
-// la pantalla): aunque escriban otra dirección a mano, no entran a las
-// finanzas. El dueño y las cuentas completas no se ven afectados.
-const PANTALLAS_MOTORIZADOS = new Set(["/motorizados", "/motorizados.html"]);
-app.use((req, res, next) => {
-  if (users.rolDe(req.userId) !== "motorizados") return next();
-  const p = req.path;
-  const permitido =
-    PANTALLAS_MOTORIZADOS.has(p) ||
-    p.startsWith("/api/motorizados") ||
-    p === "/api/sesion" ||
-    p === "/api/logout" ||
-    p === "/api/tutorial-visto";
-  if (permitido) return next();
-  // A la API se le niega; cualquier otra pantalla lo manda al mapa.
-  if (p.startsWith("/api/")) return res.status(403).json({ error: "Tu cuenta solo tiene acceso a los motorizados." });
-  return res.redirect("/motorizados");
-});
-
 // Quién soy: lo usa el panel para saludar y para mostrar la
 // administración de cuentas solo cuando corresponde.
 app.get("/api/sesion", (req, res) => {
@@ -238,16 +226,6 @@ app.post("/api/usuarios/:id/password", soloDueno, (req, res) => {
       return res.status(404).json({ error: "Cuenta no encontrada." });
     }
     res.json({ ok: true });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-app.post("/api/usuarios/:id/rol", soloDueno, (req, res) => {
-  try {
-    const rol = users.setRol(req.params.id, req.body?.rol);
-    if (rol === null) return res.status(404).json({ error: "Cuenta no encontrada." });
-    res.json({ ok: true, rol });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -324,148 +302,13 @@ function servirIcono(nombreArchivo) {
 app.get("/icon-192.png", servirIcono("icon-192.png"));
 app.get("/icon-512.png", servirIcono("icon-512.png"));
 
-// ---------- Motorizados ----------
-// Traccar Client manda por POST (a veces con los datos en la URL, a veces
-// como formulario o JSON según la versión) y algunas versiones por GET.
-// Siempre se contesta 200: si se le contestara error, el celular
+// ---------- Motorizados (quitado) ----------
+// El módulo se quitó, pero algún celular puede seguir con Traccar Client
+// prendido y mandando su GPS cada minuto hasta que lo desinstalen. Se le
+// contesta OK al toque, sin leer ni guardar nada: con un error, Traccar
 // guardaría el punto y lo reintentaría para siempre.
-// La app del motorizado pregunta aquí si debe encender el GPS. Pública
-// (sin sesión): se identifica por su código, igual que /api/gps.
-app.get("/api/gps-comando", (req, res) => {
-  const c = motorizados.comando(req.query.id || req.query.deviceid);
-  if (!c) return res.status(404).json({ error: "Código no registrado" });
-  res.json(c);
-});
+app.all(["/api/gps", "/api/gps-comando", "/api/gps-token"], (req, res) => res.status(200).end());
 
-// La app del motorizado registra aquí su token de avisos (push). Público:
-// se identifica por su código.
-app.post("/api/gps-token", (req, res) => {
-  try {
-    motorizados.setToken(req.body?.id || req.body?.codigo, req.body?.token);
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-app.all("/api/gps", express.urlencoded({ extended: false }), (req, res) => {
-  try {
-    motorizados.recibir(req.query, req.body);
-  } catch (err) {
-    console.error("Punto de GPS inválido:", err.message);
-  }
-  res.status(200).send("OK");
-});
-
-function accesoMotorizados(req, res, next) {
-  // El dueño y los socios con rol "motorizados" pueden ver y manejar los
-  // motorizados. Las cuentas completas (de finanzas) no tienen acceso.
-  const rol = users.rolDe(req.userId);
-  if (rol !== "dueno" && rol !== "motorizados") {
-    return res.status(403).json({ error: "No tienes acceso a los motorizados." });
-  }
-  next();
-}
-
-app.get(["/motorizados", "/motorizados.html"], (req, res) => {
-  res.sendFile(path.join(__dirname, "motorizados.html"));
-});
-
-app.get("/api/motorizados", accesoMotorizados, (req, res) => {
-  res.json(motorizados.resumen());
-});
-
-app.get("/api/motorizados/debug", accesoMotorizados, (req, res) => {
-  res.json({ recibidos: motorizados.crudos() });
-});
-
-app.get("/api/motorizados/reporte", accesoMotorizados, (req, res) => {
-  res.json(motorizados.reporteDia(req.query.dia));
-});
-
-app.get("/api/motorizados/:id/ruta", accesoMotorizados, (req, res) => {
-  const r = motorizados.ruta(req.params.id);
-  if (!r) return res.status(404).json({ error: "Motorizado no encontrado." });
-  res.json(r);
-});
-
-app.post("/api/motorizados/ruta-config", accesoMotorizados, (req, res) => {
-  try {
-    res.json({ ok: true, ruta: motorizados.setRutaConfig(req.body || {}) });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-app.post("/api/motorizados/:id/comando", accesoMotorizados, (req, res) => {
-  try {
-    res.json({ ok: true, ...motorizados.setComando(req.params.id, req.body || {}) });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-app.post("/api/motorizados/:id/aceite", accesoMotorizados, (req, res) => {
-  try {
-    res.json({ ok: true, km: motorizados.aceite(req.params.id, req.body || {}) });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-app.get("/api/motorizados/:id/eventos", accesoMotorizados, (req, res) => {
-  const lista = motorizados.eventos(req.params.id, req.query.dia);
-  if (!lista) return res.status(404).json({ error: "Motorizado no encontrado." });
-  res.json({ eventos: lista });
-});
-
-app.post("/api/motorizados", accesoMotorizados, (req, res) => {
-  try {
-    res.json({ ok: true, rider: motorizados.agregar(req.body || {}) });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-app.post("/api/motorizados/horario", accesoMotorizados, (req, res) => {
-  try {
-    res.json({ ok: true, horario: motorizados.setHorarioGeneral(req.body || {}) });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-app.post("/api/motorizados/avisos", accesoMotorizados, (req, res) => {
-  try {
-    res.json({ ok: true, avisos: motorizados.setAvisos(req.body || {}) });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-app.post("/api/motorizados/comando-masivo", accesoMotorizados, (req, res) => {
-  try {
-    res.json({ ok: true, ...motorizados.setComandoMasivo(req.body || {}) });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-app.post("/api/motorizados/:id", accesoMotorizados, (req, res) => {
-  try {
-    res.json({ ok: true, rider: motorizados.editar(req.params.id, req.body || {}) });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-app.delete("/api/motorizados/:id", accesoMotorizados, (req, res) => {
-  if (!motorizados.quitar(req.params.id)) return res.status(404).json({ error: "Motorizado no encontrado." });
-  res.json({ ok: true });
-});
-
-// Endpoint mínimo para medir la calidad de conexión real del celular/PC
-// que tiene el panel abierto. No hace nada más que responder rápido.
 app.get("/api/ping", (req, res) => {
   res.json({ t: Date.now() });
 });

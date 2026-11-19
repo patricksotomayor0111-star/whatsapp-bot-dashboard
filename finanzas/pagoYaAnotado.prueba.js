@@ -40,6 +40,7 @@ correrComo("prueba", () => {
   // MI BANCO venció hace 2 días y todavía no se marcó.
   const dia = Number(dias(-2).slice(8, 10));
   const banco = reminders.addReminder({ label: "MI BANCO", monto: 574, tipo: "mensual_dia", dia });
+  reminders.getById(banco).desde = "2026-01-01"; // ya venía de antes
   const movs = () => cashbox.getMovimientos();
   const buscar = (monto = 574) => reminders.buscarGastosDelPago(banco, movs(), monto);
 
