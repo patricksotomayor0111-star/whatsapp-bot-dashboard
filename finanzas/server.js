@@ -1746,6 +1746,36 @@ app.get("/api/reminders/historial", (req, res) => {
 // Deshace el último "Ya pagué" (con todas sus cuotas, si fue adelantado). Solo
 // reabre el aviso; el gasto que haya quedado en la caja se corrige aparte
 // desde Movimientos.
+// Deshacer CUALQUIER pago de "Pagos que marcaste" (ver reminders.deshacerPago):
+// primero se pide qué pasaría, para preguntar; después se deshace. Si el
+// gasto lo había anotado MORA ("Ya pagué") y se pide, también se borra de
+// la caja; lo que escribiste tú (en el grupo, o que ya estaba) no se toca.
+app.get("/api/reminders/pagos/:lote", (req, res) => {
+  const previa = reminders.previaDeshacer(req.params.lote);
+  if (!previa) return res.status(404).json({ error: "Ese pago ya no está en el historial." });
+  res.json(previa);
+});
+
+app.post("/api/reminders/pagos/:lote/deshacer", (req, res) => {
+  try {
+    const hecho = reminders.deshacerPago(req.params.lote);
+    const gastosBorrados = [];
+    const gastosNoEncontrados = [];
+    if (req.body?.borrarGasto) {
+      const vistos = new Set();
+      for (const d of hecho.deshechos) {
+        if (!d.gastoDeMora || vistos.has(d.gastoId)) continue;
+        vistos.add(d.gastoId);
+        if (cashbox.removeMovimientoPorId(d.gastoId)) gastosBorrados.push(d.monto);
+        else gastosNoEncontrados.push(d.monto);
+      }
+    }
+    res.json({ ok: true, ...hecho, gastosBorrados, gastosNoEncontrados });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 app.post("/api/reminders/:id/desmarcar", (req, res) => {
   try {
     reminders.desmarcarPagado(req.params.id);

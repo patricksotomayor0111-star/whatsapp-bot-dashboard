@@ -3545,6 +3545,214 @@ backupRestoreBtn.addEventListener("click", async () => {
 // ---------- Categorías de Opciones (ahora directas desde el menú ☰) ----------
 // Cada categoría carga sus propios datos recién cuando se abre. Las funciones
 // ya existen todas; esto solo cambia desde dónde y cuándo se llaman.
+// ---------- Leer en voz alta (ver vozPedidos.js) ----------
+const categoryVozPanel = document.getElementById("categoryVoz");
+const vozConectados = document.getElementById("vozConectados");
+const vozVincularBtn = document.getElementById("vozVincularBtn");
+const vozProbarBtn = document.getElementById("vozProbarBtn");
+const vozStatus = document.getElementById("vozStatus");
+const vozUrlInput = document.getElementById("vozUrlInput");
+const vozLlaveInput = document.getElementById("vozLlaveInput");
+const vozLlaveNuevaBtn = document.getElementById("vozLlaveNuevaBtn");
+const vozPalabrasList = document.getElementById("vozPalabrasList");
+const vozPalabraInput = document.getElementById("vozPalabraInput");
+const vozAgregarBtn = document.getElementById("vozAgregarBtn");
+const vozPalabrasStatus = document.getElementById("vozPalabrasStatus");
+const vozUltimosList = document.getElementById("vozUltimosList");
+const vozGruposList = document.getElementById("vozGruposList");
+const vozGruposCount = document.getElementById("vozGruposCount");
+let vozTimer = null;
+
+function vozHora(ms) {
+  return new Date(ms).toLocaleTimeString("es-PE", { hour: "numeric", minute: "2-digit", timeZone: "America/Lima" });
+}
+
+function vozMostrarEstado(el, texto, ok) {
+  el.textContent = texto;
+  el.className = "text-xs mt-2 " + (ok ? "text-brand-green" : "text-brand-red");
+}
+
+function renderVozPalabras(palabras) {
+  vozPalabrasList.innerHTML = "";
+  if (!palabras.length) {
+    const p = document.createElement("p");
+    p.className = "text-xs text-slate-400";
+    p.textContent = "Sin palabras: de los números ignorados no se lee nada.";
+    vozPalabrasList.appendChild(p);
+    return;
+  }
+  palabras.forEach((palabra) => {
+    const chip = document.createElement("span");
+    chip.className = "inline-flex items-center gap-1.5 bg-white border border-slate-200 rounded-full pl-3 pr-1 py-1 text-sm text-slate-700";
+    chip.textContent = palabra;
+    const quitar = document.createElement("button");
+    quitar.className = "w-6 h-6 rounded-full flex items-center justify-center text-slate-400 hover:bg-slate-100";
+    quitar.setAttribute("aria-label", `Quitar ${palabra}`);
+    quitar.innerHTML = '<i class="fa-solid fa-xmark text-xs"></i>';
+    quitar.addEventListener("click", () => cambiarVozPalabra("quitar", palabra));
+    chip.appendChild(quitar);
+    vozPalabrasList.appendChild(chip);
+  });
+}
+
+function renderVoz(data) {
+  // Conectados
+  const conectados = data.conectados || [];
+  vozConectados.innerHTML = "";
+  if (conectados.length) {
+    conectados.forEach((c) => {
+      const p = document.createElement("p");
+      p.className = "text-brand-green font-semibold";
+      p.textContent = `✅ ${c.dispositivo} conectado desde las ${vozHora(c.desdeMs)}`;
+      vozConectados.appendChild(p);
+    });
+  } else {
+    vozConectados.textContent = "Ningún celular escuchando ahora (la app está apagada o todavía no está vinculada).";
+  }
+
+  // Vincular
+  const url = location.origin;
+  vozUrlInput.value = url;
+  vozLlaveInput.value = data.token || "";
+  vozVincularBtn.href = `vozpedidos://vincular?u=${encodeURIComponent(url)}&t=${encodeURIComponent(data.token || "")}`;
+
+  renderVozPalabras(data.palabras || []);
+
+  // Lo último
+  vozUltimosList.innerHTML = "";
+  const ultimos = data.ultimos || [];
+  if (!ultimos.length) {
+    const p = document.createElement("p");
+    p.className = "text-xs text-slate-400";
+    p.textContent = "Todavía nada desde que arrancó el bot.";
+    vozUltimosList.appendChild(p);
+  }
+  ultimos.forEach((u) => {
+    const fila = document.createElement("div");
+    fila.className = "flex items-start gap-2 bg-white rounded-lg px-2.5 py-1.5 text-xs border border-slate-100";
+    const hora = document.createElement("span");
+    hora.className = "shrink-0 text-slate-400";
+    hora.textContent = vozHora(u.ms);
+    const texto = document.createElement("span");
+    texto.className = u.especial ? "text-amber-700" : u.prueba ? "text-slate-400" : "text-slate-700";
+    texto.textContent = u.texto;
+    fila.appendChild(hora);
+    fila.appendChild(texto);
+    vozUltimosList.appendChild(fila);
+  });
+
+  // Grupos
+  const grupos = data.grupos || [];
+  vozGruposCount.textContent = `(${grupos.length})`;
+  vozGruposList.innerHTML = "";
+  if (!grupos.length) {
+    const p = document.createElement("p");
+    p.className = "text-xs text-slate-400";
+    p.textContent = "Ningún grupo en los sectores (o el bot todavía no cargó los grupos).";
+    vozGruposList.appendChild(p);
+  }
+  grupos.forEach((g) => {
+    const fila = document.createElement("div");
+    fila.className = "flex items-center justify-between gap-2 bg-white rounded-lg px-2.5 py-1.5 text-xs border border-slate-100";
+    const nombre = document.createElement("span");
+    nombre.className = "font-semibold text-slate-700 truncate";
+    nombre.textContent = g.nombre;
+    const sector = document.createElement("span");
+    sector.className = "shrink-0 text-slate-400";
+    sector.textContent = g.sector;
+    fila.appendChild(nombre);
+    fila.appendChild(sector);
+    vozGruposList.appendChild(fila);
+  });
+}
+
+async function fetchVoz() {
+  try {
+    const res = await fetch("/api/voz");
+    renderVoz(await res.json());
+  } catch (err) {
+    console.error("No se pudo cargar Leer en voz alta:", err);
+  }
+  // Mientras esté abierta, se refresca sola (para ver si el celular está conectado).
+  clearInterval(vozTimer);
+  vozTimer = setInterval(async () => {
+    if (categoryVozPanel.classList.contains("hidden")) {
+      clearInterval(vozTimer);
+      return;
+    }
+    try {
+      const res = await fetch("/api/voz");
+      const data = await res.json();
+      if (document.activeElement !== vozPalabraInput) renderVoz(data);
+    } catch {}
+  }, 5000);
+}
+
+async function cambiarVozPalabra(accion, palabra) {
+  try {
+    const res = await fetch("/api/voz/palabras", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accion, palabra }),
+    });
+    const data = await res.json();
+    if (!res.ok) return vozMostrarEstado(vozPalabrasStatus, data.error || "No se pudo guardar", false);
+    renderVozPalabras(data.palabras);
+    if (accion === "agregar") vozPalabraInput.value = "";
+    vozMostrarEstado(vozPalabrasStatus, accion === "agregar" ? `Agregada ✓ "${palabra.trim()}"` : `Quitada ✓ "${palabra}"`, true);
+  } catch {
+    vozMostrarEstado(vozPalabrasStatus, "No se pudo guardar", false);
+  }
+}
+
+vozAgregarBtn.addEventListener("click", () => cambiarVozPalabra("agregar", vozPalabraInput.value));
+vozPalabraInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") cambiarVozPalabra("agregar", vozPalabraInput.value);
+});
+
+vozProbarBtn.addEventListener("click", async () => {
+  try {
+    const res = await fetch("/api/voz/probar", { method: "POST" });
+    const data = await res.json();
+    vozMostrarEstado(
+      vozStatus,
+      data.conectados
+        ? "Prueba enviada ✓ Tu celular debería decir: \"Prueba de voz…\""
+        : "Prueba enviada, pero ningún celular está escuchando: prende la app.",
+      Boolean(data.conectados)
+    );
+    fetchVoz();
+  } catch {
+    vozMostrarEstado(vozStatus, "No se pudo mandar la prueba", false);
+  }
+});
+
+vozLlaveNuevaBtn.addEventListener("click", async () => {
+  if (!confirm("¿Cambiar la llave? Los celulares vinculados dejan de leer hasta que los vuelvas a vincular.")) return;
+  try {
+    const res = await fetch("/api/voz/llave-nueva", { method: "POST" });
+    if (!res.ok) throw new Error();
+    vozMostrarEstado(vozStatus, "Llave cambiada ✓ Vuelve a vincular la app (botón 2).", true);
+    fetchVoz();
+  } catch {
+    vozMostrarEstado(vozStatus, "No se pudo cambiar la llave", false);
+  }
+});
+
+document.querySelectorAll(".voz-copiar").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    const input = document.getElementById(btn.dataset.copiar);
+    try {
+      await navigator.clipboard.writeText(input.value);
+    } catch {
+      input.select();
+      document.execCommand("copy");
+    }
+    btn.textContent = "Copiado ✓";
+    setTimeout(() => (btn.textContent = "Copiar"), 1500);
+  });
+});
+
 const categoryLoaders = {
   categoryKeywords: () => {
     exceptionNumberInput.value = "";
@@ -3580,6 +3788,9 @@ const categoryLoaders = {
   },
   categoryGeneral: () => {
     updatePushStatus();
+  },
+  categoryVoz: () => {
+    fetchVoz();
   },
   categoryBroadcasts: () => {
     resetBroadcastForm();

@@ -480,23 +480,47 @@ function cicloMarcable(r, hoy) {
 // Se exige que el monto se parezca al configurado (de la mitad para
 // arriba) para que un gasto chico que comparte la palabra —ej. "menos 20
 // terreno"— no apague el aviso de un pago de S/500.
+//
+// Si se parecen varios (dos juntas: "Junta" de S/ 100 y "Junta 2" de S/ 50),
+// gana el que coincide en monto: "menos 50 junta" es la de 50. Antes ganaba
+// el primero de la lista, y "menos 50 junta" (de la otra junta) marcó como
+// pagada la Junta de 100. Un monto que paga varias cuotas justas ("menos
+// 300 junta" = 3 de 100) también cuenta como que coincide. Después pesa
+// que el nombre esté entero, y al final lo cerca que está el monto.
 function buscarPendientePorGasto(descripcion, monto) {
   const desc = normalizeText(descripcion);
   if (!desc.trim()) return null;
   const hoy = fechaLabelPeru();
   const montoNum = Number(monto) || 0;
 
-  for (const r of datos().reminders) {
+  const candidatos = [];
+  datos().reminders.forEach((r, orden) => {
     const { encontradas, todas } = coincidenciaConPendiente(r.label, descripcion);
-    if (!encontradas.length) continue;
+    if (!encontradas.length) return;
     // Mismo criterio que al reves: con parte del nombre hace falta que el
     // monto acompane, para no dar por pagado un pendiente que no toca.
-    if (!todas && !montoParecido(montoNum, r.monto)) continue;
-    if (r.monto > 0 && montoNum < r.monto * FRACCION_MONTO_MINIMA) continue;
+    if (!todas && !montoParecido(montoNum, r.monto)) return;
+    if (r.monto > 0 && montoNum < r.monto * FRACCION_MONTO_MINIMA) return;
     const vence = cicloMarcable(r, hoy);
-    if (vence) return { reminder: r, vence };
+    if (vence) candidatos.push({ reminder: r, vence, todas, orden });
+  });
+  if (candidatos.length <= 1) {
+    return candidatos[0] ? { reminder: candidatos[0].reminder, vence: candidatos[0].vence } : null;
   }
-  return null;
+
+  const puntaje = ({ reminder: r, todas, orden }) => {
+    const coincideMonto = montoParecido(montoNum, r.monto) || (r.monto > 0 && cuotasQueCubre(r, montoNum) > 1);
+    const distancia = r.monto > 0 ? Math.abs(montoNum - r.monto) / r.monto : Infinity;
+    return [coincideMonto ? 0 : 1, todas ? 0 : 1, distancia, orden];
+  };
+  const comparar = (a, b) => {
+    const pa = puntaje(a);
+    const pb = puntaje(b);
+    for (let i = 0; i < pa.length; i++) if (pa[i] !== pb[i]) return pa[i] - pb[i];
+    return 0;
+  };
+  const elegido = candidatos.sort(comparar)[0];
+  return { reminder: elegido.reminder, vence: elegido.vence };
 }
 
 // Vuelve a dejar un pago como no pagado (por si se marcó por error). Ojo:
@@ -506,28 +530,104 @@ function buscarPendientePorGasto(descripcion, monto) {
 // vuelve el pendiente a como estaba antes y, si ese pago había descontado de
 // un préstamo, lo devuelve. Los pagos viejos (de antes de guardar el "antes")
 // se deshacen como siempre: el pendiente vuelve a quedar sin pagar.
+// Saca un pago (lote) del historial y deja el pendiente como estaba justo
+// antes de ese pago (y devuelve lo que había descontado de un préstamo).
+// Solo vale para el último lote de ese pendiente: para uno del medio, antes
+// hay que deshacer los que vinieron después (ver deshacerPago).
+function deshacerUnLote(r, lote) {
+  const primero = datos().pagosMarcados.find((p) => p.lote === lote && p.antes);
+  if (primero && r) {
+    r.lastPaidCycle = primero.antes.lastPaidCycle;
+    r.activo = primero.antes.activo;
+  }
+  if (primero && primero.prestamo) {
+    try {
+      require("./prestamos").quitarPago(primero.prestamo.id, primero.prestamo.pagoId);
+    } catch (err) {
+      console.error("No se pudo devolver el pago al préstamo:", err.message);
+    }
+  }
+  datos().pagosMarcados = datos().pagosMarcados.filter((p) => p.lote !== lote);
+}
+
 function desmarcarPagado(id) {
   const r = datos().reminders.find((x) => x.id === id);
   if (!r) throw new Error("Recordatorio inexistente: " + id);
   const ultimo = ultimoLote(id);
   const primero = ultimo ? datos().pagosMarcados.find((p) => p.lote === ultimo.lote && p.antes) : null;
   if (primero) {
-    r.lastPaidCycle = primero.antes.lastPaidCycle;
-    r.activo = primero.antes.activo;
-    if (primero.prestamo) {
-      try {
-        require("./prestamos").quitarPago(primero.prestamo.id, primero.prestamo.pagoId);
-      } catch (err) {
-        console.error("No se pudo devolver el pago al préstamo:", err.message);
-      }
-    }
-    datos().pagosMarcados = datos().pagosMarcados.filter((p) => p.lote !== ultimo.lote);
+    deshacerUnLote(r, ultimo.lote);
   } else {
     r.lastPaidCycle = null;
     if (r.tipo === "unica") r.activo = true;
   }
   save();
   return r;
+}
+
+// ---------- Deshacer CUALQUIER pago, en cualquier momento ----------
+// El botón ↺ de cada pendiente solo deshace el último pago, y desaparece
+// cuando el pendiente vuelve a vencer. Desde "Pagos que marcaste" se puede
+// deshacer cualquiera: el caso real fue "menos 50 junta" (de OTRA junta)
+// que marcó la Junta de S/ 100; había que poder volver atrás ese pago.
+//
+// MORA guarda "pagado hasta tal fecha", no cuota por cuota: no puede quedar
+// un hueco (pagada la del 1/12 y no la del 24/11). Por eso, si después de
+// ese pago hubo otros del mismo pendiente, se deshacen también, del más
+// nuevo al más viejo, y al final queda como estaba antes de ese pago.
+
+// Los lotes que se deshacen al deshacer este: él y los que vinieron después
+// del mismo pendiente, en orden. null si ese pago ya no está.
+function lotesDesde(lote) {
+  const lista = datos().pagosMarcados;
+  const desde = lista.findIndex((p) => p.lote === lote);
+  if (!lote || desde === -1) return null;
+  const id = lista[desde].id;
+  const lotes = [];
+  for (let i = desde; i < lista.length; i++) {
+    const p = lista[i];
+    if (p.id === id && p.lote && !lotes.includes(p.lote)) lotes.push(p.lote);
+  }
+  return { id, lotes };
+}
+
+function resumenLote(lote) {
+  const delLote = datos().pagosMarcados.filter((p) => p.lote === lote);
+  const primero = delLote[0];
+  return {
+    lote,
+    label: primero.label,
+    fecha: primero.fecha,
+    hora: primero.hora || "",
+    cuotas: delLote.length,
+    monto: primero.montoLote ?? delLote.reduce((s, p) => s + (p.monto || 0), 0),
+    vences: delLote.map((p) => p.vence).filter(Boolean),
+    origen: primero.origen || "panel",
+    // El gasto lo anotó MORA en la caja (con "Ya pagué"): se puede ofrecer
+    // borrarlo. Si lo escribiste tú (en el grupo o ya estaba), no.
+    gastoDeMora: Boolean(primero.registrado && primero.gastoId),
+    gastoId: primero.gastoId || null,
+  };
+}
+
+/** Lo que pasaría al deshacer ese pago, para preguntar antes. */
+function previaDeshacer(lote) {
+  const info = lotesDesde(lote);
+  if (!info) return null;
+  const r = datos().reminders.find((x) => x.id === info.id);
+  const [este, ...posteriores] = info.lotes.map(resumenLote);
+  return { id: info.id, label: r ? r.label : este.label, existe: Boolean(r), este, posteriores };
+}
+
+/** Deshace ese pago (y los posteriores del mismo pendiente). Devuelve qué se deshizo. */
+function deshacerPago(lote) {
+  const info = lotesDesde(lote);
+  if (!info) throw new Error("Ese pago ya no está en el historial.");
+  const r = datos().reminders.find((x) => x.id === info.id) || null;
+  const deshechos = info.lotes.map(resumenLote);
+  for (let i = info.lotes.length - 1; i >= 0; i--) deshacerUnLote(r, info.lotes[i]);
+  save();
+  return { id: info.id, label: r ? r.label : deshechos[0].label, deshechos };
 }
 
 const MAX_PAGOS_MARCADOS = 100;
@@ -904,6 +1004,8 @@ module.exports = {
   getHistorialPagos,
   marcarPagado,
   desmarcarPagado,
+  previaDeshacer,
+  deshacerPago,
   adelantarPagos,
   cuotasQueCubre,
   ciclosPorPagar,

@@ -24,6 +24,7 @@ const aiEjemplos = require("./aiEjemplos");
 const aiBlocked = require("./aiBlocked");
 const datosReenviados = require("./datosReenviados");
 const alertaPedidos = require("./alertaPedidos");
+const vozPedidos = require("./vozPedidos");
 const { dataPath } = require("./dataDir");
 const { sectorSeedByName, specialSeedByName, numberExceptionSeed } = require("./groupSeed");
 const {
@@ -947,6 +948,25 @@ function esNotaDeVozCorta(msg, maxSegundos) {
   return segundos <= maxSegundos;
 }
 
+// Qué es el mensaje, para decirlo en voz alta (ver vozPedidos.js): "ARTIA
+// mandó una ubicación". Lo que no está acá (stickers, reacciones, encuestas,
+// mensajes borrados) es "otro" y no se lee.
+function tipoParaVoz(msg) {
+  const m =
+    msg.message.ephemeralMessage?.message ||
+    msg.message.viewOnceMessage?.message ||
+    msg.message.viewOnceMessageV2?.message ||
+    msg.message;
+  if (m.locationMessage || m.liveLocationMessage) return "ubicacion";
+  if (m.contactMessage || m.contactsArrayMessage) return "contacto";
+  if (m.audioMessage) return "audio";
+  if (m.imageMessage) return "foto";
+  if (m.videoMessage) return "video";
+  if (m.documentMessage || m.documentWithCaptionMessage) return "archivo";
+  if (m.conversation || m.extendedTextMessage) return "texto";
+  return "otro";
+}
+
 // True si el mensaje viene marcado como "reenviado" (la flechita de
 // WhatsApp). Un pedido reenviado suele ser una dirección o un pedido
 // copiado de otro chat, no un pedido directo — el bot no los responde.
@@ -1592,6 +1612,19 @@ async function startBot() {
         excludedNumbers.isExcluded(senderNumber) || esGrupoSoloAutorizados(grupoActual?.name);
       if (chatId.endsWith("@g.us")) {
         logSender(chatId, grupoActual?.name || chatId, senderJid, senderNumber, bloqueadoGlobal, extractText(msg));
+
+        // Leer en voz alta en el celular (ver vozPedidos.js). Corre con el
+        // bot prendido o apagado: se prende y se apaga en la app. El
+        // restaurante es todo número que no está en la lista de ignorados
+        // (o, en los grupos de "solo autorizados", el que tiene sus frases).
+        vozPedidos.revisarMensaje({
+          grupoNombre: grupoActual?.name || "",
+          esOtros: getGroupSector(chatId) === DEFAULT_SECTOR,
+          esDelRestaurante: !bloqueadoGlobal || numberExceptions.hasExceptions(chatId, senderNumber),
+          rawText,
+          nombre: msg.pushName || "",
+          tipo: tipoParaVoz(msg),
+        });
       }
 
       // OJO: acá NO se corta por botState.active. Un pedido para más tarde

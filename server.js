@@ -12,6 +12,7 @@ const mediaTriggers = require("./mediaTriggers");
 const pendingTimeMatches = require("./pendingTimeMatches");
 const groupDelays = require("./groupDelays");
 const alertaPedidos = require("./alertaPedidos");
+const vozPedidos = require("./vozPedidos");
 const pedidosCliente = require("./pedidosCliente");
 const groupTimeWindows = require("./groupTimeWindows");
 const scheduledBroadcasts = require("./scheduledBroadcasts");
@@ -55,6 +56,9 @@ const RUTAS_PUBLICAS = new Set([
   "/icon-512.png",
   "/sw.js",
   "/api/delivery-quote/request",
+  // La app del celular que lee en voz alta (ver vozPedidos.js): no tiene la
+  // sesión del panel, entra con su propia llave.
+  "/voz/stream",
 ]);
 
 app.post("/api/login", (req, res) => {
@@ -339,6 +343,57 @@ app.post("/api/config/alerta", (req, res) => {
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+});
+
+// ---------- Leer en voz alta (ver vozPedidos.js) ----------
+// La app del celular se queda conectada acá y dice lo que le llega.
+app.get("/voz/stream", (req, res) => {
+  if (!vozPedidos.tokenValido(req.query.t)) {
+    return res.status(401).json({ error: "Llave incorrecta. Vuelve a vincular la app desde el panel." });
+  }
+  vozPedidos.conectar(req, res);
+});
+
+// El instalador de la app (se descarga desde el panel, con la sesión).
+const VOZ_APK = path.join(__dirname, "voz-app", "dist", "voz-pedidos.apk");
+app.get("/voz/app.apk", (req, res) => {
+  if (!require("fs").existsSync(VOZ_APK)) return res.status(404).send("Todavía no está la app.");
+  res.setHeader("Content-Type", "application/vnd.android.package-archive");
+  res.download(VOZ_APK, "voz-pedidos.apk");
+});
+
+// Los grupos que se leen: los de todos los sectores menos "Otros".
+function gruposQueSeLeen() {
+  const nombres = new Map(sectors.SECTOR_DEFS.map((d) => [d.id, d.label]));
+  return botState.groups
+    .map((g) => ({ nombre: g.name, sectorId: sectors.getGroupSector(g.id) }))
+    .filter((g) => g.sectorId !== sectors.DEFAULT_SECTOR)
+    .map((g) => ({ nombre: g.nombre, sector: nombres.get(g.sectorId) || g.sectorId }))
+    .sort((a, b) => a.sector.localeCompare(b.sector) || a.nombre.localeCompare(b.nombre));
+}
+
+app.get("/api/voz", (req, res) => {
+  res.json({ ...vozPedidos.estado(), grupos: gruposQueSeLeen(), token: vozPedidos.getToken() });
+});
+
+app.post("/api/voz/palabras", (req, res) => {
+  try {
+    const { accion, palabra } = req.body || {};
+    const palabras = accion === "quitar" ? vozPedidos.quitarPalabra(palabra) : vozPedidos.agregarPalabra(palabra);
+    res.json({ ok: true, palabras });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/voz/probar", (req, res) => {
+  vozPedidos.probar();
+  res.json({ ok: true, conectados: vozPedidos.estado().conectados.length });
+});
+
+// Una llave nueva desconecta los celulares vinculados (por si se perdió uno).
+app.post("/api/voz/llave-nueva", (req, res) => {
+  res.json({ ok: true, token: vozPedidos.cambiarToken() });
 });
 
 // Prueba qué haría el bot con una frase, sin mandar nada a WhatsApp: sirve

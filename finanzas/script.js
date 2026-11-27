@@ -1311,6 +1311,103 @@ function armarAdelanto(cont, r) {
   pintar();
 }
 
+// ---------- Deshacer cualquier pago de "Pagos que marcaste" ----------
+// (el ↺ de cada pendiente solo deshace el último, y solo mientras no vence).
+// Ver reminders.deshacerPago: si después hubo otros pagos del mismo
+// pendiente, se deshacen también, porque MORA lleva los pagos en orden.
+function describirLotePago(l) {
+  const cuotas =
+    l.cuotas > 1
+      ? `${l.cuotas} cuotas (${l.vences.map(fmtFecha).join(", ")})`
+      : l.vences[0]
+      ? `cuota del ${fmtFecha(l.vences[0])}`
+      : "el pago";
+  return `• ${fmtFecha(l.fecha)}: ${cuotas} por ${formatSoles(l.monto)}`;
+}
+
+async function deshacerPagoDelHistorial(lote) {
+  let previa;
+  try {
+    const res = await fetch(`/api/reminders/pagos/${encodeURIComponent(lote)}`);
+    previa = await res.json();
+    if (!res.ok) {
+      alert(previa.error || "Ese pago ya no está en el historial.");
+      renderHistorialPagos();
+      return;
+    }
+  } catch (err) {
+    alert("No se pudo cargar ese pago.");
+    return;
+  }
+
+  const todos = [previa.este, ...previa.posteriores];
+  let mensaje = `¿Deshacer este pago de "${previa.label}"?\n\n${describirLotePago(previa.este)}`;
+  if (previa.posteriores.length) {
+    mensaje +=
+      `\n\nTambién se deshacen los que pagaste DESPUÉS de "${previa.label}" (MORA lleva los pagos en orden, no puede quedar uno salteado):\n` +
+      previa.posteriores.map(describirLotePago).join("\n");
+  }
+  const totalCuotas = todos.reduce((s, l) => s + (l.cuotas || 1), 0);
+  mensaje += previa.existe
+    ? totalCuotas > 1
+      ? "\n\nEsas cuotas vuelven a quedar pendientes."
+      : "\n\nEsa cuota vuelve a quedar pendiente."
+    : "\n\nEse pendiente ya no existe: solo se saca del historial.";
+  if (todos.some((l) => !l.gastoDeMora)) {
+    mensaje += "\nLo que escribiste en el grupo (o que ya estaba en la caja) se queda en tu caja.";
+  }
+  if (!confirm(mensaje)) return;
+
+  const deMora = todos.filter((l) => l.gastoDeMora);
+  let borrarGasto = false;
+  if (deMora.length) {
+    const total = deMora.reduce((s, l) => s + Number(l.monto || 0), 0);
+    borrarGasto = confirm(
+      `Ese pago lo anotó MORA en tu caja como gasto (${formatSoles(total)}), cuando tocaste "Ya pagué".\n\n` +
+        "¿También lo borro de la caja?\n\nAceptar: sí, bórralo.\nCancelar: déjalo en la caja."
+    );
+  }
+
+  let hecho;
+  try {
+    const res = await fetch(`/api/reminders/pagos/${encodeURIComponent(lote)}/deshacer`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ borrarGasto }),
+    });
+    hecho = await res.json();
+    if (!res.ok) throw new Error(hecho.error || "No se pudo deshacer.");
+  } catch (err) {
+    alert(err.message || "No se pudo deshacer.");
+    return;
+  }
+
+  let resumen = hecho.deshechos.length > 1 ? `Listo: se deshicieron ${hecho.deshechos.length} pagos de "${hecho.label}".` : `Listo: se deshizo el pago de "${hecho.label}".`;
+  if (hecho.gastosBorrados.length) resumen += `\nY se borró de la caja: ${hecho.gastosBorrados.map(formatSoles).join(", ")}.`;
+  if (hecho.gastosNoEncontrados.length) {
+    resumen += `\nNo encontré en la caja el gasto de ${hecho.gastosNoEncontrados.map(formatSoles).join(", ")}: si sigue ahí, bórralo desde Movimientos.`;
+  }
+  alert(resumen);
+  renderReminders();
+  renderHistorialPagos();
+  if (hecho.gastosBorrados.length && typeof refrescarPorMovimiento === "function") refrescarPorMovimiento();
+  else if (typeof fetchGoalsAndProgress === "function") fetchGoalsAndProgress();
+}
+
+function botonDeshacerPago(p) {
+  if (!p.lote) return null; // pagos viejos, de antes de guardar cómo estaba todo: no se pueden
+  const b = document.createElement("button");
+  b.className =
+    "shrink-0 inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold bg-white border border-slate-200 text-slate-600 active:scale-95 transition-all";
+  b.innerHTML = '<i class="fa-solid fa-rotate-left"></i> Deshacer';
+  b.title = "Deshacer este pago";
+  b.addEventListener("click", (e) => {
+    e.stopPropagation();
+    deshacerPagoDelHistorial(p.lote);
+  });
+  return b;
+}
+
 async function renderHistorialPagos() {
   let data;
   try {
@@ -1336,8 +1433,16 @@ async function renderHistorialPagos() {
     detalle.className = "text-xs mt-0.5 " + (p.registrado ? "text-emerald-700" : "text-slate-400");
     detalle.textContent = `${fmtFecha(p.fecha)} ${p.hora} · ${textoDetallePago(p)}`;
 
-    card.appendChild(titulo);
-    card.appendChild(detalle);
+    const fila = document.createElement("div");
+    fila.className = "flex items-start justify-between gap-2";
+    const textos = document.createElement("div");
+    textos.className = "min-w-0";
+    textos.appendChild(titulo);
+    textos.appendChild(detalle);
+    fila.appendChild(textos);
+    const deshacer = botonDeshacerPago(p);
+    if (deshacer) fila.appendChild(deshacer);
+    card.appendChild(fila);
     historialPagosList.appendChild(card);
   });
 }
@@ -1376,8 +1481,16 @@ async function renderHistorialDePago(container, id) {
     linea2.className = "text-slate-400 break-words";
     linea2.textContent = textoDetallePago(p);
 
-    row.appendChild(linea1);
-    row.appendChild(linea2);
+    const fila = document.createElement("div");
+    fila.className = "flex items-start justify-between gap-2";
+    const textos = document.createElement("div");
+    textos.className = "min-w-0";
+    textos.appendChild(linea1);
+    textos.appendChild(linea2);
+    fila.appendChild(textos);
+    const deshacer = botonDeshacerPago(p);
+    if (deshacer) fila.appendChild(deshacer);
+    row.appendChild(fila);
     container.appendChild(row);
   });
 }
@@ -5724,6 +5837,8 @@ const GUIA = [
           ["Ya pagué", "Marca el pendiente y además registra el gasto en tu caja."],
           ["Si ya lo escribiste en el grupo", "No lo duplica: lo detecta y solo marca el pendiente."],
           ["Montos que cambian", "Al marcar te pregunta cuánto pagaste. La luz y el agua no siempre son igual."],
+          ["Deshacer un pago", "En \"Pagos que marcaste\", cada pago tiene su botón Deshacer, en cualquier momento. La cuota vuelve a quedar pendiente."],
+          ["Dos pagos parecidos", "Si tienes dos juntas (una de S/ 100 y otra de S/ 50), \"menos 50 junta\" marca la de 50: gana la que coincide en monto."],
         ],
       },
       {
